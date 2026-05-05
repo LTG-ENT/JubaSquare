@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import api, { formatUSD, formatDetail } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import { Store, Mail, ShoppingBag, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Percent, Eye } from "lucide-react";
+import { Store, Mail, ShoppingBag, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Percent, Eye, X } from "lucide-react";
 import { toast } from "sonner";
 
 const TABS = [
@@ -54,11 +54,37 @@ export default function AdminDashboard() {
 
 function AdminShopsTab() {
   const [shops, setShops] = useState([]);
-  const load = () => api.get("/shops").then((r) => setShops(r.data));
+  const [detail, setDetail] = useState(null);
+  const [commissionDraft, setCommissionDraft] = useState("");
+  const [globalRate, setGlobalRate] = useState(0.10);
+
+  const load = async () => {
+    const [s, g] = await Promise.all([api.get("/shops"), api.get("/admin/settings")]);
+    setShops(s.data);
+    setGlobalRate(g.data.commission_rate || 0.10);
+  };
   useEffect(() => { load(); }, []);
 
-  const verify = async (id) => { await api.put(`/admin/shops/${id}/verify`); toast.success("Verified"); load(); };
-  const reject = async (id) => { await api.put(`/admin/shops/${id}/reject`); toast.success("Rejected"); load(); };
+  const openDetail = (s) => {
+    setDetail(s);
+    setCommissionDraft(s.commission_rate != null ? String(s.commission_rate) : "");
+  };
+
+  const verify = async (id) => { await api.put(`/admin/shops/${id}/verify`); toast.success("Verified"); load(); if (detail?.id === id) setDetail({ ...detail, verification: "Verified" }); };
+  const reject = async (id) => { await api.put(`/admin/shops/${id}/reject`); toast.success("Rejected"); load(); if (detail?.id === id) setDetail({ ...detail, verification: "Rejected" }); };
+
+  const saveCommission = async () => {
+    const v = commissionDraft === "" ? null : parseFloat(commissionDraft);
+    try {
+      const { data } = await api.put(`/admin/shops/${detail.id}/commission`, { commission_rate: v });
+      toast.success(v === null ? "Commission reset to global" : `Commission set to ${(v * 100).toFixed(1)}%`);
+      await api.post("/admin/invoices/generate");
+      setDetail(data);
+      load();
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail));
+    }
+  };
 
   const counts = {
     Verified: shops.filter((s) => s.verification === "Verified").length,
@@ -80,30 +106,34 @@ function AdminShopsTab() {
             <thead className="bg-[var(--js-bg)] text-[var(--js-text-secondary)] text-xs uppercase tracking-wider">
               <tr>
                 <th className="text-left p-4 font-bold">Shop</th>
-                <th className="text-left p-4 font-bold hidden md:table-cell">Category</th>
                 <th className="text-left p-4 font-bold hidden lg:table-cell">Area</th>
+                <th className="text-left p-4 font-bold hidden md:table-cell">Commission</th>
                 <th className="text-left p-4 font-bold">Status</th>
                 <th className="p-4"></th>
               </tr>
             </thead>
             <tbody>
               {shops.map((s) => (
-                <tr key={s.id} className="border-t border-[var(--js-border)]" data-testid={`admin-shop-row-${s.id}`}>
+                <tr key={s.id} className="border-t border-[var(--js-border)] hover:bg-[var(--js-bg)] cursor-pointer" onClick={() => openDetail(s)} data-testid={`admin-shop-row-${s.id}`}>
                   <td className="p-4">
                     <div className="flex items-center gap-3">
                       <img src={s.image_url} alt="" className="w-10 h-10 rounded-lg object-cover" />
                       <p className="font-semibold text-[var(--js-text)]">{s.name}</p>
                     </div>
                   </td>
-                  <td className="p-4 text-[var(--js-text-secondary)] hidden md:table-cell">{s.category}</td>
                   <td className="p-4 text-[var(--js-text-secondary)] hidden lg:table-cell">{s.area}</td>
+                  <td className="p-4 hidden md:table-cell text-xs">
+                    {s.commission_rate != null
+                      ? <span className="font-bold text-[#C84B31]">{(s.commission_rate * 100).toFixed(1)}%</span>
+                      : <span className="text-[var(--js-text-secondary)]">global ({(globalRate * 100).toFixed(1)}%)</span>}
+                  </td>
                   <td className="p-4">
                     {s.verification === "Verified" && <span className="inline-flex items-center gap-1 bg-[#2D6A4F]/10 text-[#2D6A4F] text-xs font-bold px-2 py-1 rounded-full"><CheckCircle2 className="w-3 h-3" /> Verified</span>}
                     {s.verification === "Pending" && <span className="inline-flex items-center gap-1 bg-[#E9C46A]/30 text-[var(--js-text)] text-xs font-bold px-2 py-1 rounded-full"><Clock className="w-3 h-3" /> Pending</span>}
                     {s.verification === "Rejected" && <span className="inline-flex items-center gap-1 bg-[#D90429]/10 text-[#D90429] text-xs font-bold px-2 py-1 rounded-full"><XCircle className="w-3 h-3" /> Rejected</span>}
                   </td>
                   <td className="p-4 text-right">
-                    <div className="inline-flex gap-2">
+                    <div className="inline-flex gap-2" onClick={(e) => e.stopPropagation()}>
                       <button onClick={() => verify(s.id)} data-testid={`verify-shop-${s.id}`} className="text-xs font-semibold bg-[#2D6A4F] hover:bg-[#1B4332] text-white px-3 py-1.5 rounded-full">Verify</button>
                       <button onClick={() => reject(s.id)} data-testid={`reject-shop-${s.id}`} className="text-xs font-semibold bg-[#D90429]/10 text-[#D90429] hover:bg-[#D90429] hover:text-white px-3 py-1.5 rounded-full transition">Reject</button>
                     </div>
@@ -115,6 +145,56 @@ function AdminShopsTab() {
           </table>
         </div>
       </div>
+
+      {detail && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={() => setDetail(null)}>
+          <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()} data-testid="admin-shop-detail">
+            <div className="aspect-[16/8] overflow-hidden relative">
+              <img src={detail.image_url} alt="" className="w-full h-full object-cover" />
+              <button onClick={() => setDetail(null)} className="absolute top-4 right-4 bg-white/90 backdrop-blur rounded-full p-2 hover:bg-white" data-testid="close-shop-detail">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-5">
+              <div>
+                <h2 className="font-display font-bold text-2xl text-[var(--js-text)]">{detail.name}</h2>
+                <p className="text-sm text-[var(--js-text-secondary)] mt-1">{detail.description}</p>
+                <p className="text-xs text-[var(--js-text-secondary)] mt-2">📍 {detail.area}</p>
+              </div>
+
+              <div className="flex gap-2">
+                <button onClick={() => verify(detail.id)} className="flex-1 bg-[#2D6A4F] hover:bg-[#1B4332] text-white text-sm font-semibold py-2.5 rounded-full">✓ Verify</button>
+                <button onClick={() => reject(detail.id)} className="flex-1 bg-[#D90429]/10 text-[#D90429] hover:bg-[#D90429] hover:text-white text-sm font-semibold py-2.5 rounded-full transition">✗ Reject</button>
+              </div>
+
+              <div className="bg-[var(--js-subtle)] rounded-2xl p-4">
+                <h3 className="font-display font-semibold text-sm mb-1">Custom commission rate</h3>
+                <p className="text-xs text-[var(--js-text-secondary)] mb-3">
+                  Leave empty to inherit global rate ({(globalRate * 100).toFixed(1)}%). Enter as decimal, e.g. <code className="bg-white px-1 rounded">0.08</code> for 8%.
+                </p>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="number" step="0.01" min="0" max="1"
+                    placeholder={`inherit (${(globalRate * 100).toFixed(1)}%)`}
+                    value={commissionDraft}
+                    onChange={(e) => setCommissionDraft(e.target.value)}
+                    data-testid="shop-commission-input"
+                    className="js-input flex-1"
+                  />
+                  <span className="text-xs text-[var(--js-text-secondary)]">
+                    {commissionDraft ? `${(parseFloat(commissionDraft) * 100).toFixed(1)}%` : "—"}
+                  </span>
+                </div>
+                <div className="flex gap-2 mt-3">
+                  <button onClick={saveCommission} data-testid="save-shop-commission" className="flex-1 bg-[#1A1A1A] hover:bg-[#C84B31] text-white text-sm font-semibold py-2 rounded-full transition">Save commission</button>
+                  <button onClick={() => { setCommissionDraft(""); }} className="bg-white border border-[var(--js-border)] text-[var(--js-text)] text-sm font-semibold px-3 py-2 rounded-full">Reset</button>
+                </div>
+                <p className="text-[10px] text-[var(--js-text-secondary)] mt-2">Saving will automatically regenerate invoices for this shop.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { useEffect } from "react";
 import "@/App.css";
@@ -11,7 +11,6 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import Home from "@/pages/Home";
 import Login from "@/pages/Login";
 import Marketplace from "@/pages/Marketplace";
-import Wholesale from "@/pages/Wholesale";
 import Restaurants from "@/pages/Restaurants";
 import Cart from "@/pages/Cart";
 import Orders from "@/pages/Orders";
@@ -40,7 +39,7 @@ export default function App() {
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<Login />} />
               <Route path="/marketplace" element={<Marketplace />} />
-              <Route path="/wholesale" element={<Wholesale />} />
+              <Route path="/wholesale" element={<Navigate to="/marketplace?view=wholesale" replace />} />
               <Route path="/restaurants" element={<Restaurants />} />
               <Route path="/cart" element={<Cart />} />
               <Route path="/orders" element={<ProtectedRoute><Orders /></ProtectedRoute>} />

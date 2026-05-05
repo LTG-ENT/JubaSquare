@@ -144,11 +144,16 @@ class ProfileIn(BaseModel):
 
 class ShopIn(BaseModel):
     name: str
-    category: str
     description: Optional[str] = ""
     image_url: Optional[str] = ""
     area: str
+    # "category" and "kind" retained for backward compatibility only; not required
+    category: Optional[str] = ""
     kind: Literal["retail", "wholesale"] = "retail"
+
+
+class ShopCommissionIn(BaseModel):
+    commission_rate: Optional[float] = None  # None = inherit global rate
 
 
 class ProductIn(BaseModel):
@@ -159,6 +164,7 @@ class ProductIn(BaseModel):
     image_url: Optional[str] = ""
     description: Optional[str] = ""
     stock: int = 100
+    is_wholesale: bool = False
     min_order_qty: int = 1
     bulk_price_usd: Optional[float] = None
     mode: Literal["marketplace", "wholesale"] = "marketplace"
@@ -519,12 +525,15 @@ async def delete_shop(shop_id: str, user: dict = Depends(require_role("seller", 
 # ----------------------------------------------------------------------------
 @api.get("/products")
 async def list_products(category: Optional[str] = None, area: Optional[str] = None,
-                        shop_id: Optional[str] = None, kind: Optional[str] = None):
+                        shop_id: Optional[str] = None, kind: Optional[str] = None,
+                        is_wholesale: Optional[bool] = None):
     q: dict = {}
     if category:
         q["category"] = category
     if shop_id:
         q["shop_id"] = shop_id
+    if is_wholesale is not None:
+        q["is_wholesale"] = is_wholesale
     products = await db.products.find(q, {"_id": 0}).to_list(2000)
 
     if area or kind:
@@ -836,6 +845,21 @@ async def admin_reject(shop_id: str, _: dict = Depends(require_role("admin"))):
     return await db.shops.find_one({"id": shop_id}, {"_id": 0})
 
 
+@api.put("/admin/shops/{shop_id}/commission")
+async def admin_shop_commission(shop_id: str, body: ShopCommissionIn, _: dict = Depends(require_role("admin"))):
+    shop = await db.shops.find_one({"id": shop_id})
+    if not shop:
+        raise HTTPException(404, "Shop not found")
+    rate = body.commission_rate
+    if rate is not None and (rate < 0 or rate > 1):
+        raise HTTPException(400, "Commission rate must be between 0 and 1")
+    if rate is None:
+        await db.shops.update_one({"id": shop_id}, {"$unset": {"commission_rate": ""}})
+    else:
+        await db.shops.update_one({"id": shop_id}, {"$set": {"commission_rate": float(rate)}})
+    return await db.shops.find_one({"id": shop_id}, {"_id": 0})
+
+
 @api.get("/admin/blocked-emails")
 async def list_blocked(_: dict = Depends(require_role("admin"))):
     return await db.blocked_emails.find({}, {"_id": 0}).to_list(500)
@@ -898,17 +922,26 @@ def _iso_week_range(dt: datetime):
 
 
 async def _rebuild_invoices():
-    """Regenerate invoices from all orders. One invoice per (seller, shop, week)."""
+    """Regenerate invoices from all orders. One invoice per (seller, shop, week).
+    Each shop can override commission_rate; otherwise uses global settings rate."""
     settings = await get_settings()
-    rate = float(settings.get("commission_rate", 0.10))
+    global_rate = float(settings.get("commission_rate", 0.10))
 
-    # Map item_id -> (seller_id, shop_id, shop_name)
     products = await db.products.find({}, {"_id": 0}).to_list(5000)
     menu_items = await db.menu_items.find({}, {"_id": 0}).to_list(5000)
     restaurants = await db.restaurants.find({}, {"_id": 0}).to_list(500)
     shops = await db.shops.find({}, {"_id": 0}).to_list(500)
     shop_by_id = {s["id"]: s for s in shops}
     rest_by_id = {r["id"]: r for r in restaurants}
+
+    # container_id -> effective commission rate (shop override or global)
+    rate_for = {}
+    for s in shops:
+        r = s.get("commission_rate")
+        rate_for[s["id"]] = float(r) if r is not None else global_rate
+    for r in restaurants:
+        rc = r.get("commission_rate")
+        rate_for[r["id"]] = float(rc) if rc is not None else global_rate
 
     lookup = {}
     for p in products:
@@ -919,7 +952,7 @@ async def _rebuild_invoices():
         lookup[m["id"]] = {"seller_id": m["seller_id"], "shop_id": m["restaurant_id"], "shop_name": rest.get("name", "—")}
 
     orders = await db.orders.find({}, {"_id": 0}).to_list(5000)
-    buckets: dict = {}  # (seller_id, shop_id, week_start) -> accumulator
+    buckets: dict = {}
     for o in orders:
         try:
             created = datetime.fromisoformat(o["created_at"])
@@ -942,7 +975,6 @@ async def _rebuild_invoices():
             b["total_sales"] += (price + sides_total) * qty
             b["_orders"].add(o["id"])
 
-    # Preserve existing paid/unpaid status
     existing = {
         (inv["seller_id"], inv["shop_id"], inv["week_start"]): inv
         for inv in await db.invoices.find({}, {"_id": 0}).to_list(5000)
@@ -951,7 +983,8 @@ async def _rebuild_invoices():
     await db.invoices.delete_many({})
     now = now_iso()
     for (seller_id, shop_id, ws), b in buckets.items():
-        commission = round(b["total_sales"] * rate, 2)
+        effective_rate = rate_for.get(shop_id, global_rate)
+        commission = round(b["total_sales"] * effective_rate, 2)
         prev = existing.get((seller_id, shop_id, ws), {})
         await db.invoices.insert_one({
             "id": prev.get("id", str(uuid.uuid4())),
@@ -965,7 +998,7 @@ async def _rebuild_invoices():
             "commission": commission,
             "amount_owed": commission,
             "order_count": len(b["_orders"]),
-            "commission_rate": rate,
+            "commission_rate": effective_rate,
             "status": prev.get("status", "Unpaid"),
             "created_at": prev.get("created_at", now),
             "updated_at": now,
@@ -1248,12 +1281,16 @@ async def seed_demo():
                 "kind": kind, "created_at": now_iso(),
             })
             for p in s["products"]:
+                is_ws = kind == "wholesale"
                 await db.products.insert_one({
                     "id": str(uuid.uuid4()), "shop_id": shop_id, "seller_id": seller_id,
                     "shop_kind": kind, "name": p["name"], "category": s["category"],
                     "price_usd": p["price_usd"],
                     "bulk_price_usd": p.get("bulk_price_usd"),
                     "min_order_qty": p.get("min_order_qty", 1),
+                    "is_wholesale": is_ws,
+                    "mode": "wholesale" if is_ws else "marketplace",
+                    "pricing_tiers": p.get("pricing_tiers", []),
                     "image_url": p["image_url"], "description": p["description"],
                     "stock": 100, "created_at": now_iso(),
                 })

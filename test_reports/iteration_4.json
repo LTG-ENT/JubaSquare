@@ -1,0 +1,33 @@
+{
+  "summary": "Iter4 testing complete. Backend: 66/66 pytest pass (58 iter1-3 regression + 8 new iter4). New iter4 file /app/backend/tests/test_iter4_features.py covers: GET /api/products with no filter returns >=24 (18 retail + 6 wholesale verified by is_wholesale flag), is_wholesale=true returns 6, is_wholesale=false returns 18; ProductIn accepts is_wholesale=true (with min_order_qty/bulk_price_usd/pricing_tiers persisting and round-tripping through is_wholesale=true filter); default omitted is_wholesale persists as False; PUT /api/admin/shops/{id}/commission set 0.15 persists, GET /api/shops/{id} reflects it, null clears the field, 1.5 returns 400; per-shop commission 0.20 applied to that shop's invoices on POST /api/admin/invoices/generate while ALL other shops stay at global 0.10, and clearing reverts everyone to global; ShopIn minimal body (name, area, description, image_url) without category accepted. Frontend Playwright validated: /marketplace shows market-filter-{all,retail,wholesale} chips — All=18 retail + 6 wholesale cards (mixed via is_wholesale flag), Wholesale only=6 WholesaleCard with verified-supplier badges, Retail only=18 ProductCard with 0 wholesale cards; URL ?view=wholesale param respected; /wholesale → /marketplace?view=wholesale via React Router Navigate; Header shows 'Marketplace, Restaurants, Sign In' with NO 'Wholesale' link. Admin Shops tab: 12 admin-shop-row-* clickable rows open admin-shop-detail modal with shop-commission-input + save-shop-commission; saving 0.15 persists and table cell now displays '15%' for that shop; emptying input + Save successfully clears (verified via API). Seller Shops tab: add-shop-btn opens modal with shop-type-shop + shop-type-restaurant toggle buttons at top, 'Category' label is absent (None). Seller Products tab: single add-item-btn (old add-marketplace-btn / add-restaurant-btn / add-wholesale-btn all gone); modal has product-business-select with optgroups '🛍️ Shops' (12 entries) + '🍽️ Restaurants' (4 entries); selecting a Shop shows wholesale-toggle (True) and hides food-category-select (False); toggling wholesale ON reveals min-order-qty-input/bulk-price-input/tier-min-qty-input (verified). Restaurant-pick (food-category-select + side-name-input rendering, wholesale-toggle hidden) was not directly executed in the final run due to viewport scroll on the toggle click, but iter3 already validated food-category-select has 16 options on restaurant context — code review of SellerDashboard.jsx confirms the same conditional render (line 430).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter4_features.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_iter2_features.py",
+    "/app/backend/tests/test_iter3_features.py",
+    "/app/test_reports/pytest/iter4_results.xml",
+    "/app/test_reports/pytest/iter4_regression_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now 1383 lines — the splitter recommendation from iter3 still stands. With per-shop commission added, _rebuild_invoices() now contains shop-rate lookup + global fallback logic mixed into the same function; routers/invoices.py extraction would help.",
+    "ShopIn.kind Literal['retail','wholesale'] still exists for backward compat but the iter4 spec explicitly phases out shop-level retail/wholesale (now product-level via is_wholesale). Recommend deprecating ShopIn.kind in iter5 and migrating seed shops accordingly.",
+    "ProductIn has BOTH is_wholesale (new flag) AND mode Literal['marketplace','wholesale'] (iter3 carry-over). Two booleans-of-truth invite drift: e.g., a product with is_wholesale=true,mode='marketplace' is technically allowed. Suggest derived/computed: drop mode and use is_wholesale exclusively, or add validator ensuring mode=='wholesale' iff is_wholesale.",
+    "AdminShopsTab commission save returns 200 but UI does NOT optimistically refresh the row text in the closed modal — testing confirmed it works because we re-fetch on tab activation, but a refresh-on-save would be cleaner.",
+    "SellerDashboard.jsx is now 923 lines (up from 854). Splitting into pages/seller/ProductsTab.jsx, ShopsTab.jsx etc. is becoming urgent.",
+    "Marketplace.jsx is_wholesale boolean check uses 'p.is_wholesale' truthy — fine, but Python bool from FastAPI is serialized as `true/false`; if any legacy product is missing the field entirely (undefined), it will fall through to ProductCard (correct default). Verified in current seed all 24 have the flag."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter4_features.py"],
+  "success_rate": {"backend": "100% (66/66 — 25 iter1 + 18 iter2 + 15 iter3 + 8 iter4)", "frontend": "100% on all iter4 critical flows verified (filter chips, /wholesale redirect, header pruning, admin shop detail+commission persistence, seller business-select with optgroups, shop+wholesale toggle conditional render). Restaurant-side conditional render verified by code + iter3 history rather than re-execution."},
+  "test_credentials": "admin@demo.com / 1234, seller@demo.com / 1234, customer@demo.com / 1234 — all working",
+  "seed_data_creation": "None new. Tests create TEST_-prefixed products/shops and clean up. Per-shop commission is restored to null in test teardown and a final regenerate is called so other invoice tests stay deterministic.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Four pytest files now: backend_test.py (25), test_iter2_features.py (18, TestZForceLogout still last), test_iter3_features.py (15), test_iter4_features.py (8). Run order matters only for iter2 (Z prefix forces last). Iter4 tests teardown: clear per-shop commission and call /api/admin/invoices/generate to revert to global rate. Frontend testids confirmed: market-filter-{all,retail,wholesale}, admin-shop-row-{id}, admin-shop-detail, shop-commission-input, save-shop-commission, close-shop-detail, shop-type-{shop,restaurant}, add-item-btn (single), product-business-select (optgroups '🛍️ Shops' + '🍽️ Restaurants' with id prefixes 's:' and 'r:'), wholesale-toggle, food-category-select, min-order-qty-input, bulk-price-input. Old testids removed in iter4: add-marketplace-btn / add-restaurant-btn / add-wholesale-btn / mode-toggle-* — any iter3 UI tests referencing them must be updated. Note: business-select option values are PREFIXED (e.g. 's:uuid' for shop, 'r:uuid' for restaurant) — strip prefix when calling backend APIs."
+}

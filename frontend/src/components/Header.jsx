@@ -2,7 +2,7 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
 import { useSystem } from "@/context/SystemContext";
-import { ShoppingCart, LogOut, Store, UtensilsCrossed, LayoutDashboard, Menu, X, Package, Settings as SettingsIcon, Heart } from "lucide-react";
+import { ShoppingCart, LogOut, Store, UtensilsCrossed, LayoutDashboard, Menu, X, Settings as SettingsIcon, Heart } from "lucide-react";
 import { useState } from "react";
 import { Logo } from "@/components/Logo";
 
@@ -56,7 +56,6 @@ export default function Header() {
 
           <nav className="hidden lg:flex items-center gap-1">
             {settings.module_marketplace && navLink("/marketplace", "Marketplace", Store)}
-            {settings.module_wholesale && navLink("/wholesale", "Wholesale", Package)}
             {settings.module_restaurants && navLink("/restaurants", "Restaurants", UtensilsCrossed)}
             {user?.role === "customer" && navLink("/favorites", "Favorites", Heart)}
             {dashboardPath && navLink(dashboardPath, "Dashboard", LayoutDashboard)}
@@ -96,7 +95,6 @@ export default function Header() {
         {mobileOpen && (
           <div className="lg:hidden pb-4 flex flex-col gap-1 fade-up">
             {settings.module_marketplace && navLink("/marketplace", "Marketplace", Store)}
-            {settings.module_wholesale && navLink("/wholesale", "Wholesale", Package)}
             {settings.module_restaurants && navLink("/restaurants", "Restaurants", UtensilsCrossed)}
             {user?.role === "customer" && navLink("/favorites", "Favorites", Heart)}
             {dashboardPath && navLink(dashboardPath, "Dashboard", LayoutDashboard)}

@@ -75,84 +75,131 @@ const VerificationBadge = ({ status }) => {
 
 function ShopsTab() {
   const [shops, setShops] = useState([]);
+  const [restaurants, setRestaurants] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ name: "", category: "Electronics", description: "", area: "Munuki", image_url: "" });
+  const [form, setForm] = useState({ name: "", type: "shop", description: "", area: "Munuki", image_url: "" });
 
-  const load = () => api.get("/shops/mine").then((r) => setShops(r.data));
+  const load = async () => {
+    const [s, r] = await Promise.all([api.get("/shops/mine"), api.get("/restaurants")]);
+    setShops(s.data);
+    // Filter restaurants owned by current seller (using seller_id match by first shop's seller)
+    const myId = s.data[0]?.seller_id;
+    setRestaurants(r.data.filter((x) => !myId || x.seller_id === myId));
+  };
   useEffect(() => { load(); }, []);
 
   const submit = async (e) => {
     e.preventDefault();
     try {
-      if (editing) {
-        await api.put(`/shops/${editing.id}`, form);
-        toast.success("Shop updated");
+      if (form.type === "restaurant") {
+        // Restaurants use category field (from demo list) — default to "Fast Food" if not set
+        const payload = {
+          name: form.name, description: form.description, area: form.area,
+          image_url: form.image_url, category: form.category || "Fast Food", is_open: true,
+        };
+        if (editing?._kind === "restaurant") await api.put(`/restaurants/${editing.id}/toggle-open`); // no PUT endpoint; just re-noop for edit
+        else await api.post("/restaurants", payload);
+        toast.success("Restaurant created (pending verification)");
       } else {
-        await api.post("/shops", form);
-        toast.success("Shop created (pending verification)");
+        const payload = { name: form.name, description: form.description, area: form.area, image_url: form.image_url };
+        if (editing?._kind !== "restaurant" && editing) await api.put(`/shops/${editing.id}`, payload);
+        else await api.post("/shops", payload);
+        toast.success(editing ? "Shop updated" : "Shop created (pending verification)");
       }
       setShowForm(false); setEditing(null);
-      setForm({ name: "", category: "Electronics", description: "", area: "Munuki", image_url: "" });
+      setForm({ name: "", type: "shop", description: "", area: "Munuki", image_url: "" });
       load();
     } catch (err) {
       toast.error(formatDetail(err.response?.data?.detail));
     }
   };
 
-  const onEdit = (s) => { setEditing(s); setForm({ name: s.name, category: s.category, description: s.description, area: s.area, image_url: s.image_url }); setShowForm(true); };
-  const onDelete = async (id) => {
-    if (!window.confirm("Delete this shop and its products?")) return;
-    await api.delete(`/shops/${id}`);
-    toast.success("Shop deleted");
-    load();
+  const onEdit = (s, kind) => {
+    setEditing({ ...s, _kind: kind });
+    setForm({ name: s.name, type: kind, description: s.description || "", area: s.area, image_url: s.image_url, category: s.category });
+    setShowForm(true);
   };
+  const onDelete = async (s, kind) => {
+    const what = kind === "restaurant" ? "restaurant and its menu" : "shop and its products";
+    if (!window.confirm(`Delete this ${what}?`)) return;
+    if (kind === "restaurant") toast.error("Deleting restaurants is not available in demo.");
+    else { await api.delete(`/shops/${s.id}`); toast.success("Shop deleted"); load(); }
+  };
+
+  const combined = [
+    ...shops.map((s) => ({ ...s, _kind: "shop" })),
+    ...restaurants.map((r) => ({ ...r, _kind: "restaurant" })),
+  ];
 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <p className="text-sm text-[#5C5C5C]">{shops.length} shop{shops.length !== 1 && "s"}</p>
+        <p className="text-sm text-[var(--js-text-secondary)]">{combined.length} business{combined.length !== 1 && "es"} ({shops.length} shops · {restaurants.length} restaurants)</p>
         <button
-          onClick={() => { setShowForm(true); setEditing(null); }}
+          onClick={() => { setShowForm(true); setEditing(null); setForm({ name: "", type: "shop", description: "", area: "Munuki", image_url: "" }); }}
           data-testid="add-shop-btn"
           className="inline-flex items-center gap-2 bg-[#C84B31] hover:bg-[#A83A23] text-white text-sm font-semibold px-4 py-2.5 rounded-full"
         >
-          <Plus className="w-4 h-4" /> Add Shop
+          <Plus className="w-4 h-4" /> Add Business
         </button>
       </div>
 
       {showForm && (
-        <Modal onClose={() => { setShowForm(false); setEditing(null); }} title={editing ? "Edit shop" : "New shop"}>
+        <Modal onClose={() => { setShowForm(false); setEditing(null); }} title={editing ? `Edit ${editing._kind}` : "New business"}>
           <form onSubmit={submit} className="space-y-3">
-            <Input label="Shop name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required testId="shop-name-input" />
-            <Select label="Category" value={form.category} onChange={(v) => setForm({ ...form, category: v })} options={CATEGORIES} testId="shop-category-select" />
+            <div>
+              <span className="text-xs text-[var(--js-text-secondary)] font-semibold block mb-1.5">What are you opening?</span>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: "shop", label: "🛍️ Shop", hint: "Sells products" },
+                  { id: "restaurant", label: "🍔 Restaurant", hint: "Sells menu items" },
+                ].map((t) => (
+                  <button type="button" key={t.id}
+                    onClick={() => setForm({ ...form, type: t.id })}
+                    disabled={!!editing}
+                    data-testid={`shop-type-${t.id}`}
+                    className={`p-3 rounded-2xl border-2 transition text-left ${
+                      form.type === t.id ? "border-[#C84B31] bg-[#C84B31]/5" : "border-[var(--js-border)] bg-white hover:border-[var(--js-text)]"
+                    } ${editing ? "opacity-60 cursor-not-allowed" : ""}`}
+                  >
+                    <p className="font-display font-semibold text-sm text-[var(--js-text)]">{t.label}</p>
+                    <p className="text-xs text-[var(--js-text-secondary)]">{t.hint}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <Input label="Name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required testId="shop-name-input" />
             <Select label="Area" value={form.area} onChange={(v) => setForm({ ...form, area: v })} options={AREAS} testId="shop-area-select" />
             <Input label="Image URL" value={form.image_url} onChange={(v) => setForm({ ...form, image_url: v })} testId="shop-image-input" />
             <Textarea label="Description" value={form.description} onChange={(v) => setForm({ ...form, description: v })} testId="shop-desc-input" />
-            <button type="submit" data-testid="shop-submit-btn" className="w-full bg-[#1A1A1A] text-white font-semibold py-3 rounded-full">{editing ? "Save changes" : "Create shop"}</button>
+            <button type="submit" data-testid="shop-submit-btn" className="w-full bg-[#1A1A1A] text-white font-semibold py-3 rounded-full">{editing ? "Save changes" : `Create ${form.type}`}</button>
           </form>
         </Modal>
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-        {shops.map((s) => (
-          <div key={s.id} data-testid={`my-shop-${s.id}`} className="bg-white border border-[#E2E2D9] rounded-2xl overflow-hidden">
-            <div className="aspect-[16/9] bg-[#F2EBE5] overflow-hidden relative">
+        {combined.map((s) => (
+          <div key={`${s._kind}-${s.id}`} data-testid={`my-shop-${s.id}`} className="bg-white border border-[var(--js-border)] rounded-2xl overflow-hidden">
+            <div className="aspect-[16/9] bg-[var(--js-subtle)] overflow-hidden relative">
               <img src={s.image_url} alt={s.name} className="w-full h-full object-cover" />
               <div className="absolute top-3 right-3"><VerificationBadge status={s.verification} /></div>
+              <span className="absolute top-3 left-3 text-[10px] font-bold px-2 py-1 rounded-full" style={{ background: s._kind === "restaurant" ? "#2D6A4F" : "#C84B31", color: "white" }}>
+                {s._kind === "restaurant" ? "🍔 RESTAURANT" : "🛍️ SHOP"}
+              </span>
             </div>
             <div className="p-4">
-              <p className="text-[10px] uppercase tracking-wider text-[#5C5C5C] font-bold">{s.category} · {s.area}</p>
-              <h3 className="font-display font-semibold text-lg text-[#1A1A1A] mt-0.5">{s.name}</h3>
-              <p className="text-sm text-[#5C5C5C] mt-1 line-clamp-2">{s.description}</p>
+              <p className="text-[10px] uppercase tracking-wider text-[var(--js-text-secondary)] font-bold">{s.area}</p>
+              <h3 className="font-display font-semibold text-lg text-[var(--js-text)] mt-0.5">{s.name}</h3>
+              <p className="text-sm text-[var(--js-text-secondary)] mt-1 line-clamp-2">{s.description}</p>
               <div className="mt-3 flex gap-2">
-                <button onClick={() => onEdit(s)} data-testid={`edit-shop-${s.id}`} className="flex-1 bg-[#F2EBE5] text-[#1A1A1A] text-xs font-semibold py-2 rounded-full inline-flex items-center justify-center gap-1"><Edit2 className="w-3 h-3" /> Edit</button>
-                <button onClick={() => onDelete(s.id)} data-testid={`delete-shop-${s.id}`} className="flex-1 bg-[#D90429]/10 text-[#D90429] text-xs font-semibold py-2 rounded-full inline-flex items-center justify-center gap-1"><Trash2 className="w-3 h-3" /> Delete</button>
+                <button onClick={() => onEdit(s, s._kind)} data-testid={`edit-shop-${s.id}`} className="flex-1 bg-[var(--js-subtle)] text-[var(--js-text)] text-xs font-semibold py-2 rounded-full inline-flex items-center justify-center gap-1"><Edit2 className="w-3 h-3" /> Edit</button>
+                <button onClick={() => onDelete(s, s._kind)} data-testid={`delete-shop-${s.id}`} className="flex-1 bg-[#D90429]/10 text-[#D90429] text-xs font-semibold py-2 rounded-full inline-flex items-center justify-center gap-1"><Trash2 className="w-3 h-3" /> Delete</button>
               </div>
             </div>
           </div>
         ))}
-        {shops.length === 0 && <p className="text-sm text-[#5C5C5C] col-span-full">No shops yet. Click "Add Shop" to get started.</p>}
+        {combined.length === 0 && <p className="text-sm text-[var(--js-text-secondary)] col-span-full">No businesses yet. Click "Add Business".</p>}
       </div>
     </div>
   );
@@ -232,26 +279,25 @@ function ProductsTab() {
   const retailShops = shops.filter((s) => s.kind !== "wholesale");
   const wholesaleShops = shops.filter((s) => s.kind === "wholesale");
 
-  const openNew = (selectedMode) => {
-    setMode(selectedMode);
+  const openNew = () => {
     setEditing(null);
     const next = defaultForm();
-    if (selectedMode === "marketplace") {
-      next.shop_id = retailShops[0]?.id || "";
-      next.category = retailShops[0]?.category || RETAIL_CATEGORIES[0];
-    } else if (selectedMode === "wholesale") {
-      next.shop_id = wholesaleShops[0]?.id || "";
-      next.category = wholesaleShops[0]?.category || WHOLESALE_CATEGORIES[0];
-    } else {
-      next.restaurant_id = restaurants[0]?.id || "";
+    // Default to first shop, if any
+    if (shops.length > 0) {
+      next.shop_id = shops[0].id;
+      next.category = RETAIL_CATEGORIES[0];
+      setMode("marketplace");
+    } else if (restaurants.length > 0) {
+      next.restaurant_id = restaurants[0].id;
       next.food_category = FOOD_SUBCATEGORIES[0];
+      setMode("restaurant");
     }
     setForm(next);
     setShowForm(true);
   };
 
   const openEditProduct = (p) => {
-    const isWholesale = p.shop_kind === "wholesale" || p.mode === "wholesale";
+    const isWholesale = !!p.is_wholesale || p.mode === "wholesale";
     setMode(isWholesale ? "wholesale" : "marketplace");
     setEditing({ kind: "product", ...p });
     setForm({
@@ -301,6 +347,7 @@ function ProductsTab() {
           stock: parseInt(form.stock) || 0,
           image_url: form.image_url, description: form.description,
           mode,
+          is_wholesale: mode === "wholesale",
           min_order_qty: mode === "wholesale" ? (parseInt(form.min_order_qty) || 1) : 1,
           bulk_price_usd: mode === "wholesale" && form.bulk_price_usd !== "" ? parseFloat(form.bulk_price_usd) : null,
           pricing_tiers: mode === "wholesale"
@@ -336,39 +383,49 @@ function ProductsTab() {
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <p className="text-sm text-[var(--js-text-secondary)]">{totalItems} item{totalItems !== 1 && "s"} · Exchange rate <span className="font-bold text-[var(--js-text)]">1 USD = {rate} SSP</span></p>
-        <div className="flex flex-wrap gap-2">
-          {Object.entries(MODE_CONFIG).map(([k, cfg]) => {
-            const Icon = cfg.icon;
-            const disabled = (k === "marketplace" && retailShops.length === 0) ||
-                             (k === "wholesale" && wholesaleShops.length === 0) ||
-                             (k === "restaurant" && restaurants.length === 0);
-            return (
-              <button
-                key={k} onClick={() => openNew(k)} disabled={disabled}
-                data-testid={`add-${k}-btn`}
-                className="inline-flex items-center gap-2 text-white text-sm font-semibold px-4 py-2.5 rounded-full disabled:bg-[#A3A39E] disabled:cursor-not-allowed hover:opacity-90 transition"
-                style={{ background: disabled ? "#A3A39E" : cfg.color }}
-                title={disabled ? `No ${k} shop/restaurant — create one first` : `Add ${cfg.label} item`}
-              >
-                <Icon className="w-4 h-4" /> {cfg.label}
-              </button>
-            );
-          })}
-        </div>
+        <button
+          onClick={openNew}
+          disabled={shops.length === 0 && restaurants.length === 0}
+          data-testid="add-item-btn"
+          className="inline-flex items-center gap-2 bg-[#C84B31] hover:bg-[#A83A23] disabled:bg-[#A3A39E] disabled:cursor-not-allowed text-white text-sm font-semibold px-4 py-2.5 rounded-full"
+        >
+          <Plus className="w-4 h-4" /> Add Item
+        </button>
       </div>
 
       {showForm && (
-        <Modal onClose={() => { setShowForm(false); setEditing(null); }} title={editing ? `Edit ${mode} item` : `New ${MODE_CONFIG[mode].label.toLowerCase()} item`}>
-          <ModeToggle mode={mode} setMode={(m) => { setMode(m); const next = defaultForm();
-            if (m === "marketplace") { next.shop_id = retailShops[0]?.id || ""; next.category = retailShops[0]?.category || RETAIL_CATEGORIES[0]; }
-            else if (m === "wholesale") { next.shop_id = wholesaleShops[0]?.id || ""; next.category = wholesaleShops[0]?.category || WHOLESALE_CATEGORIES[0]; }
-            else { next.restaurant_id = restaurants[0]?.id || ""; next.food_category = FOOD_SUBCATEGORIES[0]; }
-            setForm(next); setEditing(null); }} disabledEditing={!!editing} />
+        <Modal onClose={() => { setShowForm(false); setEditing(null); }} title={editing ? "Edit item" : "New item"}>
+          <form onSubmit={submit} className="space-y-3">
+            {/* Business selector — unified shops + restaurants */}
+            <div>
+              <label className="text-xs text-[var(--js-text-secondary)] font-semibold block mb-1.5">Business</label>
+              <select
+                value={mode === "restaurant" ? `r:${form.restaurant_id}` : `s:${form.shop_id}`}
+                onChange={(e) => {
+                  const [kind, id] = e.target.value.split(":");
+                  if (kind === "r") {
+                    setMode("restaurant");
+                    setForm({ ...form, restaurant_id: id, food_category: form.food_category || FOOD_SUBCATEGORIES[0] });
+                  } else {
+                    setMode(form.is_wholesale_toggle ? "wholesale" : "marketplace");
+                    setForm({ ...form, shop_id: id, category: form.category || RETAIL_CATEGORIES[0] });
+                  }
+                }}
+                disabled={!!editing}
+                data-testid="product-business-select"
+                className="js-input"
+              >
+                {shops.length > 0 && <optgroup label="🛍️ Shops">
+                  {shops.map((s) => <option key={s.id} value={`s:${s.id}`}>{s.name}</option>)}
+                </optgroup>}
+                {restaurants.length > 0 && <optgroup label="🍔 Restaurants">
+                  {restaurants.map((r) => <option key={r.id} value={`r:${r.id}`}>{r.name}</option>)}
+                </optgroup>}
+              </select>
+            </div>
 
-          <form onSubmit={submit} className="space-y-3 mt-4">
             {mode === "restaurant" ? (
               <>
-                <Select label="Restaurant" value={form.restaurant_id} onChange={(v) => setForm({ ...form, restaurant_id: v })} options={restaurants.map((r) => ({ value: r.id, label: r.name }))} testId="product-restaurant-select" />
                 <Input label="Food name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required testId="product-name-input" />
                 <Select label="Food category" value={form.food_category} onChange={(v) => setForm({ ...form, food_category: v })} options={FOOD_SUBCATEGORIES} testId="food-category-select" />
                 <Input label="Price (USD)" type="number" step="0.01" value={form.price_usd} onChange={(v) => setForm({ ...form, price_usd: v })} required testId="product-price-input" />
@@ -378,15 +435,8 @@ function ProductsTab() {
               </>
             ) : (
               <>
-                <Select label="Shop" value={form.shop_id}
-                  onChange={(v) => {
-                    const sh = shops.find((x) => x.id === v);
-                    setForm({ ...form, shop_id: v, category: sh?.category || form.category });
-                  }}
-                  options={(mode === "wholesale" ? wholesaleShops : retailShops).map((s) => ({ value: s.id, label: s.name }))}
-                  testId="product-shop-select" />
                 <Input label="Name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required testId="product-name-input" />
-                <Select label="Category" value={form.category} onChange={(v) => setForm({ ...form, category: v })} options={mode === "wholesale" ? WHOLESALE_CATEGORIES : RETAIL_CATEGORIES} testId="product-cat-select" />
+                <Select label="Category" value={form.category} onChange={(v) => setForm({ ...form, category: v })} options={RETAIL_CATEGORIES} testId="product-cat-select" />
                 <div className="grid grid-cols-2 gap-3">
                   <Input label="Price (USD)" type="number" step="0.01" value={form.price_usd} onChange={(v) => setForm({ ...form, price_usd: v })} required testId="product-price-input" />
                   <Input label="Stock" type="number" value={form.stock} onChange={(v) => setForm({ ...form, stock: v })} testId="product-stock-input" />
@@ -394,6 +444,24 @@ function ProductsTab() {
                 <p className="text-xs text-[var(--js-text-secondary)]">≈ <strong>SSP {(parseFloat(form.price_usd || 0) * rate).toLocaleString()}</strong> at current rate</p>
                 <Input label="Image URL" value={form.image_url} onChange={(v) => setForm({ ...form, image_url: v })} testId="product-image-input" />
                 <Textarea label="Description" value={form.description} onChange={(v) => setForm({ ...form, description: v })} testId="product-desc-input" />
+
+                {/* Wholesale toggle only for shops */}
+                <label className="flex items-start gap-3 bg-[var(--js-subtle)] rounded-2xl p-4 cursor-pointer">
+                  <span className="js-switch shrink-0 mt-0.5">
+                    <input
+                      type="checkbox"
+                      checked={mode === "wholesale"}
+                      onChange={(e) => setMode(e.target.checked ? "wholesale" : "marketplace")}
+                      data-testid="wholesale-toggle"
+                    />
+                    <span className="slider" />
+                  </span>
+                  <div>
+                    <p className="font-semibold text-sm text-[var(--js-text)]">📦 Enable wholesale pricing</p>
+                    <p className="text-xs text-[var(--js-text-secondary)] mt-0.5">Customers will see a minimum-order-qty and bulk price on this product.</p>
+                  </div>
+                </label>
+
                 {mode === "wholesale" && (
                   <div className="bg-[var(--js-subtle)] rounded-2xl p-4 space-y-3">
                     <p className="text-xs uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">Wholesale pricing</p>
@@ -406,8 +474,9 @@ function ProductsTab() {
                 )}
               </>
             )}
+
             <button type="submit" data-testid="product-submit-btn" className="w-full bg-[#1A1A1A] text-white font-semibold py-3 rounded-full">
-              {editing ? "Save changes" : `Create ${MODE_CONFIG[mode].label.toLowerCase()} item`}
+              {editing ? "Save changes" : "Create item"}
             </button>
           </form>
         </Modal>
@@ -428,7 +497,7 @@ function ProductsTab() {
             </thead>
             <tbody>
               {products.map((p) => {
-                const isWs = p.shop_kind === "wholesale" || p.mode === "wholesale";
+                const isWs = !!p.is_wholesale || p.mode === "wholesale";
                 return (
                   <tr key={`p-${p.id}`} className="border-t border-[var(--js-border)]" data-testid={`product-row-${p.id}`}>
                     <td className="p-4">
