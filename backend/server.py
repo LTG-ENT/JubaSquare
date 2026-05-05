@@ -980,7 +980,7 @@ async def admin_add_area(body: AreaIn, _: dict = Depends(require_role("admin")))
     return {"areas": areas}
 
 
-@api.delete("/admin/areas/{area}")
+@api.delete("/admin/areas")
 async def admin_delete_area(area: str, _: dict = Depends(require_role("admin"))):
     s = await get_settings()
     areas = [a for a in s.get("areas", DEFAULT_AREAS) if a != area]

@@ -79,7 +79,7 @@ function AdminSettings() {
     }
   };
   const removeArea = async (a) => {
-    const { data } = await api.delete(`/admin/areas/${encodeURIComponent(a)}`);
+    const { data } = await api.delete(`/admin/areas`, { params: { area: a } });
     setS({ ...s, areas: data.areas });
     refreshSystem();
   };
