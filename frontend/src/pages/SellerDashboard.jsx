@@ -617,7 +617,7 @@ function InvoicesTab() {
                 <th className="text-left p-4 font-bold hidden sm:table-cell">Week</th>
                 <th className="text-left p-4 font-bold">Sales</th>
                 <th className="text-left p-4 font-bold hidden md:table-cell">Commission</th>
-                <th className="text-left p-4 font-bold">Owed</th>
+                <th className="text-left p-4 font-bold">Amount Owed</th>
                 <th className="text-left p-4 font-bold">Status</th>
               </tr>
             </thead>
