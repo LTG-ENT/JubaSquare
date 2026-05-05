@@ -1,60 +1,51 @@
 # JubaSquare — by L.T.G Enterprise
 
 ## Original Problem Statement
-Multi-vendor marketplace + restaurant **demo** web app for local businesses in Juba, South Sudan. ZERO-setup showcase with 3-button instant login.
+Multi-vendor marketplace + restaurant **demo** web app for Juba, South Sudan. ZERO-setup showcase, 3-button instant login.
 
 ## Architecture
-- **Backend**: FastAPI + Motor (MongoDB async). Single-file `server.py` (~1346 lines) with auto-seeding.
-- **Auth**: JWT (httpOnly cookie + Bearer fallback) + bcrypt + token-version (force-logout-all). Demo accounts seeded idempotently with password `1234`.
-- **Frontend**: React 19 + React Router 7 + Tailwind. Outfit (display) + Manrope (body). Sonner toasts. lucide-react icons.
-- **Persistence**: localStorage cart (lazy useState init), localStorage JWT, localStorage dark-mode flag.
-- **Currency**: USD + SSP everywhere. Seller per-shop rate, admin global rate fallback.
+- **Backend**: FastAPI + Motor (MongoDB async). `server.py` (~1383 lines) — auto-seeds.
+- **Auth**: JWT cookie+Bearer + bcrypt + token-version (force-logout-all). Demo accounts password `1234`.
+- **Frontend**: React 19 + React Router 7 + Tailwind. Outfit/Manrope. Sonner. lucide-react.
+- **Currency**: USD + SSP everywhere. Seller per-shop rate, admin global fallback.
 
 ## User Personas
-- **Customer**: browses retail/wholesale, filters by Juba area, builds cart, places orders, tracks status, saves favorites.
-- **Seller**: manages shops + products + menu items (3-mode toggle), updates order status, views weekly invoices with amount owed, sets exchange rate, low-stock alerts.
-- **Admin**: verifies/rejects shops, blocks/unblocks emails, oversees all orders, controls platform settings (modules, maintenance, currency, areas, force-logout, login attempts, commission rate), manages invoices (filter, mark paid/unpaid, regenerate).
+- **Customer**: browse unified marketplace (retail + wholesale toggle), filter by Juba area, cart, orders, favorites, restaurant ordering with sides.
+- **Seller**: own Shops (product-selling) and Restaurants (menu-selling); per-item wholesale toggle; weekly invoices with amount owed.
+- **Admin**: verify shops, block emails, platform settings, invoices (filter/mark paid/unpaid/regenerate), per-shop custom commission overriding global.
 
 ## What's Been Implemented
 
-### Iteration 1 (2026-02)
-- Demo seeding, full auth (login/logout/me/change-password/profile), shops/products/restaurants/menu CRUD, orders + status, per-seller exchange rate, admin verify/block. 25/25 tests pass.
+### Iter 1 (Feb 2026)
+Core auth + shops/products/restaurants CRUD + orders + per-seller exchange rate + admin verify/block. 25/25 tests.
 
-### Iteration 2 (2026-02)
-- Custom logo swap (shopping-cart + Juba bridge) across header/footer/login
-- Expanded categories: 9 retail + 6 wholesale + 4 restaurant (seeded 9+3+4 shops)
-- Wholesale module with bulk pricing, min-order-qty, verified-supplier filter
-- Side items on menu items + in-modal menu search
-- Mandatory phone+area on orders
-- Admin Settings (currency, modules toggle, maintenance mode, login attempt limit, areas CRUD, auto-approve, force-logout-all, security toggles)
-- Seller Settings (low-stock alert, auto-hide out-of-stock, order notifications)
-- Customer Settings (default area, notif prefs, dark mode)
-- Favorites system for products / shops / restaurants
-- Brute-force protection (5 attempts → 15min lockout)
-- 43/43 tests pass (25+18)
+### Iter 2 (Feb 2026)
+Custom logo, expanded categories, wholesale module, side items, mandatory phone+area, admin/seller/customer settings (modules, maintenance, brute-force, areas, force-logout, low-stock alert, auto-hide, dark mode), favorites. 43/43 tests.
 
-### Iteration 3 (2026-02)
-- **Admin Invoices module**: weekly auto-generated invoices per shop per week, stat cards (count/sales/commission/unpaid), filter (All/Paid/Unpaid), mark-paid/unpaid, detail modal, regenerate button, configurable commission rate (default 10%)
-- **Seller Invoices tab**: own invoices with Amount Owed column
-- **Product 3-mode toggle**: Marketplace / Restaurant / Wholesale with distinct forms
-  - Restaurant mode → creates menu item with food subcategory + side items editor
-  - Wholesale mode → includes min_order_qty, bulk price, pricing tiers editor
-  - Marketplace mode → normal retail product
-- **16 food subcategories** (Fried Chicken, Burgers, Shawarma, Fries, etc.) exposed via `/api/meta/categories`
-- **Pricing tiers** on wholesale products (list of {min_qty, price_usd})
-- Mode badges (MARKETPLACE/WHOLESALE/RESTAURANT) on seller products table
-- 58/58 tests pass (25+18+15)
+### Iter 3 (Feb 2026)
+Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode form (marketplace/restaurant/wholesale). 16 food subcategories. Wholesale pricing tiers. 58/58 tests.
+
+### Iter 4 (Feb 2026) — **Unified shopping + per-shop commission**
+- **Marketplace unified**: single `/marketplace` page with filter chips (All / Retail only / Wholesale only). Wholesale products render `WholesaleCard` (min-qty + bulk price + verified-supplier badge) inline with regular `ProductCard` via `product.is_wholesale` flag
+- **`/wholesale` route** → React Router Navigate to `/marketplace?view=wholesale`. Wholesale nav link removed from Header
+- **Admin clickable shops**: shop rows open detail modal with custom commission rate input (per-shop override; decimal 0–1). Save regenerates invoices for that shop at the new rate. Empty = inherit global rate
+- **Seller Shop form**: dropped "Category" field; replaced with **Shop / Restaurant type toggle** — routes to `POST /api/shops` or `POST /api/restaurants`
+- **Seller Product form** (unified): single "Add Item" button; modal has a unified Business select (optgroups: 🛍️ Shops / 🍽️ Restaurants). When a Restaurant is picked → shows food-category (16 options) + side items editor. When a Shop is picked → shows unified retail category + "Enable wholesale pricing" toggle; turning it ON reveals MOQ + bulk price + pricing tiers
+- **Unified categories**: wholesale + retail share the 9-category list (Groceries, Clothing & Fashion, …)
+- **Backend**:
+  - `ShopIn.category` now optional (backward-compat); `ShopCommissionIn` model; `PUT /api/admin/shops/{id}/commission` endpoint with 0–1 bound validator
+  - `ProductIn.is_wholesale` new flag + `/api/products?is_wholesale=true|false` filter
+  - `_rebuild_invoices()` applies `shop.commission_rate` when set, else global rate
+- 66/66 tests pass (25+18+15+8)
 
 ## Backlog (P1 / P2)
-- **P1** Apply wholesale pricing tiers in cart checkout (currently UI only)
-- **P1** Server-side price validation against DB on /api/orders (anti-tampering)
-- **P1** Commission rate [0,1] bound validator + % representation in admin UI
-- **P1** Document upload for shop verification (needs object storage)
-- **P2** Split `server.py` (1346 lines) into routers
-- **P2** Split `SellerDashboard.jsx` (854 lines) into pages/seller/*.jsx
-- **P2** Invoice detail page showing line-item orders (currently summary only)
-- **P2** Email notifications (Resend/SendGrid)
-- **P2** i18n / language switcher
+- **P1** Drop `ProductIn.mode` in favor of `is_wholesale` exclusively (two sources of truth risk)
+- **P1** Deprecate `ShopIn.kind` field (iter4 phases out shop-level retail/wholesale)
+- **P1** Apply pricing tiers to cart pricing server-side at checkout (currently UI only)
+- **P2** Split `server.py` (1383 lines) into routers; split `SellerDashboard.jsx` (923 lines) into `pages/seller/*`
+- **P2** Optimistic UI refresh on admin shop commission save
+- **P2** Invoice detail page with line-item orders
+- **P2** Email notifications, i18n, document upload for verification
 
 ## Test Credentials
 See `/app/memory/test_credentials.md`.
