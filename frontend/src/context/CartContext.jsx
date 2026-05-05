@@ -3,22 +3,20 @@ import { createContext, useContext, useEffect, useState } from "react";
 const CartContext = createContext(null);
 const KEY = "js_cart_v1";
 
-export const CartProvider = ({ children }) => {
-  const [items, setItems] = useState([]);
-  const [area, setArea] = useState("Munuki");
-  const [exchangeRate, setExchangeRate] = useState(600);
+const readStorage = () => {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setItems(parsed.items || []);
-        setArea(parsed.area || "Munuki");
-        setExchangeRate(parsed.exchangeRate || 600);
-      }
-    } catch { /* ignore */ }
-  }, []);
+export const CartProvider = ({ children }) => {
+  const [items, setItems] = useState(() => readStorage()?.items || []);
+  const [area, setArea] = useState(() => readStorage()?.area || "Munuki");
+  const [exchangeRate, setExchangeRate] = useState(() => readStorage()?.exchangeRate || 600);
 
   useEffect(() => {
     localStorage.setItem(KEY, JSON.stringify({ items, area, exchangeRate }));
