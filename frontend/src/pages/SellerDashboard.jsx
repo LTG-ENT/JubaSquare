@@ -14,7 +14,13 @@ const TABS = [
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
-const CATEGORIES = ["Electronics", "Fashion", "Home Essentials", "Pharmacy", "Automotive", "Other"];
+const CATEGORIES = [
+  "Groceries", "Clothing & Fashion", "Shoes & Bags", "Beauty & Cosmetics",
+  "Electronics & Accessories", "Home Essentials", "Health & Pharmacy",
+  "Building & Materials", "Automotive",
+  "Wholesale Food Supply", "Wholesale Electronics", "Wholesale Clothing",
+  "Restaurant Supplies", "Construction Materials", "General Bulk Goods",
+];
 const AREAS = ["Munuki", "Jebel", "Gudele", "Konyo Konyo", "Hai Cinema", "Nyakuron", "Atlabara"];
 
 export default function SellerDashboard() {

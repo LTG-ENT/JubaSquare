@@ -19,11 +19,11 @@ export default function Marketplace() {
   const selectedShop = searchParams.get("shop") || "";
 
   useEffect(() => {
-    api.get("/shops").then((r) => setShops(r.data));
+    api.get("/shops?kind=retail").then((r) => setShops(r.data));
   }, []);
 
   useEffect(() => {
-    const params = {};
+    const params = { kind: "retail" };
     if (selectedCategory) params.category = selectedCategory;
     if (selectedShop) params.shop_id = selectedShop;
     api.get("/products", { params }).then((r) => setProducts(r.data));

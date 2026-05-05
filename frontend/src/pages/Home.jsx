@@ -13,11 +13,15 @@ const HERO_IMG =
   "https://images.unsplash.com/photo-1693064972579-0c1c85c636e8?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njl8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBhZnJpY2FuJTIwbWFya2V0cGxhY2V8ZW58MHx8fHwxNzc3OTQwNjI4fDA&ixlib=rb-4.1.0&q=85";
 
 const CATEGORY_ICONS = {
-  Electronics: "https://images.unsplash.com/photo-1761641466573-f240b6e446de?w=400&q=80",
-  Fashion: "https://images.unsplash.com/photo-1757140447782-8503452b2204?w=400&q=80",
+  "Groceries": "https://images.unsplash.com/photo-1542838132-92c53300491e?w=400&q=80",
+  "Clothing & Fashion": "https://images.unsplash.com/photo-1757140447782-8503452b2204?w=400&q=80",
+  "Shoes & Bags": "https://images.unsplash.com/photo-1549298916-b41d501d3772?w=400&q=80",
+  "Beauty & Cosmetics": "https://images.unsplash.com/photo-1522335789203-aaa57d0aacae?w=400&q=80",
+  "Electronics & Accessories": "https://images.unsplash.com/photo-1761641466573-f240b6e446de?w=400&q=80",
   "Home Essentials": "https://images.pexels.com/photos/15108276/pexels-photo-15108276.jpeg?auto=compress&w=400",
-  Pharmacy: "https://images.unsplash.com/photo-1646392206581-2527b1cae5cb?w=400&q=80",
-  Automotive: "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=400&q=80",
+  "Health & Pharmacy": "https://images.unsplash.com/photo-1646392206581-2527b1cae5cb?w=400&q=80",
+  "Building & Materials": "https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=400&q=80",
+  "Automotive": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=400&q=80",
 };
 
 export default function Home() {
@@ -26,7 +30,7 @@ export default function Home() {
   const { area, setArea } = useCart();
 
   useEffect(() => {
-    api.get("/shops").then((r) => setShops(r.data));
+    api.get("/shops?kind=retail").then((r) => setShops(r.data));
     api.get("/restaurants").then((r) => setRestaurants(r.data));
   }, []);
 

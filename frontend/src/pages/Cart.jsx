@@ -25,16 +25,20 @@ export default function Cart() {
   const place = async () => {
     if (!user) { navigate("/login"); return; }
     if (items.length === 0) { toast.error("Cart is empty"); return; }
+    if (!phone.trim()) { toast.error("Phone number is required to place an order"); return; }
+    if (!area || !area.trim()) { toast.error("Delivery area is required"); return; }
     setPlacing(true);
     try {
       const hasMenu = items.some((i) => i.item_type === "menu_item");
+      const isWholesale = items.some((i) => (i.quantity || 1) >= 5);
       const { data } = await api.post("/orders", {
         items: items.map((i) => ({
           item_type: i.item_type, item_id: i.item_id, name: i.name,
           price_usd: i.price_usd, quantity: i.quantity, image_url: i.image_url,
+          sides: i.sides || [],
         })),
         area, address, phone, note,
-        order_kind: hasMenu ? "restaurant" : "marketplace",
+        order_kind: hasMenu ? "restaurant" : (isWholesale ? "wholesale" : "marketplace"),
       });
       toast.success("Order placed successfully!");
       clear();
@@ -117,8 +121,9 @@ export default function Cart() {
               </div>
 
               <div>
-                <label className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Phone</label>
+                <label className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Phone <span className="text-[#D90429]">*</span></label>
                 <input
+                  required
                   data-testid="cart-phone-input"
                   value={phone} onChange={(e) => setPhone(e.target.value)}
                   placeholder="+211 ..."

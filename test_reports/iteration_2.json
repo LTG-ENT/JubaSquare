@@ -1,0 +1,32 @@
+{
+  "summary": "Iter2 testing: Backend 43/43 pytest tests pass (25 regression + 18 new for settings, areas, force-logout, seller/customer settings, favorites, kind filters, order validation, sides subtotal, maintenance mode). Frontend smoke: header (logo, brand 'JubaSquare BY L.T.G ENTERPRISE', Wholesale link), footer logo, /login 3 demo buttons + redirects, /wholesale (6 cards, Verified Supplier badges, min-qty + bulk price), /marketplace (retail-only, 18 products), /favorites (renders + empty state), /cart (phone required asterisk + toast 'Phone number is required to place an order' blocks API call), /settings as admin (Currency / Shop Control / Verification / Modules / Areas cards visible, 1 USD = X SSP rate field, all toggles working). Dark-mode for customer also visible after API toggle. Cart persistence (iter1 bug) is FIXED via lazy useState.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_iter2_features.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 1176 lines — should be split into routers (auth, admin, shops, products, restaurants, orders, favorites, settings, seeding) for maintainability before next iteration.",
+    "Login attempt limit not actively tested in pytest because it would lock out demo accounts for 15min for parallel runs; it is implemented and verified by code review (uses ip:email key, 15-min window). Consider exposing an admin endpoint to clear login_attempts records for test cleanup.",
+    "place_order does not validate item_id existence in DB nor recompute prices server-side — accepts client-supplied price_usd. Acceptable for demo; in production trust DB prices to prevent tampering.",
+    "DELETE /api/admin/areas/{area} silently succeeds even if area doesn't exist — fine but consider 404 for clarity.",
+    "force-logout-all increments token_version globally for ALL users (admin sessions also invalidated). Tests confirm intended behavior; just a documentation note for E1.",
+    "Both @app.on_event('startup') and CORSMiddleware allow_origin_regex='.*' with allow_credentials=True — modern browsers will reject this combination on prod (must use explicit origins with credentials). Works in preview because cookies aren't strictly required (Bearer fallback)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter2_features.py"
+  ],
+  "success_rate": {"backend": "100% (43/43)", "frontend": "100% on tested critical flows"},
+  "test_credentials": "admin@demo.com / 1234, seller@demo.com / 1234, customer@demo.com / 1234 — all working",
+  "seed_data_creation": "None — relied on auto-seeded 9 retail + 3 wholesale + 4 restaurants. Each test cleans up its own TEST_-prefixed shops/areas/favorites and reverts admin settings (auto_approve_shops, maintenance_mode, auto_hide_out_of_stock).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Two pytest files now: backend_test.py (regression, 25) + test_iter2_features.py (new, 18). The TestZForceLogout class is intentionally last because it bumps token_version and invalidates all earlier-issued tokens. If you add tests after it, fetch fresh tokens. Frontend data-testids verified: login-{role}-button, wholesale-card-*, add-to-cart-*, place-order-btn, cart-phone-input. Heart-icon testid prefix on product cards may not be 'fav-product-' (selector check returned False) — but heart icons render visually in marketplace; if writing fav-toggle test, inspect actual data-testid first."
+}

@@ -26,6 +26,35 @@
     --js-info: #2A9D8F;
 }
 
+[data-theme="dark"] {
+    --js-bg: #14141a;
+    --js-paper: #1d1d24;
+    --js-subtle: #262630;
+    --js-text: #f5f5f0;
+    --js-text-secondary: #a8a8a0;
+    --js-text-disabled: #5c5c54;
+    --js-border: #2c2c34;
+}
+
+[data-theme="dark"] body {
+    background: var(--js-bg);
+    color: var(--js-text);
+}
+
+[data-theme="dark"] .js-card,
+[data-theme="dark"] .bg-white {
+    background: var(--js-paper);
+    color: var(--js-text);
+}
+
+[data-theme="dark"] input,
+[data-theme="dark"] select,
+[data-theme="dark"] textarea {
+    background: var(--js-paper);
+    color: var(--js-text);
+    border-color: var(--js-border);
+}
+
 html, body, #root {
     background: var(--js-bg);
     color: var(--js-text);
@@ -42,10 +71,6 @@ body {
 .font-display {
     font-family: 'Outfit', system-ui, sans-serif;
     letter-spacing: -0.02em;
-}
-
-.font-body {
-    font-family: 'Manrope', system-ui, sans-serif;
 }
 
 @layer base {
@@ -71,25 +96,13 @@ body {
         --ring: 11 61% 49%;
         --radius: 0.75rem;
     }
-    * {
-        @apply border-border;
-    }
-    body {
-        @apply bg-background text-foreground;
-    }
+    * { @apply border-border; }
+    body { @apply bg-background text-foreground; }
 }
 
-/* Smooth scroll & focus rings */
-* {
-    scroll-behavior: smooth;
-}
+* { scroll-behavior: smooth; }
+::selection { background: var(--js-primary); color: white; }
 
-::selection {
-    background: var(--js-primary);
-    color: white;
-}
-
-/* Custom utilities */
 .js-card {
     background: var(--js-paper);
     border: 1px solid var(--js-border);
@@ -97,62 +110,30 @@ body {
     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
     transition: all 0.3s ease;
 }
-
 .js-card:hover {
     transform: translateY(-2px);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
 }
 
-.js-btn-primary {
-    background: var(--js-primary);
-    color: white;
-    border-radius: 9999px;
-    padding: 0.75rem 1.5rem;
-    font-weight: 600;
-    transition: all 0.2s;
-}
-
-.js-btn-primary:hover {
-    background: var(--js-primary-hover);
-}
-
-.js-btn-secondary {
-    background: var(--js-subtle);
-    color: var(--js-text);
-    border-radius: 9999px;
-    padding: 0.75rem 1.5rem;
-    font-weight: 500;
-    transition: all 0.2s;
-}
-
-.js-btn-secondary:hover {
-    background: var(--js-border);
-}
-
 .js-input {
-    background: white;
+    background: var(--js-paper);
     border: 1px solid var(--js-border);
     border-radius: 0.75rem;
     padding: 0.75rem 1rem;
     width: 100%;
+    color: var(--js-text);
     transition: all 0.2s;
 }
-
 .js-input:focus {
     outline: none;
     border-color: var(--js-primary);
     box-shadow: 0 0 0 3px rgba(200, 75, 49, 0.15);
 }
 
-.grain-bg {
-    position: relative;
-}
-
+.grain-bg { position: relative; }
 .grain-bg::after {
     content: '';
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
+    position: absolute; inset: 0; pointer-events: none;
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.15'/%3E%3C/svg%3E");
     mix-blend-mode: multiply;
     opacity: 0.4;
@@ -162,7 +143,29 @@ body {
     from { opacity: 0; transform: translateY(12px); }
     to   { opacity: 1; transform: translateY(0); }
 }
+.fade-up { animation: fadeUp 0.5s ease-out both; }
 
-.fade-up {
-    animation: fadeUp 0.5s ease-out both;
+/* Toggle switch */
+.js-switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
 }
+.js-switch input { opacity: 0; width: 0; height: 0; }
+.js-switch .slider {
+    position: absolute; cursor: pointer; inset: 0;
+    background: var(--js-border);
+    border-radius: 999px;
+    transition: 0.2s;
+}
+.js-switch .slider::before {
+    content: ""; position: absolute;
+    height: 18px; width: 18px;
+    left: 3px; bottom: 3px;
+    background: white; border-radius: 50%;
+    transition: 0.2s;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+.js-switch input:checked + .slider { background: var(--js-primary); }
+.js-switch input:checked + .slider::before { transform: translateX(20px); }
