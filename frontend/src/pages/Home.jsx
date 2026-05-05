@@ -47,8 +47,8 @@ export default function Home() {
       <Header />
 
       {/* HERO */}
-      <section className="relative overflow-hidden">
-        <div className="absolute inset-0">
+      <section className="relative">
+        <div className="absolute inset-0 overflow-hidden">
           <img src={HERO_IMG} alt="" className="w-full h-full object-cover" />
           <div className="absolute inset-0 bg-gradient-to-r from-[#0E1A2B]/95 via-[#0E1A2B]/80 to-[#0E1A2B]/40" />
         </div>
