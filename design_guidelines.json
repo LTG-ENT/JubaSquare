@@ -1,0 +1,149 @@
+{
+  "project_name": "JubaSquare by L.T.G Enterprise",
+  "domain": "Hybrid Multi-vendor Marketplace & Restaurant App",
+  "theme": "light",
+  "archetype": "Archetype 1: Organic & Earthy (Customized for Modern African Marketplace)",
+  "emotional_tone": "Vibrant, Authentic, Trustworthy, Modern SaaS",
+  "colors": {
+    "background": {
+      "default": "#F9F9F6",
+      "paper": "#FFFFFF",
+      "subtle": "#F2EBE5"
+    },
+    "text": {
+      "primary": "#1A1A1A",
+      "secondary": "#5C5C5C",
+      "disabled": "#A3A39E",
+      "inverse": "#FFFFFF"
+    },
+    "primary": {
+      "main": "#C84B31",
+      "hover": "#A83A23",
+      "light": "#E97A63"
+    },
+    "secondary": {
+      "main": "#2D6A4F",
+      "hover": "#1B4332",
+      "light": "#40916C"
+    },
+    "accent": {
+      "gold": "#D4A373",
+      "sun": "#E9C46A"
+    },
+    "status": {
+      "success": "#2D6A4F",
+      "warning": "#E9C46A",
+      "error": "#D90429",
+      "info": "#2A9D8F"
+    },
+    "border": {
+      "default": "#E2E2D9",
+      "focus": "#C84B31"
+    }
+  },
+  "typography": {
+    "font_family": {
+      "headings": "Outfit, sans-serif",
+      "body": "Manrope, sans-serif"
+    },
+    "scales": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tight font-bold",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight font-semibold",
+      "h3": "text-xl sm:text-2xl font-semibold",
+      "h4": "text-lg sm:text-xl font-medium",
+      "body_large": "text-lg leading-relaxed",
+      "body": "text-base leading-relaxed",
+      "body_small": "text-sm",
+      "overline": "text-xs uppercase tracking-[0.2em] font-bold"
+    }
+  },
+  "layout_and_spacing": {
+    "container_padding": "px-4 sm:px-6 lg:px-8",
+    "section_spacing": "py-16 sm:py-24",
+    "grid_gaps": {
+      "tight": "gap-4",
+      "standard": "gap-6",
+      "loose": "gap-12"
+    },
+    "border_radius": {
+      "card": "rounded-2xl",
+      "button": "rounded-full",
+      "input": "rounded-xl",
+      "badge": "rounded-full"
+    },
+    "shadows": {
+      "card": "shadow-[0_2px_12px_rgba(0,0,0,0.04)]",
+      "hover": "shadow-[0_8px_24px_rgba(0,0,0,0.08)]",
+      "dropdown": "shadow-[0_12px_32px_rgba(0,0,0,0.12)]"
+    }
+  },
+  "components": {
+    "header": "Sticky header with backdrop-blur-xl bg-[#F9F9F6]/80, border-b border-[#E2E2D9]. Z-index 50.",
+    "buttons": {
+      "primary": "bg-[#C84B31] text-white hover:bg-[#A83A23] transition-colors rounded-full px-6 py-3 font-semibold",
+      "secondary": "bg-[#F2EBE5] text-[#1A1A1A] hover:bg-[#E2E2D9] transition-colors rounded-full px-6 py-3 font-medium",
+      "outline": "border-2 border-[#E2E2D9] text-[#1A1A1A] hover:border-[#C84B31] hover:text-[#C84B31] bg-transparent rounded-full px-6 py-3 font-medium"
+    },
+    "cards": {
+      "product": "bg-white border border-[#E2E2D9] rounded-2xl overflow-hidden shadow-[0_2px_12px_rgba(0,0,0,0.04)] hover:-translate-y-1 hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] transition-all duration-300",
+      "restaurant": "bg-white border border-[#E2E2D9] rounded-2xl overflow-hidden relative shadow-[0_2px_12px_rgba(0,0,0,0.04)] hover:-translate-y-1 transition-all"
+    },
+    "badges": {
+      "verified": "bg-[#2D6A4F]/10 text-[#2D6A4F] text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1",
+      "open": "bg-[#2D6A4F] text-white text-xs font-bold px-3 py-1 rounded-full",
+      "closed": "bg-[#A3A39E] text-white text-xs font-bold px-3 py-1 rounded-full"
+    },
+    "inputs": "bg-white border border-[#E2E2D9] rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#C84B31]/20 focus:border-[#C84B31] transition-all"
+  },
+  "media": {
+    "logo": {
+      "url": "https://images.unsplash.com/photo-1755528679187-e35912bcd9c1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODF8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBhYnN0cmFjdCUyMGNvbG9yZnVsJTIwc3F1YXJlJTIwbG9nb3xlbnwwfHx8fDE3Nzc5NDA2Mjl8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Abstract colorful logo for JubaSquare"
+    },
+    "hero": {
+      "url": "https://images.unsplash.com/photo-1693064972579-0c1c85c636e8?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njl8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBhZnJpY2FuJTIwbWFya2V0cGxhY2V8ZW58MHx8fHwxNzc3OTQwNjI4fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Modern African architectural marketplace hero background"
+    },
+    "categories": [
+      {
+        "name": "Electronics",
+        "url": "https://images.unsplash.com/photo-1761641466573-f240b6e446de?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNzl8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBlbGVjdHJvbmljcyUyMGRldmljZXN8ZW58MHx8fHwxNzc3OTQwNjI4fDA&ixlib=rb-4.1.0&q=85"
+      },
+      {
+        "name": "Fashion",
+        "url": "https://images.unsplash.com/photo-1757140447782-8503452b2204?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzV8MHwxfHNlYXJjaHwzfHxhZnJpY2FuJTIwZmFzaGlvbiUyMGNsb3RoaW5nfGVufDB8fHx8MTc3Nzk0MDYyM3ww&ixlib=rb-4.1.0&q=85"
+      },
+      {
+        "name": "Home Essentials",
+        "url": "https://images.pexels.com/photos/15108276/pexels-photo-15108276.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+      },
+      {
+        "name": "Pharmacy",
+        "url": "https://images.unsplash.com/photo-1646392206581-2527b1cae5cb?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMjh8MHwxfHNlYXJjaHwxfHxwaGFybWFjeSUyMHBpbGxzJTIwbWVkaWNpbmV8ZW58MHx8fHwxNzc3OTQwNjI5fDA&ixlib=rb-4.1.0&q=85"
+      }
+    ],
+    "restaurants": [
+      {
+        "name": "Local Food",
+        "url": "https://images.unsplash.com/photo-1726177975126-0053e054bc1a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDF8MHwxfHNlYXJjaHwzfHxhZnJpY2FuJTIwbG9jYWwlMjBmb29kJTIwZGlzaHxlbnwwfHx8fDE3Nzc5NDA2MjN8MA&ixlib=rb-4.1.0&q=85"
+      },
+      {
+        "name": "Bakery",
+        "url": "https://images.unsplash.com/photo-1628690570377-a8d5bd19768c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDF8MHwxfHNlYXJjaHwyfHxhZnJpY2FuJTIwbG9jYWwlMjBmb29kJTIwZGlzaHxlbnwwfHx8fDE3Nzc5NDA2MjN8MA&ixlib=rb-4.1.0&q=85"
+      }
+    ]
+  },
+  "technical_rules": {
+    "icons": "lucide-react",
+    "animations": "Framer Motion for page transitions and staggering list items. Hover states should use CSS transitions (transition-all duration-300).",
+    "accessibility": "All interactive elements MUST have data-testid attributes (e.g., data-testid='login-admin-button'). Ensure high contrast ratio for text over images by using dark/light gradient overlays (e.g., bg-gradient-to-t from-black/60 to-transparent).",
+    "pricing_display": "Always show dual pricing: `<span class='font-bold text-[#1A1A1A]'>$15.00</span> <span class='text-sm text-[#5C5C5C] ml-2'>(SSP 15,000)</span>`",
+    "form_elements": "Use Shadcn customized primitives for selects, dialogs, and tabs, ensuring the rounding and colors match the design system above."
+  },
+  "specific_app_instructions": {
+    "login": "Create a clean, centered login page. Hide traditional inputs and use 3 prominent Demo Role buttons (Admin, Seller, Customer) centered in a clean bento-style card.",
+    "areas": ["Munuki", "Jebel", "Gudele", "Konyo Konyo", "Hai Cinema", "Nyakuron", "Atlabara"],
+    "dashboard_style": "Cardless or flat cards with subtle 1px borders, dense data layout, high legibility. Avoid over-using drop shadows in admin views.",
+    "verification_logic": "In admin and marketplace views, visually distinguish verified shops (e.g., green checkmark badge, top of list) vs pending/rejected."
+  }
+}
