@@ -5,45 +5,50 @@ Multi-vendor marketplace + restaurant **demo** web app for local businesses in J
 
 ## Architecture
 - **Backend**: FastAPI + Motor (MongoDB async). Single-file `server.py` with auto-seeding on startup.
-- **Auth**: JWT (httpOnly cookie + Bearer fallback) + bcrypt. 3 demo accounts seeded idempotently with password `1234`.
+- **Auth**: JWT (httpOnly cookie + Bearer fallback) + bcrypt + token-version (force-logout-all). Demo accounts seeded idempotently with password `1234`.
 - **Frontend**: React 19 + React Router 7 + Tailwind. Outfit (display) + Manrope (body). Sonner toasts. lucide-react icons.
 - **Persistence**: localStorage cart (lazy useState init), localStorage JWT.
-- **Currency**: every price shown as USD + SSP. Seller controls exchange rate.
+- **Currency**: USD + SSP everywhere. Seller per-shop rate, admin global rate fallback.
 
 ## User Personas
-- **Customer**: browses, filters by Juba area, builds cart, places orders, tracks status.
-- **Seller**: manages multiple shops + products, updates order status, sets exchange rate.
-- **Admin**: verifies/rejects shops, blocks/unblocks emails, oversees all orders.
+- **Customer**: browses retail/wholesale, filters by Juba area, builds cart, places orders, tracks status, saves favorites.
+- **Seller**: manages multiple retail/wholesale shops + products + menu items, updates order status, sets exchange rate, low-stock alerts.
+- **Admin**: verifies/rejects shops, blocks/unblocks emails, oversees all orders, controls platform settings (modules, maintenance, currency, areas, force-logout, login attempts).
 
-## Core Static Requirements
-- 3 demo accounts only (no signup): admin/seller/customer @demo.com, password `1234`.
-- 5 shops × 2 products + 4 restaurants × 2 menu items auto-seeded on startup.
-- Juba areas: Munuki, Jebel, Gudele, Konyo Konyo, Hai Cinema, Nyakuron, Atlabara.
-- Order statuses: Pending → In Progress → Delivered.
-- Shop verification: Pending / Verified / Rejected (Verified shown first).
-- Branding: "JubaSquare by L.T.G Enterprise" in header, footer, login.
+## What's Been Implemented
 
-## What's Been Implemented (Iteration 1 — 2026-02)
-- ✅ Demo seeding (idempotent users, shops, products, restaurants, menu, sample order)
-- ✅ Full auth: login/logout/me/change-password/profile, JWT cookie + Bearer
-- ✅ Shops CRUD (seller scoped, admin override) with verification flow
-- ✅ Products CRUD with category/area/shop filtering
-- ✅ Restaurants + menu items + open/closed toggle
-- ✅ Orders: place, customer/seller/admin views, status updates
-- ✅ Per-seller exchange rate (USD ↔ SSP)
-- ✅ Admin: verify/reject shops, block/unblock emails (demo accounts protected)
-- ✅ Frontend pages: Home, Login, Marketplace, Restaurants, Cart, Orders, Seller Dashboard (5 tabs), Admin Dashboard (3 tabs)
-- ✅ Cart persistence (lazy useState init — fixes StrictMode race)
-- ✅ Backend regression suite: 25/25 pytest tests pass
+### Iteration 1 (2026-02)
+- Demo seeding (idempotent)
+- Full auth: login/logout/me/change-password/profile (JWT cookie + Bearer)
+- Shops CRUD, Products CRUD, Restaurants + menu items + open/closed
+- Orders: place / customer-seller-admin views / status updates
+- Per-seller exchange rate
+- Admin: verify/reject shops, block/unblock emails
+- Frontend pages: Home, Login, Marketplace, Restaurants, Cart, Orders, Seller Dashboard (5 tabs), Admin Dashboard (3 tabs)
+- 25/25 backend pytest tests pass
+
+### Iteration 2 (2026-02)
+- **New custom logo** (shopping-cart-bridge) across header / footer / login
+- **Expanded categories**: 9 retail + 6 wholesale + 4 restaurant (seeded 9 retail shops + 3 wholesale shops + 4 restaurants)
+- **Wholesale module**: dedicated page with bulk pricing, min-order-quantity, supplier verification filter
+- **Side items** on restaurant menu items + **menu search** inside restaurant modal
+- **Mandatory phone + area** validation on order placement (backend 400 + frontend toast)
+- **Admin Settings panel**: currency, modules toggle (marketplace/wholesale/restaurants), maintenance mode, login attempt limit, areas mgmt, auto-approve shops, force-logout-all (token versioning)
+- **Seller Settings**: low-stock alert + threshold, auto-hide out-of-stock products, order notifications
+- **Customer Settings**: default Juba area, notification prefs, **dark mode toggle** (data-theme on html)
+- **Favorites system** (products / shops / restaurants) with heart icon on product cards + dedicated /favorites page
+- **Brute-force protection** (5 failed attempts → 15-min lockout per IP+email; admin-configurable)
+- 43/43 backend pytest tests pass (25 regression + 18 new)
 
 ## Backlog (P1 / P2)
-- **P1** Order detail page + per-shop order grouping for sellers
-- **P1** Wholesale module (mentioned briefly in spec)
-- **P2** Restaurant Open/Closed scheduler + auto-toggle by hours
-- **P2** Search across products + restaurants on the home page
-- **P2** Image upload (currently URL only) — would require object storage
-- **P2** Migrate FastAPI startup events to lifespan API
-- **P2** Add brute-force lockout on login
+- **P1** Document upload for shop verification (needs object storage)
+- **P1** Per-shop order grouping for sellers + order detail page
+- **P2** Image upload for products / shops (currently URL only)
+- **P2** Restaurant open/closed scheduler with auto-toggle
+- **P2** Email notifications (Resend / SendGrid)
+- **P2** Split server.py into routers (auth/admin/shops/products/etc.) — currently 1176 lines
+- **P2** Server-side price validation against DB on /api/orders
+- **P2** i18n / language switcher
 
 ## Test Credentials
 See `/app/memory/test_credentials.md`.
