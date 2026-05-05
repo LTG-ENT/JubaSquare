@@ -1,15 +1,40 @@
 import { useState } from "react";
 import { MapPin, X, Plus, Search } from "lucide-react";
-import api, { formatUSD, formatSSP } from "@/lib/api";
+import api, { formatPrice, formatPriceAlt } from "@/lib/api";
 import { useCart } from "@/context/CartContext";
 import { useEffect } from "react";
 import { toast } from "sonner";
+
+function MiniCurrencyToggle() {
+  const { currency, toggleCurrency } = useCart();
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); toggleCurrency(); }}
+      data-testid="menu-currency-toggle"
+      title={`Switch to ${currency === "SSP" ? "USD" : "SSP"}`}
+      className="inline-flex items-center gap-1 bg-[var(--js-subtle)] border border-[var(--js-border)] rounded-full px-1 py-1 text-[10px] font-bold"
+    >
+      <span
+        className={`px-2 py-0.5 rounded-full transition ${
+          currency === "SSP" ? "bg-[#E9C46A] text-[#1A1A1A]" : "text-[var(--js-text-secondary)]"
+        }`}
+        data-testid="menu-currency-ssp"
+      >SSP</span>
+      <span
+        className={`px-2 py-0.5 rounded-full transition ${
+          currency === "USD" ? "bg-[#E9C46A] text-[#1A1A1A]" : "text-[var(--js-text-secondary)]"
+        }`}
+        data-testid="menu-currency-usd"
+      >USD</span>
+    </button>
+  );
+}
 
 export default function RestaurantCard({ restaurant }) {
   const [open, setOpen] = useState(false);
   const [menu, setMenu] = useState([]);
   const [search, setSearch] = useState("");
-  const { addItem, exchangeRate } = useCart();
+  const { addItem, exchangeRate, currency } = useCart();
 
   useEffect(() => {
     if (open && menu.length === 0) {
@@ -80,9 +105,12 @@ export default function RestaurantCard({ restaurant }) {
                 />
               </div>
 
-              <h3 className="font-display font-semibold text-lg text-[var(--js-text)] mt-6 mb-3">Menu</h3>
+              <div className="flex items-center justify-between mt-6 mb-3">
+                <h3 className="font-display font-semibold text-lg text-[var(--js-text)]">Menu</h3>
+                <MiniCurrencyToggle />
+              </div>
               <div className="space-y-3">
-                {filteredMenu.map((item) => <MenuRow key={item.id} item={item} restaurant={restaurant} addMenu={addMenu} exchangeRate={exchangeRate} />)}
+                {filteredMenu.map((item) => <MenuRow key={item.id} item={item} restaurant={restaurant} addMenu={addMenu} exchangeRate={exchangeRate} currency={currency} />)}
                 {filteredMenu.length === 0 && menu.length > 0 && <p className="text-sm text-[var(--js-text-secondary)] text-center py-6">No items match "{search}"</p>}
                 {menu.length === 0 && <p className="text-sm text-[var(--js-text-secondary)]">Loading menu...</p>}
               </div>
@@ -94,7 +122,7 @@ export default function RestaurantCard({ restaurant }) {
   );
 }
 
-function MenuRow({ item, restaurant, addMenu, exchangeRate }) {
+function MenuRow({ item, restaurant, addMenu, exchangeRate, currency }) {
   const [expanded, setExpanded] = useState(false);
   const [pickedSides, setPickedSides] = useState([]);
   const hasSides = (item.side_items || []).length > 0;
@@ -106,16 +134,16 @@ function MenuRow({ item, restaurant, addMenu, exchangeRate }) {
   };
 
   const onPlusClick = () => {
-    // If item has sides and they're not yet shown, reveal them first.
     if (hasSides && !expanded) {
       setExpanded(true);
       return;
     }
-    // Otherwise (no sides, or sides already shown) — add to cart.
     addMenu(item, pickedSides);
     setExpanded(false);
     setPickedSides([]);
   };
+
+  const totalUsd = item.price_usd + pickedSides.reduce((s, x) => s + x.price_usd, 0);
 
   return (
     <div className="border border-[var(--js-border)] rounded-2xl p-3" data-testid={`menu-item-${item.id}`}>
@@ -125,8 +153,12 @@ function MenuRow({ item, restaurant, addMenu, exchangeRate }) {
           <p className="font-semibold text-[var(--js-text)]">{item.name}</p>
           <p className="text-xs text-[var(--js-text-secondary)] line-clamp-2 mt-0.5">{item.description}</p>
           <div className="mt-1 flex items-center gap-2">
-            <span className="font-display font-bold text-[var(--js-text)]">{formatUSD(item.price_usd + pickedSides.reduce((s, x) => s + x.price_usd, 0))}</span>
-            <span className="text-xs text-[var(--js-text-secondary)]">{formatSSP(item.price_usd + pickedSides.reduce((s, x) => s + x.price_usd, 0), exchangeRate)}</span>
+            <span className="font-display font-bold text-[var(--js-text)]" data-testid={`menu-price-${item.id}`}>
+              {formatPrice(totalUsd, exchangeRate, currency)}
+            </span>
+            <span className="text-xs text-[var(--js-text-secondary)]">
+              ≈ {formatPriceAlt(totalUsd, exchangeRate, currency)}
+            </span>
           </div>
         </div>
         <button
@@ -154,7 +186,7 @@ function MenuRow({ item, restaurant, addMenu, exchangeRate }) {
                     picked ? "bg-[#C84B31] text-white border-[#C84B31]" : "bg-white border-[var(--js-border)] text-[var(--js-text)] hover:border-[#C84B31]"
                   }`}
                 >
-                  {picked ? "✓ " : "+ "}{s.name} {formatUSD(s.price_usd)}
+                  {picked ? "✓ " : "+ "}{s.name} {formatPrice(s.price_usd, exchangeRate, currency)}
                 </button>
               );
             })}

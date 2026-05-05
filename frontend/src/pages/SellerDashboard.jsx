@@ -259,6 +259,7 @@ const MODE_CONFIG = {
 };
 
 function ProductsTab() {
+  const { user } = useAuth();
   const [shops, setShops] = useState([]);
   const [restaurants, setRestaurants] = useState([]);
   const [products, setProducts] = useState([]);
@@ -285,7 +286,7 @@ function ProductsTab() {
     const [sRes, rRes, rateRes] = await Promise.all([
       api.get("/shops/mine"),
       api.get("/restaurants"),
-      api.get("/exchange-rate"),
+      api.get(user?.id ? `/exchange-rate?seller_id=${user.id}` : "/exchange-rate"),
     ]);
     setShops(sRes.data);
     setRestaurants(rRes.data);
@@ -305,7 +306,7 @@ function ProductsTab() {
     }
     setMenuItems(allMenu);
   };
-  useEffect(() => { loadAll(); }, []); // eslint-disable-line
+  useEffect(() => { loadAll(); }, [user?.id]); // eslint-disable-line
 
   const retailShops = shops.filter((s) => s.kind !== "wholesale");
   const wholesaleShops = shops.filter((s) => s.kind === "wholesale");
@@ -958,17 +959,21 @@ function OrdersTab() {
 }
 
 function RateTab() {
+  const { user } = useAuth();
   const [rate, setRate] = useState(600);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    api.get("/exchange-rate").then((r) => setRate(r.data?.rate || 600));
-  }, []);
+    if (!user?.id) return;
+    // Fetch the CURRENT seller's own rate (not the global rate).
+    api.get(`/exchange-rate?seller_id=${user.id}`).then((r) => setRate(r.data?.rate || 600));
+  }, [user?.id]);
 
   const save = async () => {
     setSaving(true);
     try {
-      await api.put("/exchange-rate", { rate: parseFloat(rate) });
+      const { data } = await api.put("/exchange-rate", { rate: parseFloat(rate) });
+      setRate(data?.rate || parseFloat(rate));
       toast.success("Exchange rate saved");
     } catch (err) {
       toast.error(formatDetail(err.response?.data?.detail));
