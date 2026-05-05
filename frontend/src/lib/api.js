@@ -39,3 +39,11 @@ export const formatSSP = (usd, rate) => {
   const ssp = (Number(usd) || 0) * (Number(rate) || 600);
   return `SSP ${ssp.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 };
+
+// Returns the primary price string based on currency preference.
+export const formatPrice = (usd, rate, currency = "SSP") =>
+  currency === "USD" ? formatUSD(usd) : formatSSP(usd, rate);
+
+// Returns the secondary (smaller) price string — the OPPOSITE of primary.
+export const formatPriceAlt = (usd, rate, currency = "SSP") =>
+  currency === "USD" ? formatSSP(usd, rate) : formatUSD(usd);

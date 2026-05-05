@@ -17,10 +17,11 @@ export const CartProvider = ({ children }) => {
   const [items, setItems] = useState(() => readStorage()?.items || []);
   const [area, setArea] = useState(() => readStorage()?.area || "Munuki");
   const [exchangeRate, setExchangeRate] = useState(() => readStorage()?.exchangeRate || 600);
+  const [currency, setCurrency] = useState(() => readStorage()?.currency || "SSP");
 
   useEffect(() => {
-    localStorage.setItem(KEY, JSON.stringify({ items, area, exchangeRate }));
-  }, [items, area, exchangeRate]);
+    localStorage.setItem(KEY, JSON.stringify({ items, area, exchangeRate, currency }));
+  }, [items, area, exchangeRate, currency]);
 
   const addItem = (item) => {
     setItems((prev) => {
@@ -49,11 +50,14 @@ export const CartProvider = ({ children }) => {
   const subtotalUSD = items.reduce((s, i) => s + i.price_usd * i.quantity, 0);
   const count = items.reduce((s, i) => s + i.quantity, 0);
 
+  const toggleCurrency = () => setCurrency((c) => (c === "USD" ? "SSP" : "USD"));
+
   return (
     <CartContext.Provider
       value={{
-        items, area, exchangeRate, count, subtotalUSD,
+        items, area, exchangeRate, count, subtotalUSD, currency,
         addItem, removeItem, setQuantity, clear, setArea, setExchangeRate,
+        setCurrency, toggleCurrency,
       }}
     >
       {children}

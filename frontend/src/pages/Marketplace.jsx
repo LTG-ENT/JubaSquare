@@ -98,7 +98,7 @@ export default function Marketplace() {
 
         <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-8">
           {/* Sidebar */}
-          <aside className="space-y-6">
+          <aside className="space-y-6 lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
             <div className="relative">
               <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-[var(--js-text-secondary)]" />
               <input
@@ -106,7 +106,7 @@ export default function Marketplace() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search products..."
-                className="w-full bg-white border border-[var(--js-border)] rounded-full pl-11 pr-4 py-2.5 text-sm focus:outline-none focus:border-[#C84B31]"
+                className="w-full bg-white border border-[var(--js-border)] rounded-full pl-11 pr-4 py-2.5 text-sm focus:outline-none focus:border-[#C84B31] shadow-sm"
               />
             </div>
 

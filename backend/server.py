@@ -142,6 +142,11 @@ class ProfileIn(BaseModel):
     phone: Optional[str] = None
 
 
+class DeliveryAreaFee(BaseModel):
+    area: str
+    fee_usd: float = 0.0
+
+
 class ShopIn(BaseModel):
     name: str
     description: Optional[str] = ""
@@ -150,6 +155,10 @@ class ShopIn(BaseModel):
     # "category" and "kind" retained for backward compatibility only; not required
     category: Optional[str] = ""
     kind: Literal["retail", "wholesale"] = "retail"
+    # Delivery configuration (per-shop)
+    delivery_mode: Literal["free", "fixed", "per_area"] = "free"
+    delivery_fee_usd: float = 0.0
+    delivery_per_area: List[DeliveryAreaFee] = Field(default_factory=list)
 
 
 class ShopCommissionIn(BaseModel):
@@ -229,6 +238,11 @@ class ExchangeRateIn(BaseModel):
 class FavoriteIn(BaseModel):
     target_type: Literal["shop", "product", "restaurant"]
     target_id: str
+
+
+class ReviewIn(BaseModel):
+    rating: int = Field(ge=1, le=5)
+    comment: Optional[str] = ""
 
 
 class SettingsIn(BaseModel):
@@ -712,6 +726,34 @@ async def place_order(body: OrderIn, user: dict = Depends(get_current_user)):
         raise HTTPException(400, "Cart is empty")
 
     subtotal = sum(it.price_usd * it.quantity + sum(sd.price_usd for sd in (it.sides or [])) * it.quantity for it in body.items)
+
+    # Compute per-shop delivery fee based on customer area
+    delivery_fee = 0.0
+    delivery_breakdown: List[dict] = []
+    item_ids = [it.item_id for it in body.items]
+    products = await db.products.find({"id": {"$in": item_ids}}, {"_id": 0}).to_list(2000)
+    shop_ids_in_order = list({p["shop_id"] for p in products})
+    if shop_ids_in_order:
+        shops = await db.shops.find({"id": {"$in": shop_ids_in_order}}, {"_id": 0}).to_list(500)
+        for sh in shops:
+            mode = sh.get("delivery_mode", "free")
+            fee = 0.0
+            if mode == "fixed":
+                fee = float(sh.get("delivery_fee_usd") or 0)
+            elif mode == "per_area":
+                for entry in sh.get("delivery_per_area", []) or []:
+                    if (entry.get("area") or "").lower() == body.area.lower():
+                        fee = float(entry.get("fee_usd") or 0)
+                        break
+            delivery_fee += fee
+            delivery_breakdown.append({
+                "shop_id": sh["id"],
+                "shop_name": sh.get("name", "—"),
+                "fee_usd": round(fee, 2),
+                "mode": mode,
+            })
+
+    total = round(subtotal + delivery_fee, 2)
     order = {
         "id": str(uuid.uuid4()),
         "customer_id": user["id"],
@@ -719,6 +761,9 @@ async def place_order(body: OrderIn, user: dict = Depends(get_current_user)):
         "customer_email": user["email"],
         "items": [it.model_dump() for it in body.items],
         "subtotal_usd": round(subtotal, 2),
+        "delivery_fee_usd": round(delivery_fee, 2),
+        "delivery_breakdown": delivery_breakdown,
+        "total_usd": total,
         "area": body.area, "address": body.address, "phone": body.phone,
         "note": body.note, "order_kind": body.order_kind,
         "status": "Pending", "created_at": now_iso(),
@@ -788,6 +833,91 @@ async def remove_favorite(target_type: str, target_id: str, user: dict = Depends
         "user_id": user["id"], "target_type": target_type, "target_id": target_id,
     })
     return {"ok": True}
+
+
+# ----------------------------------------------------------------------------
+# Reviews (product feedback)
+# ----------------------------------------------------------------------------
+@api.get("/products/{product_id}/reviews")
+async def list_reviews(product_id: str):
+    reviews = await db.reviews.find({"product_id": product_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    if not reviews:
+        return {"reviews": [], "average": 0, "count": 0}
+    avg = round(sum(r.get("rating", 0) for r in reviews) / len(reviews), 1)
+    return {"reviews": reviews, "average": avg, "count": len(reviews)}
+
+
+@api.post("/products/{product_id}/reviews")
+async def add_review(product_id: str, body: ReviewIn, user: dict = Depends(get_current_user)):
+    if user["role"] != "customer":
+        raise HTTPException(403, "Only customers can post reviews")
+    p = await db.products.find_one({"id": product_id})
+    if not p:
+        raise HTTPException(404, "Product not found")
+    review = {
+        "id": str(uuid.uuid4()),
+        "product_id": product_id,
+        "user_id": user["id"],
+        "user_name": user.get("name", "Customer"),
+        "rating": int(body.rating),
+        "comment": (body.comment or "").strip()[:1000],
+        "created_at": now_iso(),
+    }
+    await db.reviews.insert_one(review)
+    review.pop("_id", None)
+    return review
+
+
+@api.delete("/products/{product_id}/reviews/{review_id}")
+async def delete_review(product_id: str, review_id: str, user: dict = Depends(get_current_user)):
+    rv = await db.reviews.find_one({"id": review_id, "product_id": product_id})
+    if not rv:
+        raise HTTPException(404, "Review not found")
+    if user["role"] != "admin" and rv.get("user_id") != user["id"]:
+        raise HTTPException(403, "Forbidden")
+    await db.reviews.delete_one({"id": review_id})
+    return {"ok": True}
+
+
+# ----------------------------------------------------------------------------
+# Delivery quote (preview cart total based on area)
+# ----------------------------------------------------------------------------
+@api.post("/orders/quote")
+async def quote_order(body: OrderIn, _: dict = Depends(get_current_user)):
+    """Compute delivery fee preview for given items + area, without creating an order."""
+    if not body.items:
+        return {"subtotal_usd": 0, "delivery_fee_usd": 0, "total_usd": 0, "delivery_breakdown": []}
+    subtotal = sum(it.price_usd * it.quantity + sum(sd.price_usd for sd in (it.sides or [])) * it.quantity for it in body.items)
+    item_ids = [it.item_id for it in body.items]
+    products = await db.products.find({"id": {"$in": item_ids}}, {"_id": 0}).to_list(2000)
+    shop_ids_in_order = list({p["shop_id"] for p in products})
+    delivery_fee = 0.0
+    breakdown = []
+    if shop_ids_in_order and body.area:
+        shops = await db.shops.find({"id": {"$in": shop_ids_in_order}}, {"_id": 0}).to_list(500)
+        for sh in shops:
+            mode = sh.get("delivery_mode", "free")
+            fee = 0.0
+            if mode == "fixed":
+                fee = float(sh.get("delivery_fee_usd") or 0)
+            elif mode == "per_area":
+                for entry in sh.get("delivery_per_area", []) or []:
+                    if (entry.get("area") or "").lower() == body.area.lower():
+                        fee = float(entry.get("fee_usd") or 0)
+                        break
+            delivery_fee += fee
+            breakdown.append({
+                "shop_id": sh["id"],
+                "shop_name": sh.get("name", "—"),
+                "fee_usd": round(fee, 2),
+                "mode": mode,
+            })
+    return {
+        "subtotal_usd": round(subtotal, 2),
+        "delivery_fee_usd": round(delivery_fee, 2),
+        "total_usd": round(subtotal + delivery_fee, 2),
+        "delivery_breakdown": breakdown,
+    }
 
 
 # ----------------------------------------------------------------------------
@@ -1237,6 +1367,8 @@ async def seed_demo():
     await db.blocked_emails.create_index("email", unique=True)
     await db.favorites.create_index([("user_id", 1), ("target_type", 1), ("target_id", 1)])
     await db.invoices.create_index("id", unique=True)
+    await db.reviews.create_index([("product_id", 1)])
+    await db.reviews.create_index("id", unique=True)
 
     # Settings
     existing_s = await db.settings.find_one({"id": "system"})

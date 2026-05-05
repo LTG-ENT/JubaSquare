@@ -11,6 +11,8 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import Home from "@/pages/Home";
 import Login from "@/pages/Login";
 import Marketplace from "@/pages/Marketplace";
+import Shops from "@/pages/Shops";
+import ProductDetail from "@/pages/ProductDetail";
 import Restaurants from "@/pages/Restaurants";
 import Cart from "@/pages/Cart";
 import Orders from "@/pages/Orders";
@@ -39,6 +41,8 @@ export default function App() {
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<Login />} />
               <Route path="/marketplace" element={<Marketplace />} />
+              <Route path="/shops" element={<Shops />} />
+              <Route path="/product/:id" element={<ProductDetail />} />
               <Route path="/wholesale" element={<Navigate to="/marketplace?view=wholesale" replace />} />
               <Route path="/restaurants" element={<Restaurants />} />
               <Route path="/cart" element={<Cart />} />

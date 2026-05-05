@@ -4,23 +4,52 @@ import { useAuth } from "@/context/AuthContext";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import AreaSelector from "@/components/AreaSelector";
-import { Minus, Plus, Trash2, ShoppingBag } from "lucide-react";
-import api, { formatUSD, formatSSP } from "@/lib/api";
+import { Minus, Plus, Trash2, ShoppingBag, Truck } from "lucide-react";
+import api, { formatPrice, formatPriceAlt } from "@/lib/api";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 
 export default function Cart() {
-  const { items, removeItem, setQuantity, subtotalUSD, area, setArea, clear, exchangeRate, setExchangeRate } = useCart();
+  const { items, removeItem, setQuantity, subtotalUSD, area, setArea, clear, exchangeRate, setExchangeRate, currency } = useCart();
   const { user } = useAuth();
   const navigate = useNavigate();
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
   const [note, setNote] = useState("");
   const [placing, setPlacing] = useState(false);
+  const [quote, setQuote] = useState({ delivery_fee_usd: 0, total_usd: subtotalUSD, delivery_breakdown: [] });
 
   useEffect(() => {
     api.get("/exchange-rate").then((r) => setExchangeRate(r.data?.rate || 600));
   }, [setExchangeRate]);
+
+  // Recompute delivery quote when items or area change
+  useEffect(() => {
+    if (!user || items.length === 0 || !area) {
+      setQuote({ delivery_fee_usd: 0, total_usd: subtotalUSD, delivery_breakdown: [] });
+      return;
+    }
+    const t = setTimeout(async () => {
+      try {
+        const hasMenu = items.some((i) => i.item_type === "menu_item");
+        const isWholesale = items.some((i) => (i.quantity || 1) >= 5);
+        const { data } = await api.post("/orders/quote", {
+          items: items.map((i) => ({
+            item_type: i.item_type, item_id: i.item_id, name: i.name,
+            price_usd: i.price_usd, quantity: i.quantity, image_url: i.image_url,
+            sides: i.sides || [],
+          })),
+          area, address: address || "", phone: phone || "x",
+          order_kind: hasMenu ? "restaurant" : (isWholesale ? "wholesale" : "marketplace"),
+        });
+        setQuote(data);
+      } catch {
+        // user may not be logged in — fallback
+        setQuote({ delivery_fee_usd: 0, total_usd: subtotalUSD, delivery_breakdown: [] });
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [items, area, user, subtotalUSD, address, phone]);
 
   const place = async () => {
     if (!user) { navigate("/login"); return; }
@@ -49,6 +78,8 @@ export default function Cart() {
       setPlacing(false);
     }
   };
+
+  const total = (quote.total_usd ?? subtotalUSD);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -80,8 +111,8 @@ export default function Cart() {
                     <p className="font-semibold text-[#1A1A1A]">{i.name}</p>
                     <p className="text-[10px] uppercase tracking-wider text-[#5C5C5C] font-bold mt-0.5">{i.item_type === "menu_item" ? "Menu Item" : "Product"}</p>
                     <div className="mt-2">
-                      <p className="font-display font-bold text-[#1A1A1A]">{formatUSD(i.price_usd)}</p>
-                      <p className="text-xs text-[#5C5C5C]">{formatSSP(i.price_usd, exchangeRate)}</p>
+                      <p className="font-display font-bold text-[#1A1A1A]">{formatPrice(i.price_usd, exchangeRate, currency)}</p>
+                      <p className="text-xs text-[#5C5C5C]">≈ {formatPriceAlt(i.price_usd, exchangeRate, currency)}</p>
                     </div>
                   </div>
                   <div className="flex flex-col items-end justify-between">
@@ -144,16 +175,37 @@ export default function Cart() {
               <div className="border-t border-[#E2E2D9] pt-4 space-y-1.5">
                 <div className="flex justify-between text-sm text-[#5C5C5C]">
                   <span>Subtotal</span>
-                  <span data-testid="cart-subtotal-usd">{formatUSD(subtotalUSD)}</span>
+                  <span data-testid="cart-subtotal">{formatPrice(subtotalUSD, exchangeRate, currency)}</span>
                 </div>
+
+                {quote.delivery_breakdown && quote.delivery_breakdown.length > 0 && (
+                  <div className="space-y-1 pt-1">
+                    <div className="flex items-center gap-1 text-xs text-[#2D6A4F] font-semibold">
+                      <Truck className="w-3 h-3" /> Delivery (per shop)
+                    </div>
+                    {quote.delivery_breakdown.map((b) => (
+                      <div key={b.shop_id} className="flex justify-between text-xs text-[#5C5C5C] pl-4" data-testid={`delivery-row-${b.shop_id}`}>
+                        <span className="truncate">{b.shop_name}</span>
+                        <span className="font-semibold">
+                          {b.fee_usd === 0 ? <span className="text-[#2D6A4F]">FREE</span> : formatPrice(b.fee_usd, exchangeRate, currency)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <div className="flex justify-between text-sm text-[#5C5C5C]">
-                  <span>SSP equivalent</span>
-                  <span data-testid="cart-subtotal-ssp">{formatSSP(subtotalUSD, exchangeRate)}</span>
+                  <span>Delivery total</span>
+                  <span data-testid="cart-delivery-total">
+                    {quote.delivery_fee_usd === 0 ? <span className="text-[#2D6A4F] font-semibold">FREE</span> : formatPrice(quote.delivery_fee_usd, exchangeRate, currency)}
+                  </span>
                 </div>
-                <div className="flex justify-between font-bold text-lg pt-2">
+
+                <div className="flex justify-between font-bold text-lg pt-2 border-t border-[#E2E2D9]">
                   <span>Total</span>
-                  <span className="font-display">{formatUSD(subtotalUSD)}</span>
+                  <span className="font-display" data-testid="cart-total">{formatPrice(total, exchangeRate, currency)}</span>
                 </div>
+                <p className="text-[11px] text-[#5C5C5C] text-right">≈ {formatPriceAlt(total, exchangeRate, currency)}</p>
               </div>
 
               <button
@@ -162,7 +214,7 @@ export default function Cart() {
                 data-testid="place-order-btn"
                 className="w-full bg-[#C84B31] hover:bg-[#A83A23] disabled:bg-[#A3A39E] text-white font-semibold py-3.5 rounded-full transition"
               >
-                {placing ? "Placing..." : `Place Order · ${formatUSD(subtotalUSD)}`}
+                {placing ? "Placing..." : `Place Order · ${formatPrice(total, exchangeRate, currency)}`}
               </button>
               {!user && <p className="text-xs text-center text-[#5C5C5C]">You'll be asked to login first.</p>}
             </aside>
