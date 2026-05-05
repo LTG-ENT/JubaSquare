@@ -105,6 +105,18 @@ function MenuRow({ item, restaurant, addMenu, exchangeRate }) {
     else setPickedSides([...pickedSides, s]);
   };
 
+  const onPlusClick = () => {
+    // If item has sides and they're not yet shown, reveal them first.
+    if (hasSides && !expanded) {
+      setExpanded(true);
+      return;
+    }
+    // Otherwise (no sides, or sides already shown) — add to cart.
+    addMenu(item, pickedSides);
+    setExpanded(false);
+    setPickedSides([]);
+  };
+
   return (
     <div className="border border-[var(--js-border)] rounded-2xl p-3" data-testid={`menu-item-${item.id}`}>
       <div className="flex gap-3">
@@ -116,38 +128,53 @@ function MenuRow({ item, restaurant, addMenu, exchangeRate }) {
             <span className="font-display font-bold text-[var(--js-text)]">{formatUSD(item.price_usd + pickedSides.reduce((s, x) => s + x.price_usd, 0))}</span>
             <span className="text-xs text-[var(--js-text-secondary)]">{formatSSP(item.price_usd + pickedSides.reduce((s, x) => s + x.price_usd, 0), exchangeRate)}</span>
           </div>
-          {hasSides && (
-            <button onClick={() => setExpanded(!expanded)} data-testid={`expand-sides-${item.id}`} className="text-xs text-[#C84B31] font-semibold mt-1 hover:underline">
-              {expanded ? "Hide sides" : `+ ${item.side_items.length} side option${item.side_items.length > 1 ? "s" : ""}`}
-            </button>
-          )}
         </div>
         <button
           disabled={!restaurant.is_open}
-          onClick={() => addMenu(item, pickedSides)}
+          onClick={onPlusClick}
           data-testid={`add-menu-${item.id}`}
+          title={hasSides && !expanded ? "Choose sides" : "Add to cart"}
           className="self-center bg-[#1A1A1A] hover:bg-[#C84B31] text-white rounded-full p-2.5 transition disabled:bg-[#A3A39E] disabled:cursor-not-allowed"
         >
           <Plus className="w-4 h-4" />
         </button>
       </div>
       {expanded && hasSides && (
-        <div className="mt-3 pt-3 border-t border-[var(--js-border)] flex flex-wrap gap-2">
-          {item.side_items.map((s) => {
-            const picked = pickedSides.find((x) => x.name === s.name);
-            return (
-              <button
-                key={s.name}
-                onClick={() => toggleSide(s)}
-                data-testid={`side-${item.id}-${s.name.replace(/\s+/g, "-").toLowerCase()}`}
-                className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition ${
-                  picked ? "bg-[#C84B31] text-white border-[#C84B31]" : "bg-white border-[var(--js-border)] text-[var(--js-text)] hover:border-[#C84B31]"
-                }`}
-              >
-                {picked ? "✓ " : "+ "}{s.name} {formatUSD(s.price_usd)}
-              </button>
-            );
-          })}
+        <div className="mt-3 pt-3 border-t border-[var(--js-border)]">
+          <p className="text-xs font-semibold text-[var(--js-text-secondary)] mb-2">Choose sides (optional):</p>
+          <div className="flex flex-wrap gap-2">
+            {item.side_items.map((s) => {
+              const picked = pickedSides.find((x) => x.name === s.name);
+              return (
+                <button
+                  key={s.name}
+                  onClick={() => toggleSide(s)}
+                  data-testid={`side-${item.id}-${s.name.replace(/\s+/g, "-").toLowerCase()}`}
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition ${
+                    picked ? "bg-[#C84B31] text-white border-[#C84B31]" : "bg-white border-[var(--js-border)] text-[var(--js-text)] hover:border-[#C84B31]"
+                  }`}
+                >
+                  {picked ? "✓ " : "+ "}{s.name} {formatUSD(s.price_usd)}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-3 flex items-center justify-end gap-2">
+            <button
+              onClick={() => { setExpanded(false); setPickedSides([]); }}
+              data-testid={`cancel-sides-${item.id}`}
+              className="text-xs font-semibold text-[var(--js-text-secondary)] hover:text-[var(--js-text)] px-3 py-1.5"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onPlusClick}
+              data-testid={`confirm-sides-${item.id}`}
+              className="text-xs font-bold bg-[#C84B31] hover:bg-[#A83A23] text-white rounded-full px-4 py-2 transition"
+            >
+              Add to cart
+            </button>
+          </div>
         </div>
       )}
     </div>
