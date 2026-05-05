@@ -1,79 +1,76 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Manrope:wght@300;400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-body {
-    margin: 0;
-    font-family:
-        -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
-        "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
-        sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+:root {
+    --js-bg: #F9F9F6;
+    --js-paper: #FFFFFF;
+    --js-subtle: #F2EBE5;
+    --js-text: #1A1A1A;
+    --js-text-secondary: #5C5C5C;
+    --js-text-disabled: #A3A39E;
+    --js-primary: #C84B31;
+    --js-primary-hover: #A83A23;
+    --js-primary-light: #E97A63;
+    --js-secondary: #2D6A4F;
+    --js-secondary-hover: #1B4332;
+    --js-secondary-light: #40916C;
+    --js-gold: #D4A373;
+    --js-sun: #E9C46A;
+    --js-border: #E2E2D9;
+    --js-success: #2D6A4F;
+    --js-warning: #E9C46A;
+    --js-error: #D90429;
+    --js-info: #2A9D8F;
 }
 
-code {
-    font-family:
-        source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
+html, body, #root {
+    background: var(--js-bg);
+    color: var(--js-text);
+}
+
+body {
+    margin: 0;
+    font-family: 'Manrope', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'ss01', 'cv11';
+}
+
+.font-display {
+    font-family: 'Outfit', system-ui, sans-serif;
+    letter-spacing: -0.02em;
+}
+
+.font-body {
+    font-family: 'Manrope', system-ui, sans-serif;
 }
 
 @layer base {
     :root {
-        --background: 0 0% 100%;
-        --foreground: 0 0% 3.9%;
+        --background: 60 14% 97%;
+        --foreground: 0 0% 10%;
         --card: 0 0% 100%;
-        --card-foreground: 0 0% 3.9%;
+        --card-foreground: 0 0% 10%;
         --popover: 0 0% 100%;
-        --popover-foreground: 0 0% 3.9%;
-        --primary: 0 0% 9%;
-        --primary-foreground: 0 0% 98%;
-        --secondary: 0 0% 96.1%;
-        --secondary-foreground: 0 0% 9%;
-        --muted: 0 0% 96.1%;
-        --muted-foreground: 0 0% 45.1%;
-        --accent: 0 0% 96.1%;
-        --accent-foreground: 0 0% 9%;
-        --destructive: 0 84.2% 60.2%;
-        --destructive-foreground: 0 0% 98%;
-        --border: 0 0% 89.8%;
-        --input: 0 0% 89.8%;
-        --ring: 0 0% 3.9%;
-        --chart-1: 12 76% 61%;
-        --chart-2: 173 58% 39%;
-        --chart-3: 197 37% 24%;
-        --chart-4: 43 74% 66%;
-        --chart-5: 27 87% 67%;
-        --radius: 0.5rem;
+        --popover-foreground: 0 0% 10%;
+        --primary: 11 61% 49%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 26 28% 92%;
+        --secondary-foreground: 0 0% 10%;
+        --muted: 26 28% 95%;
+        --muted-foreground: 0 0% 36%;
+        --accent: 26 28% 92%;
+        --accent-foreground: 0 0% 10%;
+        --destructive: 354 96% 43%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 50 16% 87%;
+        --input: 50 16% 87%;
+        --ring: 11 61% 49%;
+        --radius: 0.75rem;
     }
-    .dark {
-        --background: 0 0% 3.9%;
-        --foreground: 0 0% 98%;
-        --card: 0 0% 3.9%;
-        --card-foreground: 0 0% 98%;
-        --popover: 0 0% 3.9%;
-        --popover-foreground: 0 0% 98%;
-        --primary: 0 0% 98%;
-        --primary-foreground: 0 0% 9%;
-        --secondary: 0 0% 14.9%;
-        --secondary-foreground: 0 0% 98%;
-        --muted: 0 0% 14.9%;
-        --muted-foreground: 0 0% 63.9%;
-        --accent: 0 0% 14.9%;
-        --accent-foreground: 0 0% 98%;
-        --destructive: 0 62.8% 30.6%;
-        --destructive-foreground: 0 0% 98%;
-        --border: 0 0% 14.9%;
-        --input: 0 0% 14.9%;
-        --ring: 0 0% 83.1%;
-        --chart-1: 220 70% 50%;
-        --chart-2: 160 60% 45%;
-        --chart-3: 30 80% 55%;
-        --chart-4: 280 65% 60%;
-        --chart-5: 340 75% 55%;
-    }
-}
-
-@layer base {
     * {
         @apply border-border;
     }
@@ -82,34 +79,90 @@ code {
     }
 }
 
-@layer base {
-    [data-debug-wrapper="true"] {
-        display: contents !important;
-    }
+/* Smooth scroll & focus rings */
+* {
+    scroll-behavior: smooth;
+}
 
-    [data-debug-wrapper="true"] > * {
-        margin-left: inherit;
-        margin-right: inherit;
-        margin-top: inherit;
-        margin-bottom: inherit;
-        padding-left: inherit;
-        padding-right: inherit;
-        padding-top: inherit;
-        padding-bottom: inherit;
-        column-gap: inherit;
-        row-gap: inherit;
-        gap: inherit;
-        border-left-width: inherit;
-        border-right-width: inherit;
-        border-top-width: inherit;
-        border-bottom-width: inherit;
-        border-left-style: inherit;
-        border-right-style: inherit;
-        border-top-style: inherit;
-        border-bottom-style: inherit;
-        border-left-color: inherit;
-        border-right-color: inherit;
-        border-top-color: inherit;
-        border-bottom-color: inherit;
-    }
+::selection {
+    background: var(--js-primary);
+    color: white;
+}
+
+/* Custom utilities */
+.js-card {
+    background: var(--js-paper);
+    border: 1px solid var(--js-border);
+    border-radius: 1rem;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+    transition: all 0.3s ease;
+}
+
+.js-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+.js-btn-primary {
+    background: var(--js-primary);
+    color: white;
+    border-radius: 9999px;
+    padding: 0.75rem 1.5rem;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+.js-btn-primary:hover {
+    background: var(--js-primary-hover);
+}
+
+.js-btn-secondary {
+    background: var(--js-subtle);
+    color: var(--js-text);
+    border-radius: 9999px;
+    padding: 0.75rem 1.5rem;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.js-btn-secondary:hover {
+    background: var(--js-border);
+}
+
+.js-input {
+    background: white;
+    border: 1px solid var(--js-border);
+    border-radius: 0.75rem;
+    padding: 0.75rem 1rem;
+    width: 100%;
+    transition: all 0.2s;
+}
+
+.js-input:focus {
+    outline: none;
+    border-color: var(--js-primary);
+    box-shadow: 0 0 0 3px rgba(200, 75, 49, 0.15);
+}
+
+.grain-bg {
+    position: relative;
+}
+
+.grain-bg::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.15'/%3E%3C/svg%3E");
+    mix-blend-mode: multiply;
+    opacity: 0.4;
+}
+
+@keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.fade-up {
+    animation: fadeUp 0.5s ease-out both;
 }
