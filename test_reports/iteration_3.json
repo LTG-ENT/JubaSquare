@@ -1,0 +1,35 @@
+{
+  "summary": "Iter3 testing complete. Backend: 58/58 pytest tests pass (25 iter1 regression + 18 iter2 regression + 15 new iter3 tests covering admin invoice list/filter/detail/status, idempotent regenerate preserving Paid status, commission_rate persistence and recomputation on change-then-regen with revert, seller-only invoices + customer 403, meta food_subcategories has exactly 16 items, wholesale product with pricing_tiers persists mode+tiers, menu-item food_category+side_items persists). Frontend UI verified via Playwright: Admin Invoices tab shows 4 stat cards (Invoices=4 / Total Sales=$358 / Commission=$35.80 / Unpaid=$20.90), commission rate input, 'All invoices' filter dropdown, Regenerate button, 4 invoice rows with eye icon + Mark Paid/Mark Unpaid (Mark Paid click flips status and persists after reload). Detail modal opens on eye click. Seller Invoices tab shows 4 rows with Amount Owed stat card + OWED column. Seller Products tab: 3 buttons (add-marketplace/restaurant/wholesale) each open modal with mode-toggle-marketplace/restaurant/wholesale at top; Restaurant mode shows product-restaurant-select + food-category-select with all 16 options + side editor; Wholesale mode shows min-order-qty + bulk-price + tier-min-qty + tier-price + tier-add-btn, added tier appears in list; Marketplace mode hides food-category. Mode badges MARKETPLACE/WHOLESALE/RESTAURANT all render on table rows.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Seller Invoices tab", "issues": ["Table header uses 'OWED' instead of 'Amount Owed' — requirement said 'Amount Owed column'; the AMOUNT OWED stat card is labeled correctly. Minor cosmetic inconsistency only."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_iter2_features.py",
+    "/app/backend/tests/test_iter3_features.py",
+    "/app/test_reports/pytest/iter3_results.xml",
+    "/app/test_reports/pytest/regression_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now 1346 lines — still a single-file monolith. Strong recommendation to split into routers/ (auth, shops, products, restaurants, menu, orders, favorites, settings, admin, invoices, seeding) before iter4 or maintainability will degrade.",
+    "_rebuild_invoices() does a full delete_many + re-insert every call. For the demo it's fine, but under load this would thrash. Consider an upsert by (seller_id, shop_id, week_start) key so id/created_at/status auto-preserve without the current two-pass 'existing' dict.",
+    "Invoice endpoints use 'Paid'/'Unpaid' literal strings without an enum constant — grep shows it's hard-coded in 5+ places including InvoiceStatusIn, admin_list_invoices q-filter, and seed. Extract a constant to avoid typos.",
+    "Admin commission-rate input has no upper/lower bound validation on the backend (commission_rate: Optional[float]). A seller could theoretically be charged 200% if rate=2.0 is set. Add 0<=rate<=1 Pydantic validator.",
+    "SellerDashboard.jsx is now 854 lines with 5 big components (ShopsTab, ProductsTab, InvoicesTab, OrdersTab, SettingsTab) — should be split into pages/seller/*.jsx files, each <300 lines.",
+    "AdminInvoicesTab: the numeric commission rate input accepts rate >1 silently. UI should clamp to [0,1] and show '%' representation (10% vs 0.1). Currently showing 'Commission 0.1 (10.0%)' is ambiguous to non-technical admins.",
+    "Table header in Seller Invoices uses 'OWED' while the stat card uses 'AMOUNT OWED' — minor copy inconsistency."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter3_features.py"],
+  "success_rate": {"backend": "100% (58/58 — 25 iter1 + 18 iter2 + 15 iter3)", "frontend": "100% on all iter3 critical flows tested"},
+  "test_credentials": "admin@demo.com / 1234, seller@demo.com / 1234, customer@demo.com / 1234 — all working",
+  "seed_data_creation": "None — relied on 4 auto-seeded invoices (1 Paid + 3 Unpaid) from seed orders spanning 3 weeks. Each test cleaned up TEST_-prefixed products/menu-items it created and reverted commission_rate to 0.10.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Three pytest files: backend_test.py (25, iter1 regression), test_iter2_features.py (18, settings/areas/favorites/force-logout), test_iter3_features.py (15, invoices + commission + wholesale-tiers + food-category). TestZForceLogout in iter2 is still intentionally last (invalidates all tokens). Iter3 tests restore commission_rate=0.10 in their teardown, so running in any order is safe. For frontend: data-testids confirmed working — admin-tab-invoices, commission-rate-input, invoice-filter-select, regenerate-invoices-btn, invoice-detail-modal, mark-paid-{id}, mark-unpaid-{id}, invoice-view-{id}, seller-tab-invoices, seller-invoice-{id}, add-marketplace-btn, add-restaurant-btn, add-wholesale-btn, mode-toggle-{marketplace|restaurant|wholesale}, product-restaurant-select, food-category-select (has 16 options), side-name-input/side-price-input/side-add-btn, min-order-qty-input, bulk-price-input, tier-min-qty-input/tier-price-input/tier-add-btn. Invoice filter <select> uses option values with capitalized labels — use .select_option(label='Paid only') not value='Paid' if writing UI tests for the filter."
+}

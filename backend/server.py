@@ -51,6 +51,7 @@ DEFAULT_SETTINGS = {
     "module_wholesale": True,
     "maintenance_mode": False,
     "login_attempt_limit": 5,
+    "commission_rate": 0.10,
     "areas": DEFAULT_AREAS,
     "token_version": 1,
 }
@@ -160,6 +161,8 @@ class ProductIn(BaseModel):
     stock: int = 100
     min_order_qty: int = 1
     bulk_price_usd: Optional[float] = None
+    mode: Literal["marketplace", "wholesale"] = "marketplace"
+    pricing_tiers: List[dict] = Field(default_factory=list)
 
 
 class SideItem(BaseModel):
@@ -182,6 +185,7 @@ class MenuItemIn(BaseModel):
     price_usd: float
     image_url: Optional[str] = ""
     description: Optional[str] = ""
+    food_category: Optional[str] = ""
     side_items: List[SideItem] = Field(default_factory=list)
 
 
@@ -234,6 +238,11 @@ class SettingsIn(BaseModel):
     module_wholesale: Optional[bool] = None
     maintenance_mode: Optional[bool] = None
     login_attempt_limit: Optional[int] = None
+    commission_rate: Optional[float] = None
+
+
+class InvoiceStatusIn(BaseModel):
+    status: Literal["Paid", "Unpaid"]
 
 
 class AreaIn(BaseModel):
@@ -407,6 +416,24 @@ async def get_categories():
             "General Bulk Goods",
         ],
         "restaurant": ["Fast Food", "Local Food", "Drinks", "Bakery"],
+        "food_subcategories": [
+            "Fried Chicken",
+            "Burgers",
+            "Shawarma",
+            "Fries",
+            "Sandwiches",
+            "Kisra & Stews",
+            "Asida",
+            "Goat Meat Dishes",
+            "Fish Dishes",
+            "Pizza & Pasta",
+            "Rice Meals",
+            "Drinks & Cafés",
+            "Cakes & Desserts",
+            "Grills & BBQ",
+            "Asian Food",
+            "Healthy Food",
+        ],
     }
 
 
@@ -859,6 +886,127 @@ async def set_rate(body: ExchangeRateIn, user: dict = Depends(require_role("sell
 
 
 # ----------------------------------------------------------------------------
+# Invoices (weekly auto-generated)
+# ----------------------------------------------------------------------------
+def _iso_week_range(dt: datetime):
+    """Return (monday_iso_date, sunday_iso_date, week_label) for given dt."""
+    monday = dt - timedelta(days=dt.weekday())
+    monday = monday.replace(hour=0, minute=0, second=0, microsecond=0)
+    sunday = monday + timedelta(days=6)
+    label = f"{monday.strftime('%b %d')} – {sunday.strftime('%b %d, %Y')}"
+    return monday.date().isoformat(), sunday.date().isoformat(), label
+
+
+async def _rebuild_invoices():
+    """Regenerate invoices from all orders. One invoice per (seller, shop, week)."""
+    settings = await get_settings()
+    rate = float(settings.get("commission_rate", 0.10))
+
+    # Map item_id -> (seller_id, shop_id, shop_name)
+    products = await db.products.find({}, {"_id": 0}).to_list(5000)
+    menu_items = await db.menu_items.find({}, {"_id": 0}).to_list(5000)
+    restaurants = await db.restaurants.find({}, {"_id": 0}).to_list(500)
+    shops = await db.shops.find({}, {"_id": 0}).to_list(500)
+    shop_by_id = {s["id"]: s for s in shops}
+    rest_by_id = {r["id"]: r for r in restaurants}
+
+    lookup = {}
+    for p in products:
+        shop = shop_by_id.get(p["shop_id"], {})
+        lookup[p["id"]] = {"seller_id": p["seller_id"], "shop_id": p["shop_id"], "shop_name": shop.get("name", "—")}
+    for m in menu_items:
+        rest = rest_by_id.get(m["restaurant_id"], {})
+        lookup[m["id"]] = {"seller_id": m["seller_id"], "shop_id": m["restaurant_id"], "shop_name": rest.get("name", "—")}
+
+    orders = await db.orders.find({}, {"_id": 0}).to_list(5000)
+    buckets: dict = {}  # (seller_id, shop_id, week_start) -> accumulator
+    for o in orders:
+        try:
+            created = datetime.fromisoformat(o["created_at"])
+        except Exception:
+            continue
+        ws, we, label = _iso_week_range(created)
+        for it in o.get("items", []):
+            ref = lookup.get(it.get("item_id"))
+            if not ref:
+                continue
+            key = (ref["seller_id"], ref["shop_id"], ws)
+            b = buckets.setdefault(key, {
+                "seller_id": ref["seller_id"], "shop_id": ref["shop_id"], "shop_name": ref["shop_name"],
+                "week_start": ws, "week_end": we, "week_label": label,
+                "total_sales": 0.0, "order_count": 0, "_orders": set(),
+            })
+            qty = int(it.get("quantity", 1))
+            price = float(it.get("price_usd", 0))
+            sides_total = sum(float(s.get("price_usd", 0)) for s in (it.get("sides") or []))
+            b["total_sales"] += (price + sides_total) * qty
+            b["_orders"].add(o["id"])
+
+    # Preserve existing paid/unpaid status
+    existing = {
+        (inv["seller_id"], inv["shop_id"], inv["week_start"]): inv
+        for inv in await db.invoices.find({}, {"_id": 0}).to_list(5000)
+    }
+
+    await db.invoices.delete_many({})
+    now = now_iso()
+    for (seller_id, shop_id, ws), b in buckets.items():
+        commission = round(b["total_sales"] * rate, 2)
+        prev = existing.get((seller_id, shop_id, ws), {})
+        await db.invoices.insert_one({
+            "id": prev.get("id", str(uuid.uuid4())),
+            "seller_id": seller_id,
+            "shop_id": shop_id,
+            "shop_name": b["shop_name"],
+            "week_start": ws,
+            "week_end": b["week_end"],
+            "week_label": b["week_label"],
+            "total_sales": round(b["total_sales"], 2),
+            "commission": commission,
+            "amount_owed": commission,
+            "order_count": len(b["_orders"]),
+            "commission_rate": rate,
+            "status": prev.get("status", "Unpaid"),
+            "created_at": prev.get("created_at", now),
+            "updated_at": now,
+        })
+
+
+@api.post("/admin/invoices/generate")
+async def admin_regenerate_invoices(_: dict = Depends(require_role("admin"))):
+    await _rebuild_invoices()
+    count = await db.invoices.count_documents({})
+    return {"ok": True, "count": count}
+
+
+@api.get("/admin/invoices")
+async def admin_list_invoices(status: Optional[str] = None, _: dict = Depends(require_role("admin"))):
+    q: dict = {}
+    if status in {"Paid", "Unpaid"}:
+        q["status"] = status
+    return await db.invoices.find(q, {"_id": 0}).sort("week_start", -1).to_list(1000)
+
+
+@api.put("/admin/invoices/{invoice_id}/status")
+async def admin_set_invoice_status(invoice_id: str, body: InvoiceStatusIn, _: dict = Depends(require_role("admin"))):
+    await db.invoices.update_one({"id": invoice_id}, {"$set": {"status": body.status, "updated_at": now_iso()}})
+    return await db.invoices.find_one({"id": invoice_id}, {"_id": 0})
+
+
+@api.get("/admin/invoices/{invoice_id}")
+async def admin_invoice_detail(invoice_id: str, _: dict = Depends(require_role("admin"))):
+    inv = await db.invoices.find_one({"id": invoice_id}, {"_id": 0})
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
+    return inv
+
+
+@api.get("/seller/invoices")
+async def seller_list_invoices(user: dict = Depends(require_role("seller", "admin"))):
+    return await db.invoices.find({"seller_id": user["id"]}, {"_id": 0}).sort("week_start", -1).to_list(500)
+
+
+# ----------------------------------------------------------------------------
 # Seeding
 # ----------------------------------------------------------------------------
 DEMO_USERS = [
@@ -1055,6 +1203,7 @@ async def seed_demo():
     await db.orders.create_index("id", unique=True)
     await db.blocked_emails.create_index("email", unique=True)
     await db.favorites.create_index([("user_id", 1), ("target_type", 1), ("target_id", 1)])
+    await db.invoices.create_index("id", unique=True)
 
     # Settings
     existing_s = await db.settings.find_one({"id": "system"})
@@ -1138,20 +1287,42 @@ async def seed_demo():
     # Sample order
     customer_id = user_ids["customer"]
     if await db.orders.count_documents({}) == 0:
-        sample = await db.products.find({}, {"_id": 0}).to_list(1)
-        if sample:
+        # Create a few orders spread across the last 3 weeks so invoices look realistic
+        sample_products = await db.products.find({"mode": {"$ne": "wholesale"}} if False else {}, {"_id": 0}).to_list(20)
+        now = datetime.now(timezone.utc)
+        seed_orders = [
+            (sample_products[0] if sample_products else None, 1, "Delivered", now - timedelta(days=14)),
+            (sample_products[1] if len(sample_products) > 1 else None, 2, "Delivered", now - timedelta(days=13)),
+            (sample_products[2] if len(sample_products) > 2 else None, 1, "Delivered", now - timedelta(days=8)),
+            (sample_products[3] if len(sample_products) > 3 else None, 3, "Delivered", now - timedelta(days=6)),
+            (sample_products[4] if len(sample_products) > 4 else None, 1, "In Progress", now - timedelta(days=2)),
+            (sample_products[5] if len(sample_products) > 5 else None, 2, "Pending", now - timedelta(days=1)),
+        ]
+        for prod, qty, status, when in seed_orders:
+            if not prod:
+                continue
             await db.orders.insert_one({
                 "id": str(uuid.uuid4()), "customer_id": customer_id,
                 "customer_name": "Demo Customer", "customer_email": "customer@demo.com",
-                "items": [{"item_type": "product", "item_id": sample[0]["id"], "name": sample[0]["name"],
-                           "price_usd": sample[0]["price_usd"], "quantity": 1, "image_url": sample[0]["image_url"], "sides": []}],
-                "subtotal_usd": sample[0]["price_usd"],
+                "items": [{"item_type": "product", "item_id": prod["id"], "name": prod["name"],
+                           "price_usd": prod["price_usd"], "quantity": qty,
+                           "image_url": prod["image_url"], "sides": []}],
+                "subtotal_usd": round(prod["price_usd"] * qty, 2),
                 "area": "Munuki", "address": "Block 4, Munuki", "phone": "+211 9XX XXX XXX",
-                "note": "", "order_kind": "marketplace", "status": "Delivered",
-                "created_at": now_iso(),
+                "note": "", "order_kind": "marketplace", "status": status,
+                "created_at": when.isoformat(),
             })
 
-    log.info("✅ JubaSquare demo data seeded successfully (retail + wholesale + restaurants)")
+    # Regenerate invoices from seeded orders. Mark the oldest as Paid for demo realism.
+    if await db.invoices.count_documents({}) == 0:
+        await _rebuild_invoices()
+        invs = await db.invoices.find({}, {"_id": 0}).sort("week_start", 1).to_list(100)
+        # Mark first third as Paid
+        paid_cutoff = max(1, len(invs) // 3)
+        for i in invs[:paid_cutoff]:
+            await db.invoices.update_one({"id": i["id"]}, {"$set": {"status": "Paid"}})
+
+    log.info("✅ JubaSquare demo data seeded successfully (retail + wholesale + restaurants + invoices)")
 
 
 @app.on_event("startup")

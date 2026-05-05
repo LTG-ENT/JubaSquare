@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import api, { formatUSD, formatDetail } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import { Store, Mail, ShoppingBag, CheckCircle2, XCircle, Clock, Plus, Trash2 } from "lucide-react";
+import { Store, Mail, ShoppingBag, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Percent, Eye } from "lucide-react";
 import { toast } from "sonner";
 
 const TABS = [
   { id: "shops", label: "Shops", icon: Store },
+  { id: "invoices", label: "Invoices", icon: FileText },
   { id: "emails", label: "Blocked Emails", icon: Mail },
   { id: "orders", label: "All Orders", icon: ShoppingBag },
 ];
@@ -15,13 +16,13 @@ export default function AdminDashboard() {
   const [tab, setTab] = useState("shops");
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#F9F9F6]">
+    <div className="min-h-screen flex flex-col bg-[var(--js-bg)]">
       <Header />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full flex-1">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-[#5C5C5C] font-bold mb-2">Admin Dashboard</p>
-        <h1 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">Platform control</h1>
+        <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--js-text-secondary)] font-bold mb-2">Admin Dashboard</p>
+        <h1 className="font-display font-bold text-3xl sm:text-4xl text-[var(--js-text)]">Platform control</h1>
 
-        <div className="mt-8 flex flex-wrap gap-2 border-b border-[#E2E2D9]">
+        <div className="mt-8 flex flex-wrap gap-2 border-b border-[var(--js-border)]">
           {TABS.map((t) => {
             const Icon = t.icon;
             return (
@@ -30,9 +31,7 @@ export default function AdminDashboard() {
                 onClick={() => setTab(t.id)}
                 data-testid={`admin-tab-${t.id}`}
                 className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 transition ${
-                  tab === t.id
-                    ? "border-[#C84B31] text-[#C84B31]"
-                    : "border-transparent text-[#5C5C5C] hover:text-[#1A1A1A]"
+                  tab === t.id ? "border-[#C84B31] text-[#C84B31]" : "border-transparent text-[var(--js-text-secondary)] hover:text-[var(--js-text)]"
                 }`}
               >
                 <Icon className="w-4 h-4" /> {t.label}
@@ -43,6 +42,7 @@ export default function AdminDashboard() {
 
         <div className="mt-8">
           {tab === "shops" && <AdminShopsTab />}
+          {tab === "invoices" && <AdminInvoicesTab />}
           {tab === "emails" && <AdminEmailsTab />}
           {tab === "orders" && <AdminOrdersTab />}
         </div>
@@ -74,10 +74,10 @@ function AdminShopsTab() {
         <Stat label="Rejected" value={counts.Rejected} color="#D90429" />
       </div>
 
-      <div className="bg-white border border-[#E2E2D9] rounded-2xl overflow-hidden">
+      <div className="bg-white border border-[var(--js-border)] rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-[#F9F9F6] text-[#5C5C5C] text-xs uppercase tracking-wider">
+            <thead className="bg-[var(--js-bg)] text-[var(--js-text-secondary)] text-xs uppercase tracking-wider">
               <tr>
                 <th className="text-left p-4 font-bold">Shop</th>
                 <th className="text-left p-4 font-bold hidden md:table-cell">Category</th>
@@ -88,18 +88,18 @@ function AdminShopsTab() {
             </thead>
             <tbody>
               {shops.map((s) => (
-                <tr key={s.id} className="border-t border-[#E2E2D9]" data-testid={`admin-shop-row-${s.id}`}>
+                <tr key={s.id} className="border-t border-[var(--js-border)]" data-testid={`admin-shop-row-${s.id}`}>
                   <td className="p-4">
                     <div className="flex items-center gap-3">
                       <img src={s.image_url} alt="" className="w-10 h-10 rounded-lg object-cover" />
-                      <p className="font-semibold text-[#1A1A1A]">{s.name}</p>
+                      <p className="font-semibold text-[var(--js-text)]">{s.name}</p>
                     </div>
                   </td>
-                  <td className="p-4 text-[#5C5C5C] hidden md:table-cell">{s.category}</td>
-                  <td className="p-4 text-[#5C5C5C] hidden lg:table-cell">{s.area}</td>
+                  <td className="p-4 text-[var(--js-text-secondary)] hidden md:table-cell">{s.category}</td>
+                  <td className="p-4 text-[var(--js-text-secondary)] hidden lg:table-cell">{s.area}</td>
                   <td className="p-4">
                     {s.verification === "Verified" && <span className="inline-flex items-center gap-1 bg-[#2D6A4F]/10 text-[#2D6A4F] text-xs font-bold px-2 py-1 rounded-full"><CheckCircle2 className="w-3 h-3" /> Verified</span>}
-                    {s.verification === "Pending" && <span className="inline-flex items-center gap-1 bg-[#E9C46A]/30 text-[#1A1A1A] text-xs font-bold px-2 py-1 rounded-full"><Clock className="w-3 h-3" /> Pending</span>}
+                    {s.verification === "Pending" && <span className="inline-flex items-center gap-1 bg-[#E9C46A]/30 text-[var(--js-text)] text-xs font-bold px-2 py-1 rounded-full"><Clock className="w-3 h-3" /> Pending</span>}
                     {s.verification === "Rejected" && <span className="inline-flex items-center gap-1 bg-[#D90429]/10 text-[#D90429] text-xs font-bold px-2 py-1 rounded-full"><XCircle className="w-3 h-3" /> Rejected</span>}
                   </td>
                   <td className="p-4 text-right">
@@ -110,11 +110,155 @@ function AdminShopsTab() {
                   </td>
                 </tr>
               ))}
-              {shops.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-[#5C5C5C]">No shops.</td></tr>}
+              {shops.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-[var(--js-text-secondary)]">No shops.</td></tr>}
             </tbody>
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+function AdminInvoicesTab() {
+  const [invoices, setInvoices] = useState([]);
+  const [filter, setFilter] = useState("all");
+  const [commissionRate, setCommissionRate] = useState(0.10);
+  const [detail, setDetail] = useState(null);
+
+  const load = async () => {
+    const q = filter === "all" ? "" : `?status=${filter === "paid" ? "Paid" : "Unpaid"}`;
+    const [inv, s] = await Promise.all([
+      api.get(`/admin/invoices${q}`),
+      api.get("/admin/settings"),
+    ]);
+    setInvoices(inv.data);
+    setCommissionRate(s.data.commission_rate || 0.10);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [filter]);
+
+  const setStatus = async (id, status) => {
+    await api.put(`/admin/invoices/${id}/status`, { status });
+    toast.success(`Marked as ${status}`);
+    load();
+  };
+
+  const regenerate = async () => {
+    await api.post("/admin/invoices/generate");
+    toast.success("Invoices regenerated");
+    load();
+  };
+
+  const saveRate = async (v) => {
+    setCommissionRate(v);
+    await api.put("/admin/settings", { commission_rate: parseFloat(v) });
+    toast.success("Commission rate updated — regenerating invoices");
+    await api.post("/admin/invoices/generate");
+    load();
+  };
+
+  const totalSales = invoices.reduce((s, i) => s + (i.total_sales || 0), 0);
+  const totalCommission = invoices.reduce((s, i) => s + (i.commission || 0), 0);
+  const unpaidAmount = invoices.filter((i) => i.status === "Unpaid").reduce((s, i) => s + (i.commission || 0), 0);
+
+  return (
+    <div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        <Stat label="Invoices" value={invoices.length} color="#1A1A1A" />
+        <Stat label="Total Sales" value={formatUSD(totalSales)} color="#2D6A4F" />
+        <Stat label="Commission" value={formatUSD(totalCommission)} color="#C84B31" />
+        <Stat label="Unpaid" value={formatUSD(unpaidAmount)} color="#D90429" />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <div className="flex items-center gap-2 bg-white border border-[var(--js-border)] rounded-full px-3 py-2">
+          <Percent className="w-4 h-4 text-[var(--js-text-secondary)]" />
+          <span className="text-xs font-semibold text-[var(--js-text-secondary)]">Commission</span>
+          <input
+            type="number" step="0.01" min="0" max="1"
+            value={commissionRate}
+            onChange={(e) => setCommissionRate(parseFloat(e.target.value) || 0)}
+            onBlur={(e) => saveRate(parseFloat(e.target.value) || 0)}
+            data-testid="commission-rate-input"
+            className="w-16 bg-transparent text-sm font-bold focus:outline-none"
+          />
+          <span className="text-xs text-[var(--js-text-secondary)]">({(commissionRate * 100).toFixed(1)}%)</span>
+        </div>
+
+        <select value={filter} onChange={(e) => setFilter(e.target.value)} data-testid="invoice-filter-select" className="bg-white border border-[var(--js-border)] rounded-full px-4 py-2 text-sm font-semibold focus:outline-none focus:border-[#C84B31]">
+          <option value="all">All invoices</option>
+          <option value="paid">Paid only</option>
+          <option value="unpaid">Unpaid only</option>
+        </select>
+
+        <button onClick={regenerate} data-testid="regenerate-invoices-btn" className="ml-auto bg-[var(--js-subtle)] hover:bg-[var(--js-border)] text-[var(--js-text)] text-sm font-semibold px-4 py-2 rounded-full">
+          🔄 Regenerate
+        </button>
+      </div>
+
+      <div className="bg-white border border-[var(--js-border)] rounded-2xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-[var(--js-bg)] text-[var(--js-text-secondary)] text-xs uppercase tracking-wider">
+              <tr>
+                <th className="text-left p-4 font-bold">Shop</th>
+                <th className="text-left p-4 font-bold hidden sm:table-cell">Week</th>
+                <th className="text-left p-4 font-bold">Sales</th>
+                <th className="text-left p-4 font-bold hidden md:table-cell">Commission</th>
+                <th className="text-left p-4 font-bold">Status</th>
+                <th className="p-4"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {invoices.map((inv) => (
+                <tr key={inv.id} className="border-t border-[var(--js-border)]" data-testid={`invoice-row-${inv.id}`}>
+                  <td className="p-4 font-semibold text-[var(--js-text)]">{inv.shop_name}</td>
+                  <td className="p-4 text-[var(--js-text-secondary)] hidden sm:table-cell text-xs">{inv.week_label}</td>
+                  <td className="p-4 font-bold">{formatUSD(inv.total_sales)}</td>
+                  <td className="p-4 hidden md:table-cell">
+                    <p className="font-semibold text-[#C84B31]">{formatUSD(inv.commission)}</p>
+                    <p className="text-[10px] text-[var(--js-text-secondary)]">{(inv.commission_rate * 100).toFixed(1)}%</p>
+                  </td>
+                  <td className="p-4">
+                    {inv.status === "Paid" ? (
+                      <span className="inline-flex items-center gap-1 bg-[#2D6A4F]/10 text-[#2D6A4F] text-xs font-bold px-2 py-1 rounded-full" data-testid={`invoice-status-${inv.id}`}><CheckCircle2 className="w-3 h-3" /> Paid</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 bg-[#D90429]/10 text-[#D90429] text-xs font-bold px-2 py-1 rounded-full" data-testid={`invoice-status-${inv.id}`}><Clock className="w-3 h-3" /> Unpaid</span>
+                    )}
+                  </td>
+                  <td className="p-4 text-right">
+                    <div className="inline-flex gap-1">
+                      <button onClick={() => setDetail(inv)} data-testid={`invoice-view-${inv.id}`} className="p-2 hover:bg-[var(--js-subtle)] rounded-full" title="View details"><Eye className="w-3.5 h-3.5" /></button>
+                      {inv.status === "Unpaid" ? (
+                        <button onClick={() => setStatus(inv.id, "Paid")} data-testid={`mark-paid-${inv.id}`} className="text-xs font-semibold bg-[#2D6A4F] hover:bg-[#1B4332] text-white px-3 py-1.5 rounded-full">Mark Paid</button>
+                      ) : (
+                        <button onClick={() => setStatus(inv.id, "Unpaid")} data-testid={`mark-unpaid-${inv.id}`} className="text-xs font-semibold bg-[var(--js-subtle)] text-[var(--js-text)] hover:bg-[var(--js-border)] px-3 py-1.5 rounded-full">Mark Unpaid</button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {invoices.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-[var(--js-text-secondary)]">No invoices yet. Orders generate weekly invoices automatically.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {detail && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setDetail(null)}>
+          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl" onClick={(e) => e.stopPropagation()} data-testid="invoice-detail-modal">
+            <h3 className="font-display font-bold text-xl">{detail.shop_name}</h3>
+            <p className="text-sm text-[var(--js-text-secondary)]">{detail.week_label}</p>
+            <dl className="mt-4 space-y-2 text-sm">
+              <div className="flex justify-between"><dt className="text-[var(--js-text-secondary)]">Total Sales</dt><dd className="font-bold">{formatUSD(detail.total_sales)}</dd></div>
+              <div className="flex justify-between"><dt className="text-[var(--js-text-secondary)]">Order count</dt><dd className="font-bold">{detail.order_count}</dd></div>
+              <div className="flex justify-between"><dt className="text-[var(--js-text-secondary)]">Commission ({(detail.commission_rate * 100).toFixed(1)}%)</dt><dd className="font-bold text-[#C84B31]">{formatUSD(detail.commission)}</dd></div>
+              <div className="flex justify-between border-t border-[var(--js-border)] pt-2"><dt className="font-semibold">Amount owed</dt><dd className="font-display font-bold text-lg">{formatUSD(detail.amount_owed)}</dd></div>
+              <div className="flex justify-between"><dt className="text-[var(--js-text-secondary)]">Status</dt><dd className="font-bold">{detail.status}</dd></div>
+            </dl>
+            <button onClick={() => setDetail(null)} className="mt-5 w-full bg-[#1A1A1A] text-white text-sm font-semibold py-2.5 rounded-full">Close</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -128,60 +272,34 @@ function AdminEmailsTab() {
 
   const block = async (e) => {
     e.preventDefault();
-    try {
-      await api.post("/admin/block-email", { email });
-      toast.success("Email blocked");
-      setEmail("");
-      load();
-    } catch (err) {
-      toast.error(formatDetail(err.response?.data?.detail));
-    }
+    try { await api.post("/admin/block-email", { email }); toast.success("Email blocked"); setEmail(""); load(); }
+    catch (err) { toast.error(formatDetail(err.response?.data?.detail)); }
   };
-
-  const unblock = async (em) => {
-    await api.delete(`/admin/block-email/${encodeURIComponent(em)}`);
-    toast.success("Unblocked");
-    load();
-  };
+  const unblock = async (em) => { await api.delete(`/admin/block-email/${encodeURIComponent(em)}`); toast.success("Unblocked"); load(); };
 
   return (
     <div className="max-w-2xl">
-      <form onSubmit={block} className="bg-white border border-[#E2E2D9] rounded-3xl p-6 mb-6 flex gap-3">
-        <input
-          type="email"
-          required
-          data-testid="block-email-input"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="user@example.com"
-          className="js-input flex-1"
-        />
+      <form onSubmit={block} className="bg-white border border-[var(--js-border)] rounded-3xl p-6 mb-6 flex gap-3">
+        <input type="email" required data-testid="block-email-input" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="user@example.com" className="js-input flex-1" />
         <button type="submit" data-testid="block-email-btn" className="inline-flex items-center gap-2 bg-[#C84B31] hover:bg-[#A83A23] text-white font-semibold px-5 py-2.5 rounded-full">
           <Plus className="w-4 h-4" /> Block
         </button>
       </form>
-
-      <div className="bg-white border border-[#E2E2D9] rounded-2xl overflow-hidden">
-        <div className="p-4 border-b border-[#E2E2D9] bg-[#F9F9F6]">
-          <p className="text-xs uppercase tracking-wider text-[#5C5C5C] font-bold">Blocked emails ({list.length})</p>
+      <div className="bg-white border border-[var(--js-border)] rounded-2xl overflow-hidden">
+        <div className="p-4 border-b border-[var(--js-border)] bg-[var(--js-bg)]">
+          <p className="text-xs uppercase tracking-wider text-[var(--js-text-secondary)] font-bold">Blocked emails ({list.length})</p>
         </div>
         {list.length === 0 ? (
-          <p className="p-8 text-center text-[#5C5C5C]">No blocked emails.</p>
+          <p className="p-8 text-center text-[var(--js-text-secondary)]">No blocked emails.</p>
         ) : (
-          <ul className="divide-y divide-[#E2E2D9]">
+          <ul className="divide-y divide-[var(--js-border)]">
             {list.map((b) => (
               <li key={b.email} className="flex items-center justify-between p-4" data-testid={`blocked-${b.email}`}>
                 <div>
-                  <p className="font-semibold text-[#1A1A1A]">{b.email}</p>
-                  <p className="text-xs text-[#5C5C5C]">Blocked {new Date(b.blocked_at).toLocaleDateString()}</p>
+                  <p className="font-semibold text-[var(--js-text)]">{b.email}</p>
+                  <p className="text-xs text-[var(--js-text-secondary)]">Blocked {new Date(b.blocked_at).toLocaleDateString()}</p>
                 </div>
-                <button
-                  onClick={() => unblock(b.email)}
-                  data-testid={`unblock-${b.email}`}
-                  className="text-xs font-semibold bg-[#F2EBE5] hover:bg-[#E2E2D9] text-[#1A1A1A] px-3 py-1.5 rounded-full inline-flex items-center gap-1"
-                >
-                  <Trash2 className="w-3 h-3" /> Unblock
-                </button>
+                <button onClick={() => unblock(b.email)} data-testid={`unblock-${b.email}`} className="text-xs font-semibold bg-[var(--js-subtle)] hover:bg-[var(--js-border)] text-[var(--js-text)] px-3 py-1.5 rounded-full inline-flex items-center gap-1"><Trash2 className="w-3 h-3" /> Unblock</button>
               </li>
             ))}
           </ul>
@@ -196,11 +314,7 @@ function AdminOrdersTab() {
   const load = () => api.get("/orders").then((r) => setOrders(r.data));
   useEffect(() => { load(); }, []);
 
-  const updateStatus = async (id, status) => {
-    await api.put(`/orders/${id}/status`, { status });
-    toast.success("Status updated");
-    load();
-  };
+  const updateStatus = async (id, status) => { await api.put(`/orders/${id}/status`, { status }); toast.success("Status updated"); load(); };
 
   const total = orders.reduce((s, o) => s + (o.subtotal_usd || 0), 0);
 
@@ -213,10 +327,10 @@ function AdminOrdersTab() {
         <Stat label="Revenue" value={formatUSD(total)} color="#C84B31" />
       </div>
 
-      <div className="bg-white border border-[#E2E2D9] rounded-2xl overflow-hidden">
+      <div className="bg-white border border-[var(--js-border)] rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-[#F9F9F6] text-[#5C5C5C] text-xs uppercase tracking-wider">
+            <thead className="bg-[var(--js-bg)] text-[var(--js-text-secondary)] text-xs uppercase tracking-wider">
               <tr>
                 <th className="text-left p-4 font-bold">Order</th>
                 <th className="text-left p-4 font-bold hidden sm:table-cell">Customer</th>
@@ -227,32 +341,25 @@ function AdminOrdersTab() {
             </thead>
             <tbody>
               {orders.map((o) => (
-                <tr key={o.id} className="border-t border-[#E2E2D9]" data-testid={`admin-order-${o.id}`}>
+                <tr key={o.id} className="border-t border-[var(--js-border)]" data-testid={`admin-order-${o.id}`}>
                   <td className="p-4">
-                    <p className="font-semibold text-[#1A1A1A]">#{o.id.slice(0, 8).toUpperCase()}</p>
-                    <p className="text-xs text-[#5C5C5C]">{new Date(o.created_at).toLocaleDateString()}</p>
+                    <p className="font-semibold text-[var(--js-text)]">#{o.id.slice(0, 8).toUpperCase()}</p>
+                    <p className="text-xs text-[var(--js-text-secondary)]">{new Date(o.created_at).toLocaleDateString()}</p>
                   </td>
                   <td className="p-4 hidden sm:table-cell">
                     <p className="font-semibold">{o.customer_name}</p>
-                    <p className="text-xs text-[#5C5C5C]">{o.area}</p>
+                    <p className="text-xs text-[var(--js-text-secondary)]">{o.area}</p>
                   </td>
-                  <td className="p-4 hidden md:table-cell text-[#5C5C5C] capitalize">{o.order_kind}</td>
+                  <td className="p-4 hidden md:table-cell text-[var(--js-text-secondary)] capitalize">{o.order_kind}</td>
                   <td className="p-4 font-bold">{formatUSD(o.subtotal_usd)}</td>
                   <td className="p-4">
-                    <select
-                      value={o.status}
-                      onChange={(e) => updateStatus(o.id, e.target.value)}
-                      data-testid={`admin-order-status-${o.id}`}
-                      className="bg-white border border-[#E2E2D9] rounded-full px-3 py-1.5 text-xs font-semibold focus:border-[#C84B31] focus:outline-none"
-                    >
-                      <option>Pending</option>
-                      <option>In Progress</option>
-                      <option>Delivered</option>
+                    <select value={o.status} onChange={(e) => updateStatus(o.id, e.target.value)} data-testid={`admin-order-status-${o.id}`} className="bg-white border border-[var(--js-border)] rounded-full px-3 py-1.5 text-xs font-semibold focus:border-[#C84B31] focus:outline-none">
+                      <option>Pending</option><option>In Progress</option><option>Delivered</option>
                     </select>
                   </td>
                 </tr>
               ))}
-              {orders.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-[#5C5C5C]">No orders.</td></tr>}
+              {orders.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-[var(--js-text-secondary)]">No orders.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -263,8 +370,8 @@ function AdminOrdersTab() {
 
 function Stat({ label, value, color }) {
   return (
-    <div className="bg-white border border-[#E2E2D9] rounded-2xl p-4">
-      <p className="text-[10px] uppercase tracking-[0.18em] text-[#5C5C5C] font-bold">{label}</p>
+    <div className="bg-white border border-[var(--js-border)] rounded-2xl p-4">
+      <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--js-text-secondary)] font-bold">{label}</p>
       <p className="font-display font-bold text-2xl mt-1" style={{ color }}>{value}</p>
     </div>
   );
