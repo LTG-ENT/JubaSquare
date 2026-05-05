@@ -21,6 +21,7 @@ export default function Marketplace() {
   const [search, setSearch] = useState("");
   const [searchParams, setSearchParams] = useSearchParams();
   const [typeFilter, setTypeFilter] = useState(searchParams.get("view") || "all");
+  const [sortBy, setSortBy] = useState("recommended");
   const { area, setArea } = useCart();
 
   const selectedCategory = searchParams.get("category") || "";
@@ -39,12 +40,25 @@ export default function Marketplace() {
     api.get("/products", { params }).then((r) => setProducts(r.data));
   }, [selectedCategory, selectedShop, typeFilter]);
 
-  const categories = useMemo(() => [...new Set(products.map((p) => p.category))].filter(Boolean), [products]);
+  const categories = useMemo(
+    () => [...new Set(products.map((p) => p.category))].filter(Boolean),
+    [products],
+  );
 
   const filtered = products.filter((p) => {
     if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
+
+  // Backend already returns verified-first (recommended). Apply client sort options.
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    if (sortBy === "price_asc") arr.sort((a, b) => (a.price_usd || 0) - (b.price_usd || 0));
+    else if (sortBy === "price_desc") arr.sort((a, b) => (b.price_usd || 0) - (a.price_usd || 0));
+    else if (sortBy === "name_asc") arr.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    else if (sortBy === "newest") arr.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+    return arr;
+  }, [filtered, sortBy]);
 
   const shopForProduct = (p) => shops.find((s) => s.id === p.shop_id);
   const activeShop = selectedShop ? shops.find((s) => s.id === selectedShop) : null;
@@ -78,7 +92,7 @@ export default function Marketplace() {
           <AreaSelector value={area} onChange={setArea} />
         </div>
 
-        <div className="flex flex-wrap gap-2 mb-8">
+        <div className="flex flex-wrap gap-2 mb-8 items-center">
           {FILTERS.map((f) => (
             <button
               key={f.id}
@@ -94,6 +108,22 @@ export default function Marketplace() {
               {f.label}
             </button>
           ))}
+
+          <div className="ml-auto flex items-center gap-2">
+            <label className="text-xs font-semibold text-[var(--js-text-secondary)]">Sort by</label>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              data-testid="market-sort-by"
+              className="bg-white border border-[var(--js-border)] rounded-full px-4 py-2 text-sm font-semibold focus:outline-none focus:border-[#C84B31] shadow-sm cursor-pointer"
+            >
+              <option value="recommended">Recommended (verified first)</option>
+              <option value="newest">Newest first</option>
+              <option value="price_asc">Price: low → high</option>
+              <option value="price_desc">Price: high → low</option>
+              <option value="name_asc">Name: A → Z</option>
+            </select>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-8">
@@ -146,13 +176,13 @@ export default function Marketplace() {
 
           {/* Grid */}
           <div>
-            {filtered.length === 0 ? (
+            {sorted.length === 0 ? (
               <div className="text-center py-20 text-[var(--js-text-secondary)]" data-testid="empty-products">
                 No products found.
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                {filtered.map((p) =>
+                {sorted.map((p) =>
                   p.is_wholesale
                     ? <WholesaleCard key={p.id} product={p} shop={shopForProduct(p)} />
                     : <ProductCard key={p.id} product={p} shop={shopForProduct(p)} />

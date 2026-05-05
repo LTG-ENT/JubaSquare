@@ -8,6 +8,7 @@ import { toast } from "sonner";
 export default function WholesaleCard({ product, shop }) {
   const { addItem, exchangeRate, currency } = useCart();
   const [qty, setQty] = useState(product.min_order_qty || 1);
+  const rate = product.exchange_rate_ssp || exchangeRate;
 
   const meetsMin = qty >= (product.min_order_qty || 1);
   const usesBulk = !!product.bulk_price_usd && meetsMin;
@@ -56,17 +57,17 @@ export default function WholesaleCard({ product, shop }) {
           </div>
           <div className="bg-[#2D6A4F]/10 rounded-lg p-2">
             <p className="text-[#2D6A4F]">Bulk price</p>
-            <p className="font-bold text-[#2D6A4F]">{product.bulk_price_usd ? formatPrice(product.bulk_price_usd, exchangeRate, currency) : "—"}</p>
+            <p className="font-bold text-[#2D6A4F]">{product.bulk_price_usd ? formatPrice(product.bulk_price_usd, rate, currency) : "—"}</p>
           </div>
         </div>
 
         <div className="mt-3 flex items-end justify-between gap-2">
           <div>
             <p className="font-display font-bold text-lg text-[var(--js-text)]">
-              {formatPrice(unitPrice, exchangeRate, currency)}
+              {formatPrice(unitPrice, rate, currency)}
               {usesBulk && <span className="text-xs text-[#2D6A4F] ml-1">bulk</span>}
             </p>
-            <p className="text-[11px] text-[var(--js-text-secondary)]">≈ {formatPriceAlt(unitPrice, exchangeRate, currency)} / unit</p>
+            <p className="text-[11px] text-[var(--js-text-secondary)]">≈ {formatPriceAlt(unitPrice, rate, currency)} / unit</p>
           </div>
         </div>
 

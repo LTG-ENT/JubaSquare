@@ -3,8 +3,8 @@ import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
 import { useSystem } from "@/context/SystemContext";
 import {
-  ShoppingCart, LogOut, Home as HomeIcon, LayoutGrid, Store, Package,
-  LayoutDashboard, Menu, X, User as UserIcon,
+  ShoppingCart, LogOut, Home as HomeIcon, LayoutGrid, Store, UtensilsCrossed,
+  LayoutDashboard, Menu, X, User as UserIcon, ClipboardList,
 } from "lucide-react";
 import { useState } from "react";
 import { Logo } from "@/components/Logo";
@@ -87,7 +87,8 @@ export default function Header() {
             {navLink("/", "Home", HomeIcon)}
             {settings.module_marketplace && navLink("/marketplace", "Categories", LayoutGrid)}
             {navLink("/shops", "Shops", Store)}
-            {settings.module_wholesale && navLink("/marketplace?view=wholesale", "Wholesale", Package)}
+            {settings.module_restaurants && navLink("/restaurants", "Restaurants", UtensilsCrossed)}
+            {user?.role === "customer" && navLink("/orders", "Orders", ClipboardList)}
             {dashboardPath && navLink(dashboardPath, "Dashboard", LayoutDashboard)}
           </nav>
 
@@ -141,7 +142,8 @@ export default function Header() {
             {navLink("/", "Home", HomeIcon)}
             {settings.module_marketplace && navLink("/marketplace", "Categories", LayoutGrid)}
             {navLink("/shops", "Shops", Store)}
-            {settings.module_wholesale && navLink("/marketplace?view=wholesale", "Wholesale", Package)}
+            {settings.module_restaurants && navLink("/restaurants", "Restaurants", UtensilsCrossed)}
+            {user?.role === "customer" && navLink("/orders", "Orders", ClipboardList)}
             {dashboardPath && navLink(dashboardPath, "Dashboard", LayoutDashboard)}
             {user && navLink(profilePath, "Profile", UserIcon)}
             {!user && (

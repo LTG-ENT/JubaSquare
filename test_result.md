@@ -163,6 +163,51 @@ backend:
           agent: "testing"
           comment: "✅ PASSED all 6 tests: (1) POST /api/orders/quote with shop in 'fixed' mode (fee=3.5) returns correct delivery_fee_usd=3.5, total_usd=subtotal+3.5, and delivery_breakdown with shop_id, fee, mode. (2) POST /api/orders/quote with 'per_area' mode for area='Atlabara' returns fee=5.0; for area='Munuki' returns fee=2.0 (matching configured areas). (3) POST /api/orders/quote with unknown area returns fee=0. (4) POST /api/orders/quote with 'free' mode returns fee=0. (5) POST /api/orders/quote with items from MULTIPLE shops (shop1: fixed 3.0, shop2: fixed 2.5) returns delivery_fee_usd=5.5 (sum) and breakdown with 2 entries. (6) POST /api/orders (actual order) creates order with delivery_fee_usd, delivery_breakdown, and total_usd=subtotal+delivery matching quote. Verified via GET /api/orders/mine. All delivery fee computation and quote endpoints working correctly."
 
+  - task: "Per-seller exchange rate exposure on /api/products"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "GET /api/products and GET /api/products/{id} now embed 'exchange_rate_ssp' (per-seller rate, falls back to global) and 'shop_verification' on each product response."
+        - working: true
+          agent: "testing"
+          comment: "✅ PASSED all tests: (1) GET /api/products returns each product with exchange_rate_ssp (positive number) and shop_verification (Verified/Pending/Rejected). (2) GET /api/products/{id} returns same fields. (3) Seller PUT /api/exchange-rate with rate=750 successfully updates, then GET /api/products?shop_id={seller_shop} shows products with exchange_rate_ssp=750. (4) Other products (different sellers) maintain their own rates. (5) Restored seller rate to 600 after test. All exchange rate embedding working correctly."
+
+  - task: "Verified-first sort for /api/products and /api/restaurants"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "GET /api/products and GET /api/restaurants sort verified items first when settings.verified_first=true (default)."
+        - working: true
+          agent: "testing"
+          comment: "✅ PASSED all tests: (1) GET /api/products returns first product with shop_verification=Verified. Verified all 20 Verified products appear before 4 non-Verified products in the list. (2) GET /api/restaurants returns first restaurant with verification=Verified. Verified sort order is correct with all Verified restaurants appearing before non-Verified. Verified-first sorting working correctly on both endpoints."
+
+  - task: "Exchange rate endpoint locked to seller-only"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "PUT /api/exchange-rate is now locked to seller role only — admin should get 403 trying to PUT it. Sellers can still PUT their own rate."
+        - working: true
+          agent: "testing"
+          comment: "✅ PASSED all tests: (1) Admin login and PUT /api/exchange-rate with rate=700 returns 403 Forbidden (correct). (2) Customer login and PUT /api/exchange-rate with rate=700 returns 403 Forbidden (correct). (3) Seller login and PUT /api/exchange-rate with rate=600 returns 200 with response containing seller_id and rate (correct). Seller-only access control working correctly."
+
 frontend:
   - task: "Hero, Header, Home page redesign"
     implemented: true
@@ -238,8 +283,8 @@ frontend:
 
 metadata:
   created_by: "main_agent"
-  version: "1.2"
-  test_sequence: 2
+  version: "1.3"
+  test_sequence: 3
   run_ui: false
 
 test_plan:
@@ -288,5 +333,43 @@ agent_communication:
            - POST /api/orders (actual order creation) includes delivery_fee_usd, delivery_breakdown, and total_usd=subtotal+delivery
         
         All existing tests (25) also passed - no regressions.
+    - agent: "main"
+      message: |
+        Round 2 changes — minor backend tweaks needing verification:
+          1. GET /api/products and GET /api/products/{id} now embed 'exchange_rate_ssp' (per-seller rate, falls back to global) and 'shop_verification' on each product response.
+          2. GET /api/products and GET /api/restaurants sort verified items first when settings.verified_first=true (default).
+          3. PUT /api/exchange-rate is now locked to seller role only — admin should get 403 trying to PUT it. Sellers can still PUT their own rate.
+
+        Frontend was also updated (visually verified): replaced header "Wholesale" with "Restaurants", added "Orders" link for customers, removed dark-mode toggle from settings, removed admin global-exchange-rate card, added "Sort by" dropdowns on Marketplace & Restaurants.
+
+        Please verify only the 3 backend points above; do NOT re-test reviews/delivery (already verified in previous run).
+
         
         Backend implementation is complete and working correctly. All three new features are production-ready.
+    - agent: "testing"
+      message: |
+        ✅ ALL ROUND 2 BACKEND TESTS PASSED (3/3 tests)
+        
+        Tested the three Round 2 backend changes as requested:
+        
+        1. Per-seller exchange rate + shop verification embedded in products (PASS):
+           - GET /api/products returns each product with exchange_rate_ssp (positive number) and shop_verification (Verified/Pending/Rejected)
+           - GET /api/products/{id} returns same fields
+           - Tested per-seller rate change: seller PUT /api/exchange-rate with rate=750, then GET /api/products shows products with exchange_rate_ssp=750
+           - Verified other sellers' products maintain their own rates
+           - Restored seller rate to 600 after test
+        
+        2. Verified-first sort (PASS):
+           - GET /api/products: first product has shop_verification=Verified
+           - Verified sort order: all 20 Verified products appear before 4 non-Verified products
+           - GET /api/restaurants: first restaurant has verification=Verified
+           - Verified sort order is correct
+        
+        3. Seller-only exchange rate endpoint (PASS):
+           - Admin PUT /api/exchange-rate returns 403 Forbidden ✓
+           - Customer PUT /api/exchange-rate returns 403 Forbidden ✓
+           - Seller PUT /api/exchange-rate returns 200 with seller_id and rate ✓
+        
+        Did NOT re-test reviews/delivery features as instructed (already verified in previous test run).
+        
+        All backend changes are working correctly and production-ready.

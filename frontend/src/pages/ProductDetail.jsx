@@ -35,7 +35,6 @@ export default function ProductDetail() {
   const navigate = useNavigate();
   const { addItem, exchangeRate, currency } = useCart();
   const { user } = useAuth();
-
   const [product, setProduct] = useState(null);
   const [shop, setShop] = useState(null);
   const [reviewData, setReviewData] = useState({ reviews: [], average: 0, count: 0 });
@@ -86,6 +85,8 @@ export default function ProductDetail() {
   const unitPrice = usesBulk ? product.bulk_price_usd : product.price_usd;
   const lowStock = (product.stock ?? 100) > 0 && (product.stock ?? 100) <= 5;
   const outOfStock = (product.stock ?? 100) <= 0;
+  // Per-seller exchange rate (fallback to global)
+  const rate = product.exchange_rate_ssp || exchangeRate;
 
   const onAdd = () => {
     if (isWholesale && !meetsMin) {
@@ -142,14 +143,14 @@ export default function ProductDetail() {
     if (!shop) return null;
     const mode = shop.delivery_mode || "free";
     if (mode === "free") return "Free delivery";
-    if (mode === "fixed") return `Delivery from ${formatPrice(shop.delivery_fee_usd || 0, exchangeRate, currency)}`;
+    if (mode === "fixed") return `Delivery from ${formatPrice(shop.delivery_fee_usd || 0, rate, currency)}`;
     if (mode === "per_area") {
       const fees = (shop.delivery_per_area || []).map((a) => a.fee_usd).filter((n) => n != null);
       if (fees.length === 0) return "Delivery available";
       const min = Math.min(...fees), max = Math.max(...fees);
       return min === max
-        ? `Delivery: ${formatPrice(min, exchangeRate, currency)}`
-        : `Delivery: ${formatPrice(min, exchangeRate, currency)} – ${formatPrice(max, exchangeRate, currency)} (varies by area)`;
+        ? `Delivery: ${formatPrice(min, rate, currency)}`
+        : `Delivery: ${formatPrice(min, rate, currency)} – ${formatPrice(max, rate, currency)} (varies by area)`;
     }
     return null;
   })();
@@ -208,9 +209,9 @@ export default function ProductDetail() {
 
             <div className="mt-5 flex items-baseline gap-2">
               <p className="font-display font-bold text-4xl text-[var(--js-text)]" data-testid="product-price">
-                {formatPrice(unitPrice, exchangeRate, currency)}
+                {formatPrice(unitPrice, rate, currency)}
               </p>
-              <p className="text-sm text-[var(--js-text-secondary)]">≈ {formatPriceAlt(unitPrice, exchangeRate, currency)}</p>
+              <p className="text-sm text-[var(--js-text-secondary)]">≈ {formatPriceAlt(unitPrice, rate, currency)}</p>
               {usesBulk && <span className="text-xs font-bold text-[#2D6A4F] bg-[#2D6A4F]/10 px-2 py-1 rounded-full">BULK PRICE</span>}
             </div>
 
@@ -223,7 +224,7 @@ export default function ProductDetail() {
                 {product.bulk_price_usd && (
                   <div className="bg-[#2D6A4F]/10 rounded-xl p-3">
                     <p className="text-[10px] uppercase font-bold text-[#2D6A4F]">Bulk price</p>
-                    <p className="font-bold text-[#2D6A4F]">{formatPrice(product.bulk_price_usd, exchangeRate, currency)}</p>
+                    <p className="font-bold text-[#2D6A4F]">{formatPrice(product.bulk_price_usd, rate, currency)}</p>
                   </div>
                 )}
               </div>

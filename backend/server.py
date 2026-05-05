@@ -564,6 +564,27 @@ async def list_products(category: Optional[str] = None, area: Optional[str] = No
     sellers = await db.users.find({"id": {"$in": seller_ids}}, {"_id": 0, "id": 1, "settings": 1}).to_list(500)
     auto_hide = {u["id"]: bool((u.get("settings") or {}).get("auto_hide_out_of_stock")) for u in sellers}
     products = [p for p in products if not (auto_hide.get(p["seller_id"]) and p.get("stock", 0) <= 0)]
+
+    # Embed per-seller exchange rate + shop verification (for verified-first sort)
+    s = await get_settings()
+    global_rate = float(s.get("global_rate", 600.0))
+    rate_records = await db.exchange_rates.find(
+        {"seller_id": {"$in": seller_ids}}, {"_id": 0}).to_list(500)
+    rate_by_seller = {r["seller_id"]: float(r.get("rate", global_rate)) for r in rate_records}
+
+    shop_ids_in = list({p["shop_id"] for p in products})
+    shops_meta = await db.shops.find(
+        {"id": {"$in": shop_ids_in}}, {"_id": 0, "id": 1, "verification": 1}).to_list(500)
+    verif_by_shop = {sh["id"]: sh.get("verification", "Pending") for sh in shops_meta}
+
+    for p in products:
+        p["exchange_rate_ssp"] = rate_by_seller.get(p["seller_id"], global_rate)
+        p["shop_verification"] = verif_by_shop.get(p["shop_id"], "Pending")
+
+    # Verified-first sort if enabled
+    if s.get("verified_first", True):
+        order = {"Verified": 0, "Pending": 1, "Rejected": 2}
+        products.sort(key=lambda p: order.get(p.get("shop_verification", "Pending"), 1))
     return products
 
 
@@ -572,6 +593,13 @@ async def get_product(product_id: str):
     p = await db.products.find_one({"id": product_id}, {"_id": 0})
     if not p:
         raise HTTPException(404, "Product not found")
+    # Embed seller exchange rate
+    s = await get_settings()
+    global_rate = float(s.get("global_rate", 600.0))
+    rec = await db.exchange_rates.find_one({"seller_id": p["seller_id"]}, {"_id": 0})
+    p["exchange_rate_ssp"] = float(rec.get("rate", global_rate)) if rec else global_rate
+    sh = await db.shops.find_one({"id": p["shop_id"]}, {"_id": 0, "verification": 1})
+    p["shop_verification"] = (sh or {}).get("verification", "Pending")
     return p
 
 
@@ -626,7 +654,12 @@ async def list_restaurants(area: Optional[str] = None, category: Optional[str] =
         q["area"] = area
     if category:
         q["category"] = category
-    return await db.restaurants.find(q, {"_id": 0}).to_list(500)
+    rests = await db.restaurants.find(q, {"_id": 0}).to_list(500)
+    s = await get_settings()
+    if s.get("verified_first", True):
+        order = {"Verified": 0, "Pending": 1, "Rejected": 2}
+        rests.sort(key=lambda r: order.get(r.get("verification", "Pending"), 1))
+    return rests
 
 
 @api.get("/restaurants/{restaurant_id}")
@@ -1027,10 +1060,8 @@ async def get_rate(seller_id: Optional[str] = None):
 
 
 @api.put("/exchange-rate")
-async def set_rate(body: ExchangeRateIn, user: dict = Depends(require_role("seller", "admin"))):
-    if user["role"] == "admin":
-        await db.settings.update_one({"id": "system"}, {"$set": {"global_rate": float(body.rate)}}, upsert=True)
-        return {"seller_id": "__global__", "rate": body.rate}
+async def set_rate(body: ExchangeRateIn, user: dict = Depends(require_role("seller"))):
+    """Sellers set their own exchange rate for their products. Admins do not manage this."""
     await db.exchange_rates.update_one(
         {"seller_id": user["id"]},
         {"$set": {"seller_id": user["id"], "rate": float(body.rate), "updated_at": now_iso()}},

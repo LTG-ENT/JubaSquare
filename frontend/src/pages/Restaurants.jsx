@@ -9,6 +9,7 @@ import { useCart } from "@/context/CartContext";
 export default function Restaurants() {
   const [restaurants, setRestaurants] = useState([]);
   const [activeCat, setActiveCat] = useState("All");
+  const [sortBy, setSortBy] = useState("recommended");
   const { area, setArea } = useCart();
 
   useEffect(() => {
@@ -17,6 +18,15 @@ export default function Restaurants() {
 
   const cats = useMemo(() => ["All", ...new Set(restaurants.map((r) => r.category))], [restaurants]);
   const filtered = activeCat === "All" ? restaurants : restaurants.filter((r) => r.category === activeCat);
+
+  // Backend already sorts verified-first. Apply client sort options.
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    if (sortBy === "name_asc") arr.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    else if (sortBy === "delivery_time") arr.sort((a, b) => (a.delivery_time_min || 99) - (b.delivery_time_min || 99));
+    else if (sortBy === "rating") arr.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    return arr;
+  }, [filtered, sortBy]);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -33,7 +43,7 @@ export default function Restaurants() {
           <AreaSelector value={area} onChange={setArea} />
         </div>
 
-        <div className="flex flex-wrap gap-2 mb-8">
+        <div className="flex flex-wrap gap-2 mb-8 items-center">
           {cats.map((c) => (
             <button
               key={c}
@@ -48,13 +58,28 @@ export default function Restaurants() {
               {c}
             </button>
           ))}
+
+          <div className="ml-auto flex items-center gap-2">
+            <label className="text-xs font-semibold text-[#5C5C5C]">Sort by</label>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              data-testid="restaurants-sort-by"
+              className="bg-white border border-[#E2E2D9] rounded-full px-4 py-2 text-sm font-semibold focus:outline-none focus:border-[#C84B31] shadow-sm cursor-pointer"
+            >
+              <option value="recommended">Recommended (verified first)</option>
+              <option value="rating">Top rated</option>
+              <option value="delivery_time">Fastest delivery</option>
+              <option value="name_asc">Name: A → Z</option>
+            </select>
+          </div>
         </div>
 
-        {filtered.length === 0 ? (
+        {sorted.length === 0 ? (
           <div className="text-center py-20 text-[#5C5C5C]">No restaurants in this category.</div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filtered.map((r) => <RestaurantCard key={r.id} restaurant={r} />)}
+            {sorted.map((r) => <RestaurantCard key={r.id} restaurant={r} />)}
           </div>
         )}
       </div>

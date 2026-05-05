@@ -93,15 +93,6 @@ function AdminSettings() {
 
   return (
     <>
-      <Card title="💱 Currency">
-        <Row label="Global exchange rate (1 USD = X SSP)">
-          <input type="number" value={s.global_rate} onChange={(e) => setS({ ...s, global_rate: parseFloat(e.target.value) })}
-            onBlur={() => update({ global_rate: parseFloat(s.global_rate) })}
-            data-testid="admin-global-rate" className="js-input max-w-[200px]" />
-        </Row>
-        <Toggle label="Show currency display" hint="Toggle USD/SSP display platform-wide" checked={s.currency_display} onChange={(v) => update({ currency_display: v })} testId="admin-currency-toggle" />
-      </Card>
-
       <Card title="🏪 Shop Control">
         <Toggle label="Auto-approve new shops" hint="When ON, new shops go live immediately" checked={s.auto_approve_shops} onChange={(v) => update({ auto_approve_shops: v })} testId="admin-auto-approve" />
         <Toggle label="Require verification before going live" checked={s.require_verification} onChange={(v) => update({ require_verification: v })} testId="admin-require-verif" />
@@ -194,7 +185,6 @@ function CustomerSettings() {
     default_area: cur.default_area || "Munuki",
     order_notifications: cur.order_notifications !== false,
     promotion_notifications: !!cur.promotion_notifications,
-    dark_mode: !!cur.dark_mode,
   });
 
   const save = async (patch) => {
@@ -203,9 +193,6 @@ function CustomerSettings() {
     try {
       const { data } = await api.put("/customer/settings", next);
       setUser(data);
-      if ("dark_mode" in patch) {
-        document.documentElement.setAttribute("data-theme", patch.dark_mode ? "dark" : "light");
-      }
       toast.success("Saved");
     } catch (err) { toast.error(formatDetail(err.response?.data?.detail)); }
   };
@@ -222,9 +209,6 @@ function CustomerSettings() {
       <Card title="🔔 Notifications">
         <Toggle label="Order updates" checked={form.order_notifications} onChange={(v) => save({ order_notifications: v })} testId="customer-order-notifs" />
         <Toggle label="Promotion messages" checked={form.promotion_notifications} onChange={(v) => save({ promotion_notifications: v })} testId="customer-promo-notifs" />
-      </Card>
-      <Card title="🌙 Appearance">
-        <Toggle label="Dark mode" hint="Preview — switches surface tones across the app" checked={form.dark_mode} onChange={(v) => save({ dark_mode: v })} testId="customer-dark-mode" />
       </Card>
     </>
   );

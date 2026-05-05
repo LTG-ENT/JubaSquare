@@ -11,6 +11,8 @@ export default function ProductCard({ product, shop }) {
   const { addItem, exchangeRate, currency } = useCart();
   const { user } = useAuth();
   const [fav, setFav] = useState(false);
+  // Use per-seller exchange rate if embedded, fallback to global cart rate
+  const rate = product.exchange_rate_ssp || exchangeRate;
 
   useEffect(() => {
     if (!user || user.role !== "customer") return;
@@ -101,10 +103,10 @@ export default function ProductCard({ product, shop }) {
         <div className="mt-3 flex items-end justify-between gap-2 mt-auto">
           <div className="min-w-0">
             <p className="font-display font-bold text-lg text-[var(--js-text)]" data-testid={`product-price-${product.id}`}>
-              {formatPrice(product.price_usd, exchangeRate, currency)}
+              {formatPrice(product.price_usd, rate, currency)}
             </p>
             <p className="text-[11px] text-[var(--js-text-secondary)]">
-              ≈ {formatPriceAlt(product.price_usd, exchangeRate, currency)}
+              ≈ {formatPriceAlt(product.price_usd, rate, currency)}
             </p>
           </div>
           <button
