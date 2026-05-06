@@ -10,8 +10,23 @@ import AreaSelector from "@/components/AreaSelector";
 import { useCart } from "@/context/CartContext";
 import { ArrowRight, Sparkles, Package } from "lucide-react";
 
-const HERO_IMG =
-  "https://images.unsplash.com/photo-1693064972579-0c1c85c636e8?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njl8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBhZnJpY2FuJTIwbWFya2V0cGxhY2V8ZW58MHx8fHwxNzc3OTQwNjI4fDA&ixlib=rb-4.1.0&q=85";
+const HERO_SLIDES = [
+  {
+    label: "Retail",
+    img: "https://images.unsplash.com/photo-1604719312566-8912e9227c6a?w=1600&q=80&auto=format&fit=crop",
+    // grocery / store shelves
+  },
+  {
+    label: "Wholesale",
+    img: "https://images.unsplash.com/photo-1553413077-190dd305871c?w=1600&q=80&auto=format&fit=crop",
+    // warehouse pallets
+  },
+  {
+    label: "Food",
+    img: "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=1600&q=80&auto=format&fit=crop",
+    // restaurant dish
+  },
+];
 
 const CATEGORY_ICONS = {
   "Groceries": "https://images.unsplash.com/photo-1542838132-92c53300491e?w=400&q=80",
@@ -30,6 +45,7 @@ export default function Home() {
   const [restaurants, setRestaurants] = useState([]);
   const [wholesaleProducts, setWholesaleProducts] = useState([]);
   const [allProducts, setAllProducts] = useState([]);
+  const [slideIdx, setSlideIdx] = useState(0);
   const { area, setArea } = useCart();
 
   useEffect(() => {
@@ -37,6 +53,14 @@ export default function Home() {
     api.get("/restaurants").then((r) => setRestaurants(r.data));
     api.get("/products?is_wholesale=true").then((r) => setWholesaleProducts(r.data));
     api.get("/products").then((r) => setAllProducts(r.data));
+  }, []);
+
+  // Cycle hero background every 3.5s
+  useEffect(() => {
+    const id = setInterval(() => {
+      setSlideIdx((i) => (i + 1) % HERO_SLIDES.length);
+    }, 3500);
+    return () => clearInterval(id);
   }, []);
 
   const categories = [...new Set(shops.map((s) => s.category))];
@@ -49,7 +73,16 @@ export default function Home() {
       {/* HERO */}
       <section className="relative">
         <div className="absolute inset-0 overflow-hidden">
-          <img src={HERO_IMG} alt="" className="w-full h-full object-cover" />
+          {HERO_SLIDES.map((s, i) => (
+            <img
+              key={s.label}
+              src={s.img}
+              alt=""
+              className={`absolute inset-0 w-full h-full object-cover transition-all duration-[1400ms] ease-in-out ${
+                i === slideIdx ? "opacity-100 scale-100" : "opacity-0 scale-105"
+              }`}
+            />
+          ))}
           <div className="absolute inset-0 bg-gradient-to-r from-[#0E1A2B]/95 via-[#0E1A2B]/80 to-[#0E1A2B]/40" />
         </div>
 
@@ -62,10 +95,25 @@ export default function Home() {
               </span>
             </div>
             <h1 className="font-display font-bold text-4xl sm:text-5xl lg:text-6xl text-white tracking-tight">
-              Shop Everything in Juba — <span className="text-[#E9C46A]">Retail & Wholesale</span>
+              Shop Everything in Juba —{" "}
+              <span className="relative inline-block align-baseline" style={{ minWidth: "4ch" }}>
+                {HERO_SLIDES.map((s, i) => (
+                  <span
+                    key={s.label}
+                    aria-hidden={i !== slideIdx}
+                    className={`text-[#E9C46A] transition-all duration-700 ease-out ${
+                      i === slideIdx
+                        ? "opacity-100 translate-y-0 relative"
+                        : "opacity-0 translate-y-3 absolute left-0 top-0"
+                    }`}
+                  >
+                    {s.label}
+                  </span>
+                ))}
+              </span>
             </h1>
             <p className="text-white/90 text-base sm:text-lg mt-5 max-w-xl">
-              From groceries to electronics, buy from trusted local shops.
+              From groceries to electronics to food — buy from trusted local shops, warehouses, and restaurants.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link
@@ -86,6 +134,21 @@ export default function Home() {
             <div className="mt-8 flex items-center gap-3">
               <span className="text-white/70 text-sm">Browsing in:</span>
               <AreaSelector value={area} onChange={setArea} testId="home-area-selector" />
+            </div>
+
+            {/* Slide indicators */}
+            <div className="mt-6 flex items-center gap-2" data-testid="hero-slide-indicators">
+              {HERO_SLIDES.map((s, i) => (
+                <button
+                  key={s.label}
+                  onClick={() => setSlideIdx(i)}
+                  data-testid={`hero-slide-dot-${s.label.toLowerCase()}`}
+                  aria-label={`Show ${s.label} slide`}
+                  className={`h-1.5 rounded-full transition-all duration-500 ${
+                    i === slideIdx ? "w-10 bg-[#E9C46A]" : "w-4 bg-white/30 hover:bg-white/50"
+                  }`}
+                />
+              ))}
             </div>
           </div>
         </div>
