@@ -119,7 +119,8 @@ export default function SellerDashboard() {
         <div className="mt-8 flex flex-wrap gap-2 border-b border-[#E2E2D9] overflow-x-auto">
           {TABS.map((t) => {
             const Icon = t.icon;
-            const showBadge = t.id === "products" && lowStockEnabled && lowStockCount > 0;
+            const showLowStockBadge = t.id === "products" && lowStockEnabled && lowStockCount > 0;
+            const showMsgBadge = t.id === "messages" && unreadMessages > 0;
             return (
               <button
                 key={t.id}
@@ -132,9 +133,14 @@ export default function SellerDashboard() {
                 }`}
               >
                 <Icon className="w-4 h-4" /> {t.label}
-                {showBadge && (
+                {showLowStockBadge && (
                   <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] text-[10px] font-bold bg-[#E9C46A] text-[#1A1A1A] rounded-full px-1.5">
                     {lowStockCount}
+                  </span>
+                )}
+                {showMsgBadge && (
+                  <span data-testid="seller-messages-badge" className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] text-[10px] font-bold bg-[#C84B31] text-white rounded-full px-1.5">
+                    {unreadMessages}
                   </span>
                 )}
               </button>
@@ -146,6 +152,7 @@ export default function SellerDashboard() {
           {tab === "shops" && <ShopsTab />}
           {tab === "products" && <ProductsTab />}
           {tab === "orders" && <OrdersTab />}
+          {tab === "messages" && <MessagesTab onChange={(n) => setUnreadMessages(n)} />}
           {tab === "notifications" && <NotificationsTab />}
           {tab === "invoices" && <InvoicesTab />}
           {tab === "rate" && <RateTab />}
@@ -1549,6 +1556,147 @@ function NotificationsTab() {
               </li>
             );
           })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+
+function MessagesTab({ onChange }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("all"); // all | unread
+
+  const refreshUnread = async () => {
+    try {
+      const r = await api.get("/messages/seller/unread-count");
+      onChange?.(r.data?.count || 0);
+    } catch { /* ignore */ }
+  };
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get("/messages/seller");
+      setItems(data || []);
+    } catch (e) {
+      toast.error(formatDetail(e.response?.data?.detail));
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { load(); refreshUnread(); /* eslint-disable-next-line */ }, []);
+
+  const markRead = async (m) => {
+    if (m.is_read) return;
+    try {
+      await api.put(`/messages/${m.id}/read`);
+      setItems((prev) => prev.map((it) => (it.id === m.id ? { ...it, is_read: true } : it)));
+      refreshUnread();
+    } catch (e) { toast.error(formatDetail(e.response?.data?.detail)); }
+  };
+
+  const remove = async (id) => {
+    if (!window.confirm("Delete this message?")) return;
+    try {
+      await api.delete(`/messages/${id}`);
+      setItems((prev) => prev.filter((it) => it.id !== id));
+      refreshUnread();
+    } catch (e) { toast.error(formatDetail(e.response?.data?.detail)); }
+  };
+
+  const visible = filter === "unread" ? items.filter((i) => !i.is_read) : items;
+  const unreadN = items.filter((i) => !i.is_read).length;
+
+  return (
+    <div data-testid="seller-messages-tab">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div>
+          <p className="text-sm text-[#5C5C5C]">
+            {items.length} message{items.length !== 1 && "s"} · <span className="font-bold text-[#1A1A1A]">{unreadN} unread</span>
+          </p>
+          <p className="text-xs text-[#5C5C5C] mt-1">Customers reach you here from your shop's public page. This is one-way — reply directly using the contact info below.</p>
+        </div>
+        <div className="flex gap-2">
+          {[{ id: "all", label: "All" }, { id: "unread", label: `Unread (${unreadN})` }].map((f) => (
+            <button
+              key={f.id}
+              onClick={() => setFilter(f.id)}
+              data-testid={`seller-messages-filter-${f.id}`}
+              className={`text-xs font-bold px-3 py-2 rounded-full border transition ${
+                filter === f.id ? "bg-[#1A1A1A] text-white border-[#1A1A1A]" : "bg-white text-[#1A1A1A] border-[var(--js-border)] hover:border-[#1A1A1A]"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-[#5C5C5C]">Loading…</p>
+      ) : visible.length === 0 ? (
+        <div className="bg-white border border-[#E2E2D9] rounded-3xl p-10 text-center">
+          <MessageCircle className="w-10 h-10 text-[#A3A39E] mx-auto mb-3" />
+          <p className="font-display font-semibold text-lg text-[#1A1A1A]">No {filter === "unread" ? "unread " : ""}messages</p>
+          <p className="text-sm text-[#5C5C5C] mt-1">When customers contact your shop, you'll see their messages here.</p>
+        </div>
+      ) : (
+        <ul className="space-y-3">
+          {visible.map((m) => (
+            <li
+              key={m.id}
+              data-testid={`seller-message-${m.id}`}
+              className={`bg-white border rounded-2xl p-4 transition ${m.is_read ? "border-[#E2E2D9]" : "border-[#C84B31]/40 bg-[#FFF8EE]"}`}
+            >
+              <div className="flex items-start gap-3 flex-wrap">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <span className="text-xs font-bold text-[#1A1A1A]">{m.customer_name || "Guest"}</span>
+                    {!m.is_read && <span className="text-[10px] uppercase tracking-wider font-bold text-[#C84B31]">● NEW</span>}
+                    <span className="text-[10px] uppercase tracking-wider text-[#5C5C5C]">to {m.shop_name}</span>
+                  </div>
+                  <div className="flex items-center gap-3 flex-wrap text-[11px] text-[#5C5C5C] mb-2">
+                    {m.customer_email && (
+                      <a href={`mailto:${m.customer_email}`} className="inline-flex items-center gap-1 hover:underline" data-testid={`msg-email-${m.id}`}>
+                        <Mail className="w-3 h-3" /> {m.customer_email}
+                      </a>
+                    )}
+                    {m.customer_phone && (
+                      <a href={`tel:${m.customer_phone}`} className="inline-flex items-center gap-1 hover:underline" data-testid={`msg-phone-${m.id}`}>
+                        <Phone className="w-3 h-3" /> {m.customer_phone}
+                      </a>
+                    )}
+                    <span>· {new Date(m.created_at).toLocaleString()}</span>
+                  </div>
+                  {m.subject && (
+                    <p className="font-display font-semibold text-sm text-[#1A1A1A] mb-1">{m.subject}</p>
+                  )}
+                  <p className="text-sm text-[#1A1A1A] whitespace-pre-wrap leading-relaxed">{m.body}</p>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  {!m.is_read && (
+                    <button
+                      onClick={() => markRead(m)}
+                      data-testid={`msg-read-${m.id}`}
+                      className="text-xs font-semibold text-[#C84B31] hover:underline px-2 py-1"
+                    >
+                      Mark read
+                    </button>
+                  )}
+                  <button
+                    onClick={() => remove(m.id)}
+                    data-testid={`msg-del-${m.id}`}
+                    className="p-1.5 hover:bg-[#F2EBE5] rounded-full"
+                    title="Delete"
+                  >
+                    <Trash2 className="w-4 h-4 text-[#5C5C5C]" />
+                  </button>
+                </div>
+              </div>
+            </li>
+          ))}
         </ul>
       )}
     </div>

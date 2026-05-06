@@ -23,8 +23,10 @@ import Orders from "@/pages/Orders";
 import Favorites from "@/pages/Favorites";
 import Settings from "@/pages/Settings";
 import SellerDashboard from "@/pages/SellerDashboard";
+import SellerShopEdit from "@/pages/SellerShopEdit";
 import AdminDashboard from "@/pages/AdminDashboard";
 import NotFound from "@/pages/NotFound";
+import ShopPage from "@/pages/ShopPage";
 import About from "@/pages/legal/About";
 import Contact from "@/pages/legal/Contact";
 import Terms from "@/pages/legal/Terms";
@@ -52,6 +54,7 @@ export default function App() {
                 <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/marketplace" element={<Marketplace />} />
                 <Route path="/shops" element={<Shops />} />
+                <Route path="/shop/:shop_id" element={<ShopPage />} />
                 <Route path="/product/:id" element={<ProductDetail />} />
                 <Route path="/wholesale" element={<Navigate to="/marketplace?view=wholesale" replace />} />
                 <Route path="/restaurants" element={<Restaurants />} />
@@ -60,6 +63,7 @@ export default function App() {
                 <Route path="/favorites" element={<ProtectedRoute><Favorites /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
                 <Route path="/seller" element={<ProtectedRoute role="seller"><SellerDashboard /></ProtectedRoute>} />
+                <Route path="/seller/shop/:shop_id/edit" element={<ProtectedRoute role="seller"><SellerShopEdit /></ProtectedRoute>} />
                 <Route path="/admin" element={<ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>} />
                 <Route path="/about" element={<About />} />
                 <Route path="/contact" element={<Contact />} />

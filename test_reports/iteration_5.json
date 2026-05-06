@@ -1,0 +1,42 @@
+{
+  "summary": "Iter5 Round-7 testing complete (Shop Pages + Shop Edit + Shop Messaging). Backend: 21/21 pytest pass in /app/backend/tests/test_iter5_features.py covering: GET/PUT shop round-trip of banner_url/logo_url/opening_hours/is_open + delivery_mode/fee/per_area; auth gate (customer 401/403, admin override OK, unauth 401); POST /shops/{id}/messages anon requires email-or-phone (400), accepts with email, accepts with phone, body<2 → 400, body>2000 → 400, unknown shop → 404; logged-in customer message inherits user.id+email and accepts subject; GET /messages/seller scoped to own seller_id; admin sees all; unread-count returns {count:int}; customer 403; PUT /messages/{id}/read decrements unread, 404 unknown, 403 not-owner; DELETE removes the doc and 404 unknown. Frontend Playwright (admin login → ltg-general-trading@hotmail.com / Kokobleake1): /shop/:id loads with shop-name, shop-cod-banner, shop-status, shop-banner, shop-logo, contact-seller-btn (shop-products-grid empty because seed shop has 0 products → empty state); Contact Seller modal opens for logged-in user, contact-body fill + contact-send-btn → modal auto-closes (verified count=0 after send); /seller/shop/:id/edit form has every expected testid (name, description, area, hours, is-open, save) plus all 3 delivery-mode toggles (free/fixed/per_area); changing opening_hours and clicking save persisted (re-fetched GET /api/shops/{id}.opening_hours equals the new value); Seller dashboard Messages tab shows badge='7' with 8 message rows; mark-read decrements badge to '6'; delete removes a row (8→7); ANONYMOUS click on contact-seller-btn correctly redirects to /login?next=/shop/{id}.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Top of every page", "issues": ["Maintenance-mode banner (\"orders are paused\") is permanently visible — fine if intentional but worth confirming with PM whether it should be a config flag."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter5_features.py",
+    "/app/test_reports/pytest/iter5_results.xml"
+  ],
+  "action_items": [
+    "Demo accounts admin@demo.com / seller@demo.com / customer@demo.com with password 1234 are NOT seeded (return 401). PRD/test_credentials.md still references them; either re-seed at startup or update docs. (Updated /app/memory/test_credentials.md to flag this.)",
+    "Seed data has only 1 public shop ('Test Shop') with 0 products — fine for iter5 unit testing but limits broader regression coverage; consider re-seeding the marketplace before iter6.",
+    "Optional: Persistent maintenance-mode banner is hardcoded; consider gating behind admin/settings flag."
+  ],
+  "critical_code_review_comments": [
+    "POST /api/shops/{shop_id}/messages uses get_current_user via try/except HTTPException, but it does NOT re-raise non-auth HTTP errors (e.g., a 403 blocked-email user). Edge case: a logged-in but blocked user would silently fall into the anonymous branch.",
+    "send_shop_message rate-limiting is absent — anyone can spam a shop's inbox via the public POST endpoint. Suggest IP/email throttling or per-shop hourly cap.",
+    "ShopMessageIn allows arbitrarily long subject and customer_name fields (no max_length). Consider Pydantic Field constraints to prevent oversized payloads.",
+    "PUT /api/shops/{id} exposes ShopIn full-replace semantics — required fields (name, area) must always be sent or partial edits clobber data. Consider PATCH or partial-update Pydantic model for SellerShopEdit page robustness.",
+    "Messages list endpoint /api/messages/seller returns up to 500 docs without pagination. Will degrade as inbox grows; add cursor/limit params.",
+    "SellerDashboard.jsx is now ~1700 lines per test agent inspection. Splitting MessagesTab and ShopsTab into pages/seller/ subcomponents is overdue (carried from iter3/iter4)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter5_features.py",
+    "/app/memory/test_credentials.md"
+  ],
+  "success_rate": {
+    "backend": "100% (21/21 iter5 + previously 66/66 regression — total 87 tests on file)",
+    "frontend": "100% on iter5 critical flows: /shop/:id rendering, Contact Seller modal (logged-in + anon redirect), /seller/shop/:id/edit form fields & save persistence, Messages tab badge / mark-read / delete."
+  },
+  "test_credentials": "Admin: ltg-general-trading@hotmail.com / Kokobleake1. Demo accounts admin/seller/customer @demo.com with password 1234 are NOT seeded (401). For tests needing a non-admin seller or customer, sign up via POST /api/auth/signup and flip email_verified=true via Mongo (see _create_verified_user in test_iter5_features.py).",
+  "seed_data_creation": "test_iter5_features.py creates one TEST_Iter5_Shop_* (deleted in teardown), and one TEST_AdminShop_* (deleted in teardown). Two ephemeral signed-up users (test_iter5_seller_*, test_iter5_customer_*) are deleted from the users collection at module teardown.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Five pytest files now: backend_test.py (25), test_iter2_features.py (18), test_iter3_features.py (15), test_iter4_features.py (8), test_iter5_features.py (21). The new iter5 file uses pymongo directly to bypass email-verification gate when signing up test sellers/customers — pattern: signup → users.update_one({email}, {$set:{email_verified:true}}) → login. This is the recommended pattern for any future test that needs a non-admin role since demo@ accounts are not seeded. Frontend testids confirmed working: shop-name, shop-cod-banner, shop-status, shop-banner, shop-logo, contact-seller-btn, contact-seller-modal, contact-subject, contact-body, contact-phone, contact-send-btn, shop-edit-form, shop-edit-{name,description,area,hours,is-open,save}, shop-edit-delivery-mode-{free,fixed,per_area}, shop-edit-area-{add,row-N,select-N,fee-N,remove-N}, seller-tab-messages, seller-messages-badge, seller-message-{id}, msg-{read,del,email,phone}-{id}, edit-shop-link, view-public-link.",
+  "rca of the issue": "No issues found in iter5 features. The only friction was that PRD-referenced demo accounts (admin/seller/customer @demo.com / 1234) are not present in the database and tests authored against them fail at login. Mitigation applied: rewrote test fixtures to dynamically signup+verify dedicated TEST_ users via the public /api/auth/signup endpoint plus a direct Mongo email_verified flip; this isolates iter5 tests from any future demo-seed changes."
+}
