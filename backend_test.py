@@ -12,7 +12,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import requests
 
 # Configuration
-BACKEND_URL = "https://publish-ready-34.preview.emergentagent.com/api"
+BACKEND_URL = "https://low-stock-tracker.preview.emergentagent.com/api"
 MONGO_URL = "mongodb://localhost:27017"
 DB_NAME = "jubasquare_db"
 
