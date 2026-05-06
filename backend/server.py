@@ -932,6 +932,15 @@ async def place_order(body: OrderIn, user: dict = Depends(get_current_user)):
                     meta={"order_id": order["id"], "customer_name": user["name"], "shop_id": sh["id"]},
                 )
 
+    # Confirmation notification to the customer
+    short_id = order["id"][:8]
+    await create_notification(
+        user_id=user["id"],
+        message=f"Your order #{short_id} has been placed. Total: USD {total:.2f}.",
+        ntype="order",
+        meta={"order_id": order["id"], "status": "Pending"},
+    )
+
     return order
 
 
@@ -960,7 +969,24 @@ async def update_status(order_id: str, body: StatusIn, _: dict = Depends(require
     o = await db.orders.find_one({"id": order_id})
     if not o:
         raise HTTPException(404, "Order not found")
+    prev_status = o.get("status")
     await db.orders.update_one({"id": order_id}, {"$set": {"status": body.status}})
+
+    # Notify the customer when status actually changes
+    if prev_status != body.status and o.get("customer_id"):
+        short_id = order_id[:8]
+        msgs = {
+            "Pending": f"Order #{short_id} is awaiting confirmation.",
+            "In Progress": f"Good news — Order #{short_id} is being prepared.",
+            "Delivered": f"Order #{short_id} has been delivered. Enjoy! Tap to leave a review.",
+        }
+        await create_notification(
+            user_id=o["customer_id"],
+            message=msgs.get(body.status, f"Order #{short_id} status updated to {body.status}."),
+            ntype="order",
+            meta={"order_id": order_id, "status": body.status},
+        )
+
     return await db.orders.find_one({"id": order_id}, {"_id": 0})
 
 

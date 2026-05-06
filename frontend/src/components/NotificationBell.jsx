@@ -74,10 +74,15 @@ export default function NotificationBell() {
     setItems((prev) => prev.map((it) => (it.id === n.id ? { ...it, is_read: true } : it)));
     setUnread((c) => Math.max(0, c - (n.is_read ? 0 : 1)));
 
-    // navigate based on type
+    // navigate based on type + role
     setOpen(false);
-    if (n.type === "order" && n.meta?.order_id) navigate("/seller?tab=orders");
-    else if (n.type === "commission") navigate("/seller?tab=invoices");
+    if (n.type === "order") {
+      if (user?.role === "customer") navigate("/orders");
+      else navigate("/seller?tab=orders");
+    } else if (n.type === "commission") {
+      if (user?.role === "admin") navigate("/admin?tab=invoices");
+      else navigate("/seller?tab=invoices");
+    }
   };
 
   const markAll = async () => {
