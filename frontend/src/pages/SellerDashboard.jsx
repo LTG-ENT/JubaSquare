@@ -3,6 +3,7 @@ import { useAuth } from "@/context/AuthContext";
 import api, { formatUSD, formatDetail } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import ImageUpload from "@/components/ImageUpload";
 import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -161,7 +162,7 @@ function ShopsTab() {
   const onDelete = async (s, kind) => {
     const what = kind === "restaurant" ? "restaurant and its menu" : "shop and its products";
     if (!window.confirm(`Delete this ${what}?`)) return;
-    if (kind === "restaurant") toast.error("Deleting restaurants is not available in demo.");
+    if (kind === "restaurant") toast.error("Restaurant deletion is disabled. Please contact support.");
     else { await api.delete(`/shops/${s.id}`); toast.success("Shop deleted"); load(); }
   };
 
@@ -209,7 +210,7 @@ function ShopsTab() {
             </div>
             <Input label="Name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required testId="shop-name-input" />
             <Select label="Area" value={form.area} onChange={(v) => setForm({ ...form, area: v })} options={AREAS} testId="shop-area-select" />
-            <Input label="Image URL" value={form.image_url} onChange={(v) => setForm({ ...form, image_url: v })} testId="shop-image-input" />
+            <ImageUpload label="Shop photo" value={form.image_url} onChange={(v) => setForm({ ...form, image_url: v })} testId="shop-image-upload" />
             <Textarea label="Description" value={form.description} onChange={(v) => setForm({ ...form, description: v })} testId="shop-desc-input" />
 
             {form.type === "shop" && (
@@ -473,7 +474,7 @@ function ProductsTab() {
                 <Input label="Food name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required testId="product-name-input" />
                 <Select label="Food category" value={form.food_category} onChange={(v) => setForm({ ...form, food_category: v })} options={FOOD_SUBCATEGORIES} testId="food-category-select" />
                 <Input label="Price (USD)" type="number" step="0.01" value={form.price_usd} onChange={(v) => setForm({ ...form, price_usd: v })} required testId="product-price-input" />
-                <Input label="Image URL" value={form.image_url} onChange={(v) => setForm({ ...form, image_url: v })} testId="product-image-input" />
+                <ImageUpload label="Food photo" value={form.image_url} onChange={(v) => setForm({ ...form, image_url: v })} testId="product-image-upload" />
                 <Textarea label="Description" value={form.description} onChange={(v) => setForm({ ...form, description: v })} testId="product-desc-input" />
                 <SideItemsEditor sides={form.side_items} setSides={(s) => setForm({ ...form, side_items: s })} />
               </>
@@ -486,7 +487,7 @@ function ProductsTab() {
                   <Input label="Stock" type="number" value={form.stock} onChange={(v) => setForm({ ...form, stock: v })} testId="product-stock-input" />
                 </div>
                 <p className="text-xs text-[var(--js-text-secondary)]">≈ <strong>SSP {(parseFloat(form.price_usd || 0) * rate).toLocaleString()}</strong> at current rate</p>
-                <Input label="Image URL" value={form.image_url} onChange={(v) => setForm({ ...form, image_url: v })} testId="product-image-input" />
+                <ImageUpload label="Product photo" value={form.image_url} onChange={(v) => setForm({ ...form, image_url: v })} testId="product-image-upload" />
                 <Textarea label="Description" value={form.description} onChange={(v) => setForm({ ...form, description: v })} testId="product-desc-input" />
 
                 {/* Wholesale toggle only for shops */}

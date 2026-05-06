@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import api, { formatUSD, formatDetail } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import { Store, Mail, ShoppingBag, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Percent, Eye, X } from "lucide-react";
+import AdminAnalytics from "@/components/AdminAnalytics";
+import { Store, Mail, ShoppingBag, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Percent, Eye, X, BarChart3 } from "lucide-react";
 import { toast } from "sonner";
 
 const TABS = [
+  { id: "analytics", label: "Analytics", icon: BarChart3 },
   { id: "shops", label: "Shops", icon: Store },
   { id: "invoices", label: "Invoices", icon: FileText },
   { id: "emails", label: "Blocked Emails", icon: Mail },
@@ -13,7 +15,7 @@ const TABS = [
 ];
 
 export default function AdminDashboard() {
-  const [tab, setTab] = useState("shops");
+  const [tab, setTab] = useState("analytics");
 
   return (
     <div className="min-h-screen flex flex-col bg-[var(--js-bg)]">
@@ -41,6 +43,7 @@ export default function AdminDashboard() {
         </div>
 
         <div className="mt-8">
+          {tab === "analytics" && <AdminAnalytics />}
           {tab === "shops" && <AdminShopsTab />}
           {tab === "invoices" && <AdminInvoicesTab />}
           {tab === "emails" && <AdminEmailsTab />}

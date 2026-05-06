@@ -1,0 +1,195 @@
+"""
+JubaSquare — lightweight Resend email helper.
+
+All send_* functions are NO-OPS when RESEND_API_KEY is missing (dev mode).
+They log a warning instead of raising, so the app keeps working.
+"""
+
+import os
+import asyncio
+import logging
+from typing import Optional
+
+import resend
+
+log = logging.getLogger("jubasquare.email")
+
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "").strip()
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "noreply@jubasquare.com").strip()
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "").rstrip("/")
+
+if RESEND_API_KEY:
+    resend.api_key = RESEND_API_KEY
+else:
+    log.warning("RESEND_API_KEY is not set — email sending is disabled (no-op mode).")
+
+
+# --------------------------------------------------------------------
+# Core send helper
+# --------------------------------------------------------------------
+async def _send(to: str, subject: str, html: str) -> Optional[str]:
+    if not RESEND_API_KEY:
+        log.info(f"[email disabled] would send to={to} subject={subject!r}")
+        return None
+    try:
+        params = {
+            "from": SENDER_EMAIL,
+            "to": [to],
+            "subject": subject,
+            "html": html,
+        }
+        email = await asyncio.to_thread(resend.Emails.send, params)
+        log.info(f"email sent id={email.get('id')} to={to} subject={subject!r}")
+        return email.get("id")
+    except Exception as e:
+        log.error(f"email send failed to={to}: {e}")
+        return None
+
+
+# --------------------------------------------------------------------
+# Branded shell
+# --------------------------------------------------------------------
+def _shell(title: str, body_html: str, cta_label: Optional[str] = None, cta_url: Optional[str] = None, preheader: str = "") -> str:
+    btn_html = ""
+    if cta_label and cta_url:
+        btn_html = f"""
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:28px 0;">
+          <tr><td bgcolor="#C84B31" style="border-radius:8px;">
+            <a href="{cta_url}" target="_blank"
+               style="display:inline-block;padding:14px 28px;font-family:Arial,sans-serif;font-size:15px;
+                      font-weight:bold;color:#ffffff;text-decoration:none;border-radius:8px;">
+              {cta_label}
+            </a>
+          </td></tr>
+        </table>
+        """
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>{title}</title></head>
+<body style="margin:0;padding:0;background:#F4F1EA;font-family:Arial,Helvetica,sans-serif;color:#1A1A1A;">
+  <div style="display:none;max-height:0;overflow:hidden;">{preheader}</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#F4F1EA">
+    <tr><td align="center" style="padding:40px 16px;">
+      <table role="presentation" width="560" cellspacing="0" cellpadding="0" border="0"
+             style="max-width:560px;background:#ffffff;border-radius:14px;overflow:hidden;
+                    box-shadow:0 4px 16px rgba(0,0,0,0.06);">
+        <tr><td bgcolor="#0E1A2B" style="padding:22px 28px;">
+          <table role="presentation" width="100%"><tr>
+            <td style="color:#ffffff;font-size:20px;font-weight:bold;letter-spacing:0.5px;">JubaSquare</td>
+            <td align="right" style="color:#E9C46A;font-size:10px;letter-spacing:2px;font-weight:bold;">
+              BY L.T.G ENTERPRISE
+            </td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:36px 32px;">
+          <h1 style="margin:0 0 16px 0;font-size:22px;color:#1A1A1A;">{title}</h1>
+          <div style="font-size:15px;line-height:1.65;color:#404040;">{body_html}</div>
+          {btn_html}
+          <p style="font-size:12px;color:#808080;margin-top:30px;line-height:1.6;">
+            If you didn't request this, you can safely ignore this email.
+          </p>
+        </td></tr>
+        <tr><td bgcolor="#F4F1EA" style="padding:18px 28px;text-align:center;font-size:11px;color:#808080;">
+          © {_year()} JubaSquare — Juba's Marketplace · <a href="{FRONTEND_URL}" style="color:#C84B31;text-decoration:none;">jubasquare.com</a>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+
+
+def _year() -> int:
+    from datetime import datetime
+    return datetime.utcnow().year
+
+
+# --------------------------------------------------------------------
+# Public send functions
+# --------------------------------------------------------------------
+async def send_verification_email(to: str, name: str, token: str) -> Optional[str]:
+    link = f"{FRONTEND_URL}/verify-email?token={token}"
+    body = f"""
+      <p>Hi {name or 'there'},</p>
+      <p>Welcome to JubaSquare! Please confirm your email address to activate your account.</p>
+    """
+    html = _shell(
+        title="Verify your email",
+        body_html=body,
+        cta_label="Verify my email",
+        cta_url=link,
+        preheader="Confirm your email to activate your JubaSquare account.",
+    )
+    return await _send(to, "Verify your JubaSquare email", html)
+
+
+async def send_password_reset_email(to: str, name: str, token: str) -> Optional[str]:
+    link = f"{FRONTEND_URL}/reset-password?token={token}"
+    body = f"""
+      <p>Hi {name or 'there'},</p>
+      <p>We got a request to reset your JubaSquare password. This link expires in 1 hour.</p>
+    """
+    html = _shell(
+        title="Reset your password",
+        body_html=body,
+        cta_label="Reset password",
+        cta_url=link,
+        preheader="Reset your JubaSquare password.",
+    )
+    return await _send(to, "Reset your JubaSquare password", html)
+
+
+async def send_order_confirmation_customer(to: str, name: str, order: dict) -> Optional[str]:
+    order_id = order.get("id", "")[:8]
+    total = float(order.get("total_usd", 0))
+    subtotal = float(order.get("subtotal_usd", 0))
+    delivery = float(order.get("delivery_fee_usd", 0))
+    items_html = "".join(
+        f"""<tr>
+              <td style="padding:6px 0;">{it.get('quantity', 1)}× {it.get('name', 'Item')}</td>
+              <td align="right" style="padding:6px 0;">${float(it.get('price_usd', 0)) * int(it.get('quantity', 1)):.2f}</td>
+            </tr>"""
+        for it in order.get("items", [])
+    )
+    body = f"""
+      <p>Hi {name or 'there'},</p>
+      <p>Thanks for your order! We've notified the seller(s) — you'll receive another email when your order is on its way.</p>
+      <table width="100%" style="border-collapse:collapse;margin:18px 0;border:1px solid #EEE;border-radius:8px;">
+        <tr><td style="padding:14px 16px;background:#F4F1EA;font-weight:bold;">Order #{order_id}</td></tr>
+        <tr><td style="padding:14px 16px;">
+          <table width="100%" style="font-size:14px;">{items_html}</table>
+          <hr style="border:none;border-top:1px solid #EEE;margin:10px 0;">
+          <table width="100%" style="font-size:14px;">
+            <tr><td>Subtotal</td><td align="right">${subtotal:.2f}</td></tr>
+            <tr><td>Delivery</td><td align="right">${delivery:.2f}</td></tr>
+            <tr><td style="font-weight:bold;padding-top:6px;">Total</td><td align="right" style="font-weight:bold;padding-top:6px;">${total:.2f}</td></tr>
+          </table>
+        </td></tr>
+      </table>
+      <p style="font-size:13px;color:#666;">Payment method: <strong>Cash on Delivery</strong></p>
+    """
+    html = _shell(
+        title=f"Order confirmed — #{order_id}",
+        body_html=body,
+        cta_label="View my orders",
+        cta_url=f"{FRONTEND_URL}/orders",
+        preheader=f"Your order #{order_id} has been placed (${total:.2f}).",
+    )
+    return await _send(to, f"Order confirmed — #{order_id}", html)
+
+
+async def send_order_notification_seller(to: str, seller_name: str, order: dict, shop_name: str) -> Optional[str]:
+    order_id = order.get("id", "")[:8]
+    body = f"""
+      <p>Hi {seller_name or 'there'},</p>
+      <p>You've received a new order for <strong>{shop_name}</strong>.</p>
+      <p>Customer: {order.get('customer_name', '—')} · {order.get('phone', '—')}<br>
+      Delivery area: {order.get('area', '—')}<br>
+      Total (all shops): ${float(order.get('total_usd', 0)):.2f}</p>
+    """
+    html = _shell(
+        title=f"New order — #{order_id}",
+        body_html=body,
+        cta_label="Open seller dashboard",
+        cta_url=f"{FRONTEND_URL}/seller",
+        preheader=f"New order received for {shop_name}.",
+    )
+    return await _send(to, f"New order received — #{order_id}", html)

@@ -12,10 +12,16 @@ from typing import List, Optional, Literal
 
 import bcrypt
 import jwt
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response
+import secrets
+import re
+from pathlib import Path as _FsPath
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr
+
+import email_service
 
 
 # ----------------------------------------------------------------------------
@@ -238,6 +244,27 @@ class LoginIn(BaseModel):
     password: str
 
 
+class SignupIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=6)
+    name: str = Field(min_length=1, max_length=120)
+    role: Literal["customer", "seller"] = "customer"
+    phone: Optional[str] = ""
+
+
+class TokenIn(BaseModel):
+    token: str
+
+
+class EmailOnlyIn(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordIn(BaseModel):
+    token: str
+    new_password: str = Field(min_length=6)
+
+
 class ChangePwIn(BaseModel):
     current_password: str
     new_password: str
@@ -430,6 +457,16 @@ async def login(payload: LoginIn, request: Request, response: Response):
         )
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
+    # Require verified email for non-admin roles
+    if user.get("role") != "admin" and not user.get("email_verified", False):
+        raise HTTPException(
+            status_code=403,
+            detail="Please verify your email before signing in. Check your inbox for the verification link.",
+        )
+
+    if user.get("suspended"):
+        raise HTTPException(status_code=403, detail="Your account has been suspended. Contact support.")
+
     await db.login_attempts.delete_one({"key": key})
     tv = settings.get("token_version", 1)
     token = create_token(user["id"], user["role"], user["email"], tv)
@@ -451,6 +488,141 @@ async def login(payload: LoginIn, request: Request, response: Response):
 async def logout(response: Response):
     response.delete_cookie("access_token", path="/")
     return {"ok": True}
+
+
+# --------------------------------------------------------------------
+# Signup + email verification + password reset
+# --------------------------------------------------------------------
+VERIFICATION_TTL_HOURS = 48
+RESET_TTL_MINUTES = 60
+
+
+def _make_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+async def _find_valid_token(collection, token: str):
+    rec = await collection.find_one({"token": token}, {"_id": 0})
+    if not rec:
+        return None
+    try:
+        exp = datetime.fromisoformat(rec["expires_at"])
+    except Exception:
+        return None
+    if exp < datetime.now(timezone.utc):
+        return None
+    return rec
+
+
+@api.post("/auth/signup")
+async def signup(body: SignupIn):
+    email = body.email.lower()
+    blocked = await db.blocked_emails.find_one({"email": email})
+    if blocked:
+        raise HTTPException(403, "This email cannot be registered. Contact support.")
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(400, "An account with this email already exists.")
+
+    uid = str(uuid.uuid4())
+    user = {
+        "id": uid,
+        "email": email,
+        "name": body.name.strip(),
+        "role": body.role,  # customer | seller
+        "phone": (body.phone or "").strip(),
+        "password_hash": hash_password(body.password),
+        "email_verified": False,
+        "settings": {},
+        "created_at": now_iso(),
+    }
+    await db.users.insert_one(user)
+
+    token = _make_token()
+    await db.email_verifications.insert_one({
+        "token": token,
+        "user_id": uid,
+        "email": email,
+        "created_at": now_iso(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(hours=VERIFICATION_TTL_HOURS)).isoformat(),
+    })
+    try:
+        await email_service.send_verification_email(to=email, name=user["name"], token=token)
+    except Exception as e:
+        log.error(f"signup email send failed: {e}")
+
+    return {
+        "ok": True,
+        "message": "Account created — please check your email to verify your address.",
+        "email": email,
+    }
+
+
+@api.post("/auth/verify-email")
+async def verify_email(body: TokenIn):
+    rec = await _find_valid_token(db.email_verifications, body.token)
+    if not rec:
+        raise HTTPException(400, "Invalid or expired verification link.")
+    await db.users.update_one({"id": rec["user_id"]}, {"$set": {"email_verified": True}})
+    await db.email_verifications.delete_many({"user_id": rec["user_id"]})
+    return {"ok": True, "message": "Email verified — you can now sign in."}
+
+
+@api.post("/auth/resend-verification")
+async def resend_verification(body: EmailOnlyIn):
+    email = body.email.lower()
+    user = await db.users.find_one({"email": email})
+    # Don't leak whether the account exists.
+    if not user or user.get("email_verified"):
+        return {"ok": True, "message": "If an account exists for this email, a verification link was sent."}
+    await db.email_verifications.delete_many({"user_id": user["id"]})
+    token = _make_token()
+    await db.email_verifications.insert_one({
+        "token": token,
+        "user_id": user["id"],
+        "email": email,
+        "created_at": now_iso(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(hours=VERIFICATION_TTL_HOURS)).isoformat(),
+    })
+    try:
+        await email_service.send_verification_email(to=email, name=user.get("name", ""), token=token)
+    except Exception as e:
+        log.error(f"resend verification failed: {e}")
+    return {"ok": True, "message": "If an account exists for this email, a verification link was sent."}
+
+
+@api.post("/auth/forgot-password")
+async def forgot_password(body: EmailOnlyIn):
+    email = body.email.lower()
+    user = await db.users.find_one({"email": email})
+    # Same generic response regardless of match, to prevent email enumeration
+    if user:
+        await db.password_resets.delete_many({"user_id": user["id"]})
+        token = _make_token()
+        await db.password_resets.insert_one({
+            "token": token,
+            "user_id": user["id"],
+            "email": email,
+            "created_at": now_iso(),
+            "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=RESET_TTL_MINUTES)).isoformat(),
+        })
+        try:
+            await email_service.send_password_reset_email(to=email, name=user.get("name", ""), token=token)
+        except Exception as e:
+            log.error(f"password reset email failed: {e}")
+    return {"ok": True, "message": "If an account exists for this email, a reset link was sent."}
+
+
+@api.post("/auth/reset-password")
+async def reset_password(body: ResetPasswordIn):
+    rec = await _find_valid_token(db.password_resets, body.token)
+    if not rec:
+        raise HTTPException(400, "Invalid or expired reset link. Please request a new one.")
+    await db.users.update_one(
+        {"id": rec["user_id"]},
+        {"$set": {"password_hash": hash_password(body.new_password)}},
+    )
+    await db.password_resets.delete_many({"user_id": rec["user_id"]})
+    return {"ok": True, "message": "Password updated — you can now sign in."}
 
 
 @api.get("/auth/me")
@@ -495,6 +667,38 @@ async def update_customer_settings(body: CustomerSettingsIn, user: dict = Depend
         await db.users.update_one({"id": user["id"]}, {"$set": update})
     refreshed = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0})
     return refreshed
+
+
+# ----------------------------------------------------------------------------
+# File uploads (seller product/shop images → local disk)
+# ----------------------------------------------------------------------------
+UPLOAD_DIR = _FsPath(__file__).parent / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
+
+
+@api.post("/upload")
+async def upload_file(request: Request, file: UploadFile = File(...), user: dict = Depends(require_role("seller", "admin"))):
+    name = file.filename or ""
+    ext = _FsPath(name).suffix.lower()
+    if ext not in ALLOWED_IMAGE_EXTS:
+        raise HTTPException(400, f"Unsupported file type {ext}. Allowed: jpg, png, webp, gif.")
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "File too large (max 5 MB).")
+    if len(data) == 0:
+        raise HTTPException(400, "Empty file.")
+    fname = f"{uuid.uuid4().hex}{ext}"
+    dest = UPLOAD_DIR / fname
+    with open(dest, "wb") as f:
+        f.write(data)
+    # Build an absolute URL so the browser can load it directly without proxy rewrites.
+    origin = (os.environ.get("FRONTEND_URL") or "").rstrip("/")
+    if not origin:
+        origin = f"{request.url.scheme}://{request.url.netloc}"
+    public_url = f"{origin}/api/uploads/{fname}"
+    return {"ok": True, "url": public_url, "filename": fname}
 
 
 # ----------------------------------------------------------------------------
@@ -941,6 +1145,35 @@ async def place_order(body: OrderIn, user: dict = Depends(get_current_user)):
         meta={"order_id": order["id"], "status": "Pending"},
     )
 
+    # Email: customer confirmation
+    try:
+        await email_service.send_order_confirmation_customer(
+            to=user["email"], name=user.get("name", ""), order=order,
+        )
+    except Exception as e:
+        log.warning(f"customer order email failed: {e}")
+
+    # Email: notify each seller
+    try:
+        if shop_ids_in_order:
+            for sh in shops:
+                sid = sh.get("seller_id")
+                if not sid:
+                    continue
+                seller = await db.users.find_one({"id": sid}, {"_id": 0, "email": 1, "name": 1, "settings": 1})
+                if not seller or not seller.get("email"):
+                    continue
+                if (seller.get("settings") or {}).get("order_notifications") is False:
+                    continue
+                await email_service.send_order_notification_seller(
+                    to=seller["email"],
+                    seller_name=seller.get("name", ""),
+                    order=order,
+                    shop_name=sh.get("name", "your shop"),
+                )
+    except Exception as e:
+        log.warning(f"seller order email failed: {e}")
+
     return order
 
 
@@ -1209,6 +1442,103 @@ async def admin_get_settings(_: dict = Depends(require_role("admin"))):
     return await get_settings()
 
 
+@api.get("/admin/analytics")
+async def admin_analytics(_: dict = Depends(require_role("admin"))):
+    """Aggregated counts for the admin dashboard."""
+    now = datetime.now(timezone.utc)
+    since30 = now - timedelta(days=30)
+    since30_iso = since30.isoformat()
+
+    # Totals
+    orders = await db.orders.find({}, {"_id": 0}).to_list(5000)
+    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(5000)
+    shops_count = await db.shops.count_documents({})
+    products_count = await db.products.count_documents({})
+    restaurants_count = await db.restaurants.count_documents({})
+
+    total_orders = len(orders)
+    total_revenue = sum(float(o.get("total_usd") or o.get("subtotal_usd") or 0) for o in orders)
+    pending_orders = sum(1 for o in orders if o.get("status") == "Pending")
+    delivered_orders = sum(1 for o in orders if o.get("status") == "Delivered")
+
+    customers_count = sum(1 for u in users if u.get("role") == "customer")
+    sellers_count = sum(1 for u in users if u.get("role") == "seller")
+
+    # Orders per day (last 30 days)
+    orders_per_day: dict = {}
+    for o in orders:
+        try:
+            dt = datetime.fromisoformat(o["created_at"])
+        except Exception:
+            continue
+        if dt < since30:
+            continue
+        key = dt.date().isoformat()
+        orders_per_day.setdefault(key, {"day": key, "orders": 0, "revenue": 0.0})
+        orders_per_day[key]["orders"] += 1
+        orders_per_day[key]["revenue"] += float(o.get("total_usd") or o.get("subtotal_usd") or 0)
+
+    # New users per day (last 30 days)
+    users_per_day: dict = {}
+    for u in users:
+        try:
+            dt = datetime.fromisoformat(u.get("created_at") or "")
+        except Exception:
+            continue
+        if dt < since30:
+            continue
+        key = dt.date().isoformat()
+        users_per_day.setdefault(key, {"day": key, "users": 0})
+        users_per_day[key]["users"] += 1
+
+    # Fill missing days with 0 for nicer charts
+    opd_list = []
+    upd_list = []
+    for i in range(29, -1, -1):
+        d = (now - timedelta(days=i)).date().isoformat()
+        opd_list.append(orders_per_day.get(d, {"day": d, "orders": 0, "revenue": 0.0}))
+        upd_list.append(users_per_day.get(d, {"day": d, "users": 0}))
+
+    # Top sellers by revenue (from invoices, fallback to order aggregation)
+    invoices = await db.invoices.find({}, {"_id": 0}).to_list(5000)
+    seller_rev: dict = {}
+    for inv in invoices:
+        sid = inv.get("seller_id")
+        if not sid:
+            continue
+        seller_rev[sid] = seller_rev.get(sid, 0.0) + float(inv.get("total_sales") or 0)
+    top = sorted(seller_rev.items(), key=lambda kv: kv[1], reverse=True)[:5]
+    top_sellers = []
+    for sid, revenue in top:
+        s = await db.users.find_one({"id": sid}, {"_id": 0, "name": 1, "email": 1})
+        top_sellers.append({
+            "seller_id": sid,
+            "name": (s or {}).get("name") or (s or {}).get("email") or "Seller",
+            "revenue_usd": round(revenue, 2),
+        })
+
+    # Pending shops for verification queue count
+    pending_shops = await db.shops.count_documents({"verification": "Pending"})
+
+    return {
+        "totals": {
+            "orders": total_orders,
+            "revenue_usd": round(total_revenue, 2),
+            "pending_orders": pending_orders,
+            "delivered_orders": delivered_orders,
+            "shops": shops_count,
+            "products": products_count,
+            "restaurants": restaurants_count,
+            "customers": customers_count,
+            "sellers": sellers_count,
+            "pending_shops": pending_shops,
+        },
+        "orders_per_day": opd_list,
+        "users_per_day": upd_list,
+        "top_sellers": top_sellers,
+    }
+
+
 @api.put("/admin/settings")
 async def admin_update_settings(body: SettingsIn, _: dict = Depends(require_role("admin"))):
     update = {k: v for k, v in body.model_dump().items() if v is not None}
@@ -1277,10 +1607,10 @@ async def list_blocked(_: dict = Depends(require_role("admin"))):
 
 
 @api.post("/admin/block-email")
-async def block_email(body: BlockEmailIn, _: dict = Depends(require_role("admin"))):
+async def block_email(body: BlockEmailIn, user: dict = Depends(require_role("admin"))):
     email = body.email.lower()
-    if email in {"admin@demo.com", "seller@demo.com", "customer@demo.com"}:
-        raise HTTPException(400, "Cannot block demo accounts")
+    if email == (os.environ.get("ADMIN_EMAIL", "") or "").lower():
+        raise HTTPException(400, "Cannot block the admin account")
     existing = await db.blocked_emails.find_one({"email": email})
     if existing:
         raise HTTPException(400, "Email already blocked")
@@ -1473,195 +1803,15 @@ async def seller_list_invoices(user: dict = Depends(require_role("seller", "admi
     return await db.invoices.find({"seller_id": user["id"]}, {"_id": 0}).sort("week_start", -1).to_list(500)
 
 
+
+
 # ----------------------------------------------------------------------------
-# Seeding
+# Seeding (production: only settings + a single admin account)
 # ----------------------------------------------------------------------------
-DEMO_USERS = [
-    {"email": "admin@demo.com", "password": "1234", "name": "Demo Admin", "role": "admin"},
-    {"email": "seller@demo.com", "password": "1234", "name": "Demo Seller", "role": "seller"},
-    {"email": "customer@demo.com", "password": "1234", "name": "Demo Customer", "role": "customer"},
-]
-
-# 9 retail + 3 wholesale shops
-RETAIL_SHOP_SEEDS = [
-    {
-        "name": "Juba Fresh Market", "category": "Groceries", "area": "Munuki",
-        "description": "Daily groceries, fresh produce and household staples.",
-        "image_url": "https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&q=80",
-        "verification": "Verified",
-        "products": [
-            {"name": "Basmati Rice 5kg", "price_usd": 14.0, "image_url": "https://images.unsplash.com/photo-1586201375761-83865001e31c?w=800&q=80", "description": "Premium long-grain basmati rice."},
-            {"name": "Cooking Oil 5L", "price_usd": 18.5, "image_url": "https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?w=800&q=80", "description": "Refined sunflower cooking oil."},
-        ],
-    },
-    {
-        "name": "Nile Fashion House", "category": "Clothing & Fashion", "area": "Atlabara",
-        "description": "Trendy clothing for men and women.",
-        "image_url": "https://images.unsplash.com/photo-1757140447782-8503452b2204?w=800&q=80",
-        "verification": "Verified",
-        "products": [
-            {"name": "Premium Cotton T-Shirt", "price_usd": 18.0, "image_url": "https://images.unsplash.com/photo-1581655353564-df123a1eb820?w=800&q=80", "description": "100% cotton, multiple colors."},
-            {"name": "Slim Fit Jeans", "price_usd": 42.0, "image_url": "https://images.unsplash.com/photo-1542272604-787c3835535d?w=800&q=80", "description": "Classic blue stretch denim."},
-        ],
-    },
-    {
-        "name": "Step Up Shoes & Bags", "category": "Shoes & Bags", "area": "Hai Cinema",
-        "description": "Footwear and bags for every occasion.",
-        "image_url": "https://images.unsplash.com/photo-1549298916-b41d501d3772?w=800&q=80",
-        "verification": "Verified",
-        "products": [
-            {"name": "Running Sneakers", "price_usd": 65.0, "image_url": "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=800&q=80", "description": "Lightweight, breathable running shoes."},
-            {"name": "Leather Tote Bag", "price_usd": 49.0, "image_url": "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=800&q=80", "description": "Genuine leather tote, spacious interior."},
-        ],
-    },
-    {
-        "name": "Glow Beauty Hub", "category": "Beauty & Cosmetics", "area": "Nyakuron",
-        "description": "Skincare, makeup and personal care.",
-        "image_url": "https://images.unsplash.com/photo-1522335789203-aaa57d0aacae?w=800&q=80",
-        "verification": "Verified",
-        "products": [
-            {"name": "Hydrating Face Cream", "price_usd": 22.0, "image_url": "https://images.unsplash.com/photo-1556228720-195a672e8a03?w=800&q=80", "description": "Daily moisturizer for all skin types."},
-            {"name": "Lipstick Set (3-pack)", "price_usd": 16.0, "image_url": "https://images.unsplash.com/photo-1586495777744-4413f21062fa?w=800&q=80", "description": "Long-lasting matte lipsticks."},
-        ],
-    },
-    {
-        "name": "Juba Tech Hub", "category": "Electronics & Accessories", "area": "Munuki",
-        "description": "Latest electronics, mobile phones and accessories.",
-        "image_url": "https://images.unsplash.com/photo-1761641466573-f240b6e446de?w=800&q=80",
-        "verification": "Verified",
-        "products": [
-            {"name": "Samsung Galaxy A55", "price_usd": 380.0, "image_url": "https://images.unsplash.com/photo-1610945265064-0e34e5519bbf?w=800&q=80", "description": "6.5\" AMOLED, 128GB smartphone."},
-            {"name": "Wireless Headphones", "price_usd": 65.0, "image_url": "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&q=80", "description": "Over-ear bluetooth, 40h battery."},
-        ],
-    },
-    {
-        "name": "Equatoria Home Essentials", "category": "Home Essentials", "area": "Gudele",
-        "description": "Furniture, kitchenware and home goods.",
-        "image_url": "https://images.pexels.com/photos/15108276/pexels-photo-15108276.jpeg?auto=compress&w=940",
-        "verification": "Verified",
-        "products": [
-            {"name": "Wooden Dining Chair", "price_usd": 55.0, "image_url": "https://images.unsplash.com/photo-1503602642458-232111445657?w=800&q=80", "description": "Solid mahogany dining chair."},
-            {"name": "Premium Kitchen Set", "price_usd": 89.0, "image_url": "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=800&q=80", "description": "12-piece non-stick cookware set."},
-        ],
-    },
-    {
-        "name": "Juba Pharmacy Plus", "category": "Health & Pharmacy", "area": "Hai Cinema",
-        "description": "Trusted medicines and health products.",
-        "image_url": "https://images.unsplash.com/photo-1646392206581-2527b1cae5cb?w=800&q=80",
-        "verification": "Verified",
-        "products": [
-            {"name": "Paracetamol 500mg (Pack of 20)", "price_usd": 4.5, "image_url": "https://images.unsplash.com/photo-1587854692152-cbe660dbde88?w=800&q=80", "description": "Pain & fever relief tablets."},
-            {"name": "Multivitamin Bottle (60 caps)", "price_usd": 12.0, "image_url": "https://images.unsplash.com/photo-1550572017-edd951b55104?w=800&q=80", "description": "Daily multivitamins for adults."},
-        ],
-    },
-    {
-        "name": "Build Mart", "category": "Building & Materials", "area": "Jebel",
-        "description": "Cement, steel, paint, plumbing and electrical supplies.",
-        "image_url": "https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=800&q=80",
-        "verification": "Verified",
-        "products": [
-            {"name": "Cement Bag 50kg", "price_usd": 12.0, "image_url": "https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=800&q=80", "description": "OPC grade 42.5N cement."},
-            {"name": "Premium White Paint 20L", "price_usd": 58.0, "image_url": "https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=800&q=80", "description": "Interior emulsion, washable finish."},
-        ],
-    },
-    {
-        "name": "Sahel Auto Parts", "category": "Automotive", "area": "Jebel",
-        "description": "Quality car parts and accessories.",
-        "image_url": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=800&q=80",
-        "verification": "Pending",
-        "products": [
-            {"name": "Heavy-Duty Car Battery", "price_usd": 145.0, "image_url": "https://images.unsplash.com/photo-1632823469847-2c40beb9e6ec?w=800&q=80", "description": "12V 70Ah maintenance-free battery."},
-            {"name": "All-Season Tire (Set of 4)", "price_usd": 320.0, "image_url": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=800&q=80", "description": "R15 all-season tires, durable tread."},
-        ],
-    },
-]
-
-WHOLESALE_SHOP_SEEDS = [
-    {
-        "name": "Bulk Foods SS", "category": "Wholesale Food Supply", "area": "Konyo Konyo",
-        "description": "Bulk groceries and food supply for retailers.",
-        "image_url": "https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&q=80",
-        "verification": "Verified",
-        "products": [
-            {"name": "Sugar 50kg Bag", "price_usd": 55.0, "bulk_price_usd": 48.0, "min_order_qty": 5, "image_url": "https://images.unsplash.com/photo-1610736703229-30bbcd1a2b96?w=800&q=80", "description": "Refined white sugar, food-grade."},
-            {"name": "Wheat Flour 50kg", "price_usd": 42.0, "bulk_price_usd": 36.0, "min_order_qty": 10, "image_url": "https://images.unsplash.com/photo-1600326145552-327c4df2c246?w=800&q=80", "description": "All-purpose wheat flour."},
-        ],
-    },
-    {
-        "name": "Mega Electronics WSL", "category": "Wholesale Electronics", "area": "Munuki",
-        "description": "Wholesale supplier of consumer electronics.",
-        "image_url": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&q=80",
-        "verification": "Verified",
-        "products": [
-            {"name": "Smartphone Box (10 pcs)", "price_usd": 2800.0, "bulk_price_usd": 2500.0, "min_order_qty": 1, "image_url": "https://images.unsplash.com/photo-1610945265064-0e34e5519bbf?w=800&q=80", "description": "Mid-range smartphones, retailer pack."},
-            {"name": "USB Cable Carton (100 pcs)", "price_usd": 180.0, "bulk_price_usd": 150.0, "min_order_qty": 2, "image_url": "https://images.unsplash.com/photo-1583863788434-e58a36330cf0?w=800&q=80", "description": "USB-C charging cables, 1m."},
-        ],
-    },
-    {
-        "name": "Builders Supply Co", "category": "Construction Materials", "area": "Jebel",
-        "description": "Construction-grade materials at wholesale rates.",
-        "image_url": "https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=800&q=80",
-        "verification": "Pending",
-        "products": [
-            {"name": "Cement Pallet (40 bags)", "price_usd": 480.0, "bulk_price_usd": 420.0, "min_order_qty": 1, "image_url": "https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=800&q=80", "description": "OPC 42.5N, full pallet."},
-            {"name": "Steel Rod Bundle (100 pcs)", "price_usd": 1200.0, "bulk_price_usd": 1080.0, "min_order_qty": 1, "image_url": "https://images.unsplash.com/photo-1565728744382-61accd4aa148?w=800&q=80", "description": "12mm reinforcing steel rods."},
-        ],
-    },
-]
-
-RESTAURANT_SEEDS = [
-    {
-        "name": "Juba Burger Joint", "category": "Fast Food", "area": "Konyo Konyo", "is_open": True,
-        "verification": "Verified", "description": "Juicy burgers and crispy fries.",
-        "image_url": "https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=800&q=80",
-        "menu": [
-            {"name": "Classic Beef Burger", "price_usd": 8.5, "image_url": "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=800&q=80",
-             "description": "Beef patty, cheese, lettuce, special sauce.",
-             "side_items": [{"name": "Fries", "price_usd": 2.0}, {"name": "Coke", "price_usd": 1.5}, {"name": "BBQ Sauce", "price_usd": 0.5}]},
-            {"name": "Crispy French Fries", "price_usd": 3.5, "image_url": "https://images.unsplash.com/photo-1576107232684-1279f390859f?w=800&q=80",
-             "description": "Golden hand-cut fries with sea salt.",
-             "side_items": [{"name": "Ketchup", "price_usd": 0.5}, {"name": "Mayo", "price_usd": 0.5}]},
-        ],
-    },
-    {
-        "name": "Mama Africa Kitchen", "category": "Local Food", "area": "Nyakuron", "is_open": True,
-        "verification": "Verified", "description": "Authentic South Sudanese home cooking.",
-        "image_url": "https://images.unsplash.com/photo-1726177975126-0053e054bc1a?w=800&q=80",
-        "menu": [
-            {"name": "Rice & Grilled Chicken", "price_usd": 7.0, "image_url": "https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?w=800&q=80",
-             "description": "Spiced jasmine rice with grilled chicken.",
-             "side_items": [{"name": "Salad", "price_usd": 1.5}, {"name": "Soda", "price_usd": 1.0}]},
-            {"name": "Stewed Beans Plate", "price_usd": 5.0, "image_url": "https://images.unsplash.com/photo-1543339308-43e59d6b73a6?w=800&q=80",
-             "description": "Slow-cooked beans with onions & spices.",
-             "side_items": [{"name": "Bread Roll", "price_usd": 0.5}]},
-        ],
-    },
-    {
-        "name": "Cool Sips Drinks", "category": "Drinks", "area": "Munuki", "is_open": True,
-        "verification": "Verified", "description": "Refreshing juices, smoothies and sodas.",
-        "image_url": "https://images.unsplash.com/photo-1622597467836-f3285f2131b8?w=800&q=80",
-        "menu": [
-            {"name": "Fresh Mango Juice", "price_usd": 3.0, "image_url": "https://images.unsplash.com/photo-1546173159-315724a31696?w=800&q=80",
-             "description": "100% fresh mango, no added sugar.", "side_items": []},
-            {"name": "Cold Soda 500ml", "price_usd": 1.5, "image_url": "https://images.unsplash.com/photo-1581636625402-29b2a704ef13?w=800&q=80",
-             "description": "Chilled bottled soda.", "side_items": []},
-        ],
-    },
-    {
-        "name": "Nile Bakery", "category": "Bakery", "area": "Atlabara", "is_open": False,
-        "verification": "Verified", "description": "Fresh bread and cakes baked daily.",
-        "image_url": "https://images.unsplash.com/photo-1628690570377-a8d5bd19768c?w=800&q=80",
-        "menu": [
-            {"name": "Fresh Sourdough Loaf", "price_usd": 4.0, "image_url": "https://images.unsplash.com/photo-1509440159596-0249088772ff?w=800&q=80",
-             "description": "Crusty sourdough, baked this morning.", "side_items": []},
-            {"name": "Chocolate Celebration Cake", "price_usd": 22.0, "image_url": "https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=800&q=80",
-             "description": "Rich chocolate layered cake — serves 8.", "side_items": []},
-        ],
-    },
-]
-
-
-async def seed_demo():
+async def seed_production():
+    """Create essential indexes + seed a single admin account from env.
+    Idempotent: safe to call on every startup."""
+    # Indexes
     await db.users.create_index("email", unique=True)
     await db.shops.create_index("id", unique=True)
     await db.products.create_index("id", unique=True)
@@ -1675,140 +1825,59 @@ async def seed_demo():
     await db.reviews.create_index("id", unique=True)
     await db.notifications.create_index("id", unique=True)
     await db.notifications.create_index([("user_id", 1), ("created_at", -1)])
+    await db.email_verifications.create_index("token", unique=True)
+    await db.email_verifications.create_index("user_id")
+    await db.password_resets.create_index("token", unique=True)
+    await db.password_resets.create_index("user_id")
 
-    # Settings
+    # Global settings
     existing_s = await db.settings.find_one({"id": "system"})
     if not existing_s:
         await db.settings.insert_one(DEFAULT_SETTINGS.copy())
 
-    # Users
-    user_ids: dict = {}
-    for u in DEMO_USERS:
-        existing = await db.users.find_one({"email": u["email"]})
-        if existing:
-            await db.users.update_one(
-                {"email": u["email"]},
-                {"$set": {"password_hash": hash_password(u["password"]), "name": u["name"], "role": u["role"]}},
-            )
-            user_ids[u["role"]] = existing["id"]
-        else:
-            uid = str(uuid.uuid4())
-            await db.users.insert_one({
-                "id": uid, "email": u["email"], "name": u["name"], "role": u["role"],
-                "phone": "", "settings": {},
-                "password_hash": hash_password(u["password"]), "created_at": now_iso(),
-            })
-            user_ids[u["role"]] = uid
+    # Admin account (from env)
+    admin_email = (os.environ.get("ADMIN_EMAIL") or "").strip().lower()
+    admin_password = os.environ.get("ADMIN_PASSWORD") or ""
+    if not admin_email or not admin_password:
+        log.warning("ADMIN_EMAIL / ADMIN_PASSWORD not set — no admin account will be seeded.")
+        return
 
-    seller_id = user_ids["seller"]
-
-    def _seed_shops(shop_list, kind):
-        return shop_list, kind
-
-    async def _insert_shop_set(shop_list, kind):
-        for s in shop_list:
-            existing = await db.shops.find_one({"name": s["name"]})
-            if existing:
-                continue
-            shop_id = str(uuid.uuid4())
-            await db.shops.insert_one({
-                "id": shop_id, "seller_id": seller_id,
-                "name": s["name"], "category": s["category"], "description": s["description"],
-                "area": s["area"], "image_url": s["image_url"],
-                "verification": s.get("verification", "Pending"),
-                "kind": kind, "created_at": now_iso(),
-            })
-            for p in s["products"]:
-                is_ws = kind == "wholesale"
-                await db.products.insert_one({
-                    "id": str(uuid.uuid4()), "shop_id": shop_id, "seller_id": seller_id,
-                    "shop_kind": kind, "name": p["name"], "category": s["category"],
-                    "price_usd": p["price_usd"],
-                    "bulk_price_usd": p.get("bulk_price_usd"),
-                    "min_order_qty": p.get("min_order_qty", 1),
-                    "is_wholesale": is_ws,
-                    "mode": "wholesale" if is_ws else "marketplace",
-                    "pricing_tiers": p.get("pricing_tiers", []),
-                    "image_url": p["image_url"], "description": p["description"],
-                    "stock": 100, "created_at": now_iso(),
-                })
-
-    await _insert_shop_set(RETAIL_SHOP_SEEDS, "retail")
-    await _insert_shop_set(WHOLESALE_SHOP_SEEDS, "wholesale")
-
-    for r in RESTAURANT_SEEDS:
-        existing = await db.restaurants.find_one({"name": r["name"]})
-        if existing:
-            continue
-        rid = str(uuid.uuid4())
-        await db.restaurants.insert_one({
-            "id": rid, "seller_id": seller_id,
-            "name": r["name"], "category": r["category"], "description": r["description"],
-            "area": r["area"], "is_open": r["is_open"], "image_url": r["image_url"],
-            "verification": r.get("verification", "Verified"), "created_at": now_iso(),
+    existing = await db.users.find_one({"email": admin_email})
+    if existing:
+        # Make sure existing admin account stays an admin + is flagged verified,
+        # but never overwrite the password after first seed.
+        await db.users.update_one(
+            {"email": admin_email},
+            {"$set": {"role": "admin", "email_verified": True}},
+        )
+    else:
+        await db.users.insert_one({
+            "id": str(uuid.uuid4()),
+            "email": admin_email,
+            "name": "Admin",
+            "role": "admin",
+            "phone": "",
+            "settings": {},
+            "email_verified": True,
+            "password_hash": hash_password(admin_password),
+            "created_at": now_iso(),
         })
-        for m in r["menu"]:
-            await db.menu_items.insert_one({
-                "id": str(uuid.uuid4()), "restaurant_id": rid, "seller_id": seller_id,
-                "name": m["name"], "price_usd": m["price_usd"], "image_url": m["image_url"],
-                "description": m["description"], "side_items": m.get("side_items", []),
-                "created_at": now_iso(),
-            })
-
-    existing_rate = await db.exchange_rates.find_one({"seller_id": seller_id})
-    if not existing_rate:
-        await db.exchange_rates.insert_one({"seller_id": seller_id, "rate": 600.0, "updated_at": now_iso()})
-
-    # Sample order
-    customer_id = user_ids["customer"]
-    if await db.orders.count_documents({}) == 0:
-        # Create a few orders spread across the last 3 weeks so invoices look realistic
-        sample_products = await db.products.find({"mode": {"$ne": "wholesale"}} if False else {}, {"_id": 0}).to_list(20)
-        now = datetime.now(timezone.utc)
-        seed_orders = [
-            (sample_products[0] if sample_products else None, 1, "Delivered", now - timedelta(days=14)),
-            (sample_products[1] if len(sample_products) > 1 else None, 2, "Delivered", now - timedelta(days=13)),
-            (sample_products[2] if len(sample_products) > 2 else None, 1, "Delivered", now - timedelta(days=8)),
-            (sample_products[3] if len(sample_products) > 3 else None, 3, "Delivered", now - timedelta(days=6)),
-            (sample_products[4] if len(sample_products) > 4 else None, 1, "In Progress", now - timedelta(days=2)),
-            (sample_products[5] if len(sample_products) > 5 else None, 2, "Pending", now - timedelta(days=1)),
-        ]
-        for prod, qty, status, when in seed_orders:
-            if not prod:
-                continue
-            await db.orders.insert_one({
-                "id": str(uuid.uuid4()), "customer_id": customer_id,
-                "customer_name": "Demo Customer", "customer_email": "customer@demo.com",
-                "items": [{"item_type": "product", "item_id": prod["id"], "name": prod["name"],
-                           "price_usd": prod["price_usd"], "quantity": qty,
-                           "image_url": prod["image_url"], "sides": []}],
-                "subtotal_usd": round(prod["price_usd"] * qty, 2),
-                "area": "Munuki", "address": "Block 4, Munuki", "phone": "+211 9XX XXX XXX",
-                "note": "", "order_kind": "marketplace", "status": status,
-                "created_at": when.isoformat(),
-            })
-
-    # Regenerate invoices from seeded orders. Mark the oldest as Paid for demo realism.
-    if await db.invoices.count_documents({}) == 0:
-        await _rebuild_invoices()
-        invs = await db.invoices.find({}, {"_id": 0}).sort("week_start", 1).to_list(100)
-        # Mark first third as Paid
-        paid_cutoff = max(1, len(invs) // 3)
-        for i in invs[:paid_cutoff]:
-            await db.invoices.update_one({"id": i["id"]}, {"$set": {"status": "Paid"}})
-
-    log.info("✅ JubaSquare demo data seeded successfully (retail + wholesale + restaurants + invoices)")
+        log.info(f"✅ Seeded admin account: {admin_email}")
 
 
 @app.on_event("startup")
 async def on_startup():
-    await seed_demo()
+    await seed_production()
 
 
 @app.on_event("shutdown")
 async def on_shutdown():
     client.close()
 
+
+# Serve uploaded images under /api/uploads so they go through the Kubernetes
+# ingress /api prefix and hit the backend (non-/api paths are routed to frontend).
+app.mount("/api/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 app.include_router(api)
 

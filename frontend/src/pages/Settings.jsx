@@ -101,7 +101,7 @@ function AdminSettings() {
 
       <Card title="⭐ Verification">
         <Toggle label="Verified shops appear first" checked={s.verified_first} onChange={(v) => update({ verified_first: v })} testId="admin-verified-first" />
-        <Toggle label="Require document upload for verification" hint="Demo only — not enforced" checked={s.require_doc_for_verification} onChange={(v) => update({ require_doc_for_verification: v })} testId="admin-require-doc" />
+        <Toggle label="Require document upload for verification" hint="Not currently enforced" checked={s.require_doc_for_verification} onChange={(v) => update({ require_doc_for_verification: v })} testId="admin-require-doc" />
       </Card>
 
       <Card title="📊 Modules">
