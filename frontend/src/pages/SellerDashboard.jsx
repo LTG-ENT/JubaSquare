@@ -4,14 +4,15 @@ import api, { formatUSD, formatDetail } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ImageUpload from "@/components/ImageUpload";
-import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
+import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle, ExternalLink, MessageCircle, Mail, Phone } from "lucide-react";
+import { useSearchParams, Link } from "react-router-dom";
 import { toast } from "sonner";
 
 const TABS = [
   { id: "shops", label: "My Shops", icon: Store },
   { id: "products", label: "Products", icon: Package },
   { id: "orders", label: "Orders", icon: ShoppingBag },
+  { id: "messages", label: "Messages", icon: MessageCircle },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "invoices", label: "Invoices", icon: FileText },
   { id: "rate", label: "Exchange Rate", icon: DollarSign },
@@ -33,12 +34,23 @@ export default function SellerDashboard() {
   const initial = searchParams.get("tab") || "shops";
   const [tab, setTab] = useState(initial);
   const [lowStockCount, setLowStockCount] = useState(0);
+  const [unreadMessages, setUnreadMessages] = useState(0);
 
   useEffect(() => {
     const t = searchParams.get("tab");
     if (t && t !== tab) setTab(t);
     // eslint-disable-next-line
   }, [searchParams]);
+
+  // Pull unread message count for the badge
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    api.get("/messages/seller/unread-count")
+      .then((r) => { if (!cancelled) setUnreadMessages(r.data?.count || 0); })
+      .catch(() => { if (!cancelled) setUnreadMessages(0); });
+    return () => { cancelled = true; };
+  }, [user?.id, tab]);
 
   // Compute low-stock products at dashboard level so the banner is visible from any tab
   const lowStockEnabled = user?.settings?.low_stock_alert !== false; // default ON
@@ -302,9 +314,28 @@ function ShopsTab() {
               <h3 className="font-display font-semibold text-lg text-[var(--js-text)] mt-0.5">{s.name}</h3>
               <p className="text-sm text-[var(--js-text-secondary)] mt-1 line-clamp-2">{s.description}</p>
               <div className="mt-3 flex gap-2">
-                <button onClick={() => onEdit(s, s._kind)} data-testid={`edit-shop-${s.id}`} className="flex-1 bg-[var(--js-subtle)] text-[var(--js-text)] text-xs font-semibold py-2 rounded-full inline-flex items-center justify-center gap-1"><Edit2 className="w-3 h-3" /> Edit</button>
+                <button onClick={() => onEdit(s, s._kind)} data-testid={`edit-shop-${s.id}`} className="flex-1 bg-[var(--js-subtle)] text-[var(--js-text)] text-xs font-semibold py-2 rounded-full inline-flex items-center justify-center gap-1"><Edit2 className="w-3 h-3" /> Quick edit</button>
                 <button onClick={() => onDelete(s, s._kind)} data-testid={`delete-shop-${s.id}`} className="flex-1 bg-[#D90429]/10 text-[#D90429] text-xs font-semibold py-2 rounded-full inline-flex items-center justify-center gap-1"><Trash2 className="w-3 h-3" /> Delete</button>
               </div>
+              {s._kind !== "restaurant" && (
+                <div className="mt-2 flex gap-2">
+                  <Link
+                    to={`/seller/shop/${s.id}/edit`}
+                    data-testid={`edit-shop-page-${s.id}`}
+                    className="flex-1 bg-[#1A1A1A] text-white text-xs font-bold py-2 rounded-full inline-flex items-center justify-center gap-1 hover:bg-[#C84B31]"
+                  >
+                    <Edit2 className="w-3 h-3" /> Edit Shop Page
+                  </Link>
+                  <Link
+                    to={`/shop/${s.id}`}
+                    target="_blank"
+                    data-testid={`view-shop-page-${s.id}`}
+                    className="flex-1 bg-white border border-[var(--js-border)] text-[var(--js-text)] text-xs font-bold py-2 rounded-full inline-flex items-center justify-center gap-1 hover:border-[#1A1A1A]"
+                  >
+                    <ExternalLink className="w-3 h-3" /> View public
+                  </Link>
+                </div>
+              )}
             </div>
           </div>
         ))}

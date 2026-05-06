@@ -294,6 +294,19 @@ class ShopIn(BaseModel):
     delivery_mode: Literal["free", "fixed", "per_area"] = "free"
     delivery_fee_usd: float = 0.0
     delivery_per_area: List[DeliveryAreaFee] = Field(default_factory=list)
+    # Storefront fields (Round 7) — separate banner + logo + opening hours + open/closed
+    banner_url: Optional[str] = ""
+    logo_url: Optional[str] = ""
+    opening_hours: Optional[str] = ""
+    is_open: bool = True
+
+
+class ShopMessageIn(BaseModel):
+    body: str
+    subject: Optional[str] = ""
+    customer_email: Optional[str] = ""  # used when sender is anonymous
+    customer_phone: Optional[str] = ""
+    customer_name: Optional[str] = ""
 
 
 class ShopCommissionIn(BaseModel):
@@ -999,6 +1012,93 @@ async def delete_shop(shop_id: str, user: dict = Depends(require_role("seller", 
         raise HTTPException(403, "Forbidden")
     await db.shops.delete_one({"id": shop_id})
     await db.products.delete_many({"shop_id": shop_id})
+    return {"ok": True}
+
+
+# ----------------------------------------------------------------------------
+# Shop messages (customer → seller "Contact Seller" inbox)
+# ----------------------------------------------------------------------------
+@api.post("/shops/{shop_id}/messages")
+async def send_shop_message(shop_id: str, body: ShopMessageIn, request: Request):
+    shop = await db.shops.find_one({"id": shop_id}, {"_id": 0})
+    if not shop:
+        raise HTTPException(404, "Shop not found")
+    text = (body.body or "").strip()
+    if len(text) < 2:
+        raise HTTPException(400, "Message body is required")
+    if len(text) > 2000:
+        raise HTTPException(400, "Message too long (max 2000 chars)")
+
+    # Sender — logged-in user when present; otherwise use the supplied fields
+    sender = {
+        "customer_id": None,
+        "customer_name": (body.customer_name or "").strip() or "Guest",
+        "customer_email": (body.customer_email or "").strip(),
+        "customer_phone": (body.customer_phone or "").strip(),
+    }
+    try:
+        u = await get_current_user(request)
+        sender["customer_id"] = u["id"]
+        sender["customer_name"] = u.get("name") or sender["customer_name"]
+        sender["customer_email"] = u.get("email") or sender["customer_email"]
+    except HTTPException:
+        # Anonymous — require at least an email or phone for the seller to reply
+        if not sender["customer_email"] and not sender["customer_phone"]:
+            raise HTTPException(400, "Please provide an email or phone so the shop can reply")
+
+    msg = {
+        "id": str(uuid.uuid4()),
+        "shop_id": shop_id,
+        "shop_name": shop.get("name", ""),
+        "seller_id": shop["seller_id"],
+        "subject": (body.subject or "").strip(),
+        "body": text,
+        "is_read": False,
+        "created_at": now_iso(),
+        **sender,
+    }
+    await db.shop_messages.insert_one(msg)
+    msg.pop("_id", None)
+    return msg
+
+
+@api.get("/messages/seller")
+async def list_seller_messages(user: dict = Depends(require_role("seller", "admin"))):
+    q: dict = {}
+    if user["role"] != "admin":
+        q["seller_id"] = user["id"]
+    msgs = await db.shop_messages.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return msgs
+
+
+@api.get("/messages/seller/unread-count")
+async def seller_unread_count(user: dict = Depends(require_role("seller", "admin"))):
+    q: dict = {"is_read": False}
+    if user["role"] != "admin":
+        q["seller_id"] = user["id"]
+    n = await db.shop_messages.count_documents(q)
+    return {"count": n}
+
+
+@api.put("/messages/{message_id}/read")
+async def mark_message_read(message_id: str, user: dict = Depends(require_role("seller", "admin"))):
+    msg = await db.shop_messages.find_one({"id": message_id})
+    if not msg:
+        raise HTTPException(404, "Message not found")
+    if user["role"] != "admin" and msg.get("seller_id") != user["id"]:
+        raise HTTPException(403, "Forbidden")
+    await db.shop_messages.update_one({"id": message_id}, {"$set": {"is_read": True, "read_at": now_iso()}})
+    return {"ok": True}
+
+
+@api.delete("/messages/{message_id}")
+async def delete_message(message_id: str, user: dict = Depends(require_role("seller", "admin"))):
+    msg = await db.shop_messages.find_one({"id": message_id})
+    if not msg:
+        raise HTTPException(404, "Message not found")
+    if user["role"] != "admin" and msg.get("seller_id") != user["id"]:
+        raise HTTPException(403, "Forbidden")
+    await db.shop_messages.delete_one({"id": message_id})
     return {"ok": True}
 
 
