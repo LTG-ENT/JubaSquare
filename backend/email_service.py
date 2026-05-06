@@ -1,49 +1,87 @@
 """
 JubaSquare — lightweight Resend email helper.
 
-All send_* functions are NO-OPS when RESEND_API_KEY is missing (dev mode).
+Config priority (looked up on every send):
+  1. Database settings doc ({id: "system"}.integrations.resend_api_key / resend_from_email)
+  2. Env vars RESEND_API_KEY / SENDER_EMAIL
+
+All send_* functions are NO-OPS when no API key is configured (dev mode).
 They log a warning instead of raising, so the app keeps working.
 """
 
 import os
 import asyncio
 import logging
-from typing import Optional
+from typing import Optional, Dict
 
 import resend
+from motor.motor_asyncio import AsyncIOMotorClient
 
 log = logging.getLogger("jubasquare.email")
 
-RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "").strip()
-SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "noreply@jubasquare.com").strip()
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "").rstrip("/")
+_ENV_API_KEY = (os.environ.get("RESEND_API_KEY") or "").strip()
+_ENV_SENDER = (os.environ.get("SENDER_EMAIL") or "noreply@jubasquare.com").strip()
+FRONTEND_URL = (os.environ.get("FRONTEND_URL") or "").rstrip("/")
 
-if RESEND_API_KEY:
-    resend.api_key = RESEND_API_KEY
-else:
-    log.warning("RESEND_API_KEY is not set — email sending is disabled (no-op mode).")
+# Lazy Mongo client — created on first use
+_mongo_client: Optional[AsyncIOMotorClient] = None
+_db_cache = None
+
+
+def _get_db():
+    global _mongo_client, _db_cache
+    if _db_cache is None:
+        _mongo_client = AsyncIOMotorClient(os.environ["MONGO_URL"])
+        _db_cache = _mongo_client[os.environ.get("DB_NAME", "jubasquare_db")]
+    return _db_cache
+
+
+async def get_config() -> Dict[str, str]:
+    """Returns {api_key, from_email} — DB overrides env, env is fallback."""
+    api_key = _ENV_API_KEY
+    sender = _ENV_SENDER
+    try:
+        settings = await _get_db().settings.find_one({"id": "system"})
+        integ = (settings or {}).get("integrations", {}) or {}
+        if integ.get("resend_api_key"):
+            api_key = integ["resend_api_key"].strip()
+        if integ.get("resend_from_email"):
+            sender = integ["resend_from_email"].strip()
+    except Exception as e:
+        log.warning(f"email_service: failed to read DB config, using env fallback: {e}")
+    return {"api_key": api_key, "from_email": sender or "noreply@jubasquare.com"}
 
 
 # --------------------------------------------------------------------
 # Core send helper
 # --------------------------------------------------------------------
-async def _send(to: str, subject: str, html: str) -> Optional[str]:
-    if not RESEND_API_KEY:
+async def send_raw(to: str, subject: str, html: str) -> Dict:
+    """Low-level send. Returns {ok, id|error}."""
+    cfg = await get_config()
+    api_key = cfg["api_key"]
+    if not api_key:
         log.info(f"[email disabled] would send to={to} subject={subject!r}")
-        return None
+        return {"ok": False, "error": "RESEND_API_KEY is not configured. Go to Admin → Integrations to set it."}
+    resend.api_key = api_key
     try:
         params = {
-            "from": SENDER_EMAIL,
+            "from": cfg["from_email"],
             "to": [to],
             "subject": subject,
             "html": html,
         }
         email = await asyncio.to_thread(resend.Emails.send, params)
-        log.info(f"email sent id={email.get('id')} to={to} subject={subject!r}")
-        return email.get("id")
+        eid = email.get("id") if isinstance(email, dict) else None
+        log.info(f"email sent id={eid} to={to} subject={subject!r}")
+        return {"ok": True, "id": eid}
     except Exception as e:
         log.error(f"email send failed to={to}: {e}")
-        return None
+        return {"ok": False, "error": str(e)}
+
+
+async def _send(to: str, subject: str, html: str) -> Optional[str]:
+    r = await send_raw(to, subject, html)
+    return r.get("id") if r.get("ok") else None
 
 
 # --------------------------------------------------------------------

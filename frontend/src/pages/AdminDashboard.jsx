@@ -3,7 +3,8 @@ import api, { formatUSD, formatDetail } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import AdminAnalytics from "@/components/AdminAnalytics";
-import { Store, Mail, ShoppingBag, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Percent, Eye, X, BarChart3 } from "lucide-react";
+import AdminIntegrations from "@/components/AdminIntegrations";
+import { Store, Mail, ShoppingBag, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Percent, Eye, X, BarChart3, Settings as SettingsIcon } from "lucide-react";
 import { toast } from "sonner";
 
 const TABS = [
@@ -12,6 +13,7 @@ const TABS = [
   { id: "invoices", label: "Invoices", icon: FileText },
   { id: "emails", label: "Blocked Emails", icon: Mail },
   { id: "orders", label: "All Orders", icon: ShoppingBag },
+  { id: "integrations", label: "Integrations", icon: SettingsIcon },
 ];
 
 export default function AdminDashboard() {
@@ -48,6 +50,7 @@ export default function AdminDashboard() {
           {tab === "invoices" && <AdminInvoicesTab />}
           {tab === "emails" && <AdminEmailsTab />}
           {tab === "orders" && <AdminOrdersTab />}
+          {tab === "integrations" && <AdminIntegrations />}
         </div>
       </div>
       <Footer />

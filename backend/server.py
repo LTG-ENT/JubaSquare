@@ -1442,6 +1442,79 @@ async def admin_get_settings(_: dict = Depends(require_role("admin"))):
     return await get_settings()
 
 
+# ----------------------------------------------------------------------------
+# Admin: Integrations (Resend email config) — editable from UI
+# ----------------------------------------------------------------------------
+def _mask(s: str) -> str:
+    if not s:
+        return ""
+    if len(s) <= 8:
+        return "•" * len(s)
+    return s[:4] + "•" * (len(s) - 8) + s[-4:]
+
+
+@api.get("/admin/integrations")
+async def admin_get_integrations(_: dict = Depends(require_role("admin"))):
+    """Return a sanitized view of integration config (API key is masked)."""
+    settings = await db.settings.find_one({"id": "system"}) or {}
+    integ = settings.get("integrations") or {}
+    env_key = (os.environ.get("RESEND_API_KEY") or "").strip()
+    env_from = (os.environ.get("SENDER_EMAIL") or "").strip()
+    effective_key = integ.get("resend_api_key") or env_key
+    effective_from = integ.get("resend_from_email") or env_from or "noreply@jubasquare.com"
+    return {
+        "resend": {
+            "api_key_masked": _mask(effective_key) if effective_key else "",
+            "api_key_set": bool(effective_key),
+            "from_email": effective_from,
+            "source": "db" if integ.get("resend_api_key") else ("env" if env_key else "none"),
+        },
+        "hints": {
+            "verify_domain_url": "https://resend.com/domains",
+            "notes": "With onboarding@resend.dev, Resend only delivers to the email on your Resend account. Verify your own domain to send to anyone.",
+        },
+    }
+
+
+class IntegrationsIn(BaseModel):
+    resend_api_key: Optional[str] = None  # empty string clears it
+    resend_from_email: Optional[str] = None
+
+
+@api.post("/admin/integrations")
+async def admin_update_integrations(body: IntegrationsIn, _: dict = Depends(require_role("admin"))):
+    update: dict = {}
+    if body.resend_api_key is not None:
+        update["integrations.resend_api_key"] = body.resend_api_key.strip()
+    if body.resend_from_email is not None:
+        fe = body.resend_from_email.strip()
+        if fe and "@" not in fe:
+            raise HTTPException(400, "Sender email must be a valid email address.")
+        update["integrations.resend_from_email"] = fe
+    if not update:
+        raise HTTPException(400, "Nothing to update.")
+    await db.settings.update_one({"id": "system"}, {"$set": update}, upsert=True)
+    return {"ok": True}
+
+
+class TestEmailIn(BaseModel):
+    to: EmailStr
+
+
+@api.post("/admin/integrations/test-email")
+async def admin_test_email(body: TestEmailIn, user: dict = Depends(require_role("admin"))):
+    """Send a test email and return the real Resend response / error."""
+    html = f"""<p>Hi {user.get('name', 'there')},</p>
+<p>This is a test email from JubaSquare. If you see this, your Resend integration is working.</p>
+<p style="color:#808080;font-size:12px">Sent at {now_iso()} to {body.to}.</p>"""
+    result = await email_service.send_raw(
+        to=str(body.to),
+        subject="JubaSquare — Resend integration test",
+        html=html,
+    )
+    return result
+
+
 @api.get("/admin/analytics")
 async def admin_analytics(_: dict = Depends(require_role("admin"))):
     """Aggregated counts for the admin dashboard."""
