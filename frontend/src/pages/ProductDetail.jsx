@@ -190,7 +190,7 @@ export default function ProductDetail() {
           {/* Info */}
           <div>
             {shop && (
-              <Link to={`/marketplace?shop=${shop.id}`} className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-[var(--js-text-secondary)] font-bold hover:text-[#C84B31] transition" data-testid="product-shop-link">
+              <Link to={`/shop/${shop.id}`} className="inline-flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-[var(--js-text-secondary)] font-bold hover:text-[#C84B31] transition" data-testid="product-shop-link">
                 <Store className="w-3 h-3" /> {shop.name}
               </Link>
             )}

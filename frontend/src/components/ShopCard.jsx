@@ -8,7 +8,7 @@ export default function ShopCard({ shop, productsPreview = [] }) {
       data-testid={`shop-card-${shop.id}`}
       className="js-card overflow-hidden flex flex-col group hover:-translate-y-1 hover:shadow-xl transition-all duration-300"
     >
-      <Link to={`/marketplace?shop=${shop.id}`} className="block">
+      <Link to={`/shop/${shop.id}`} className="block">
         <div className="aspect-[16/10] overflow-hidden bg-[#F2EBE5] relative">
           <img
             src={shop.image_url}
@@ -55,7 +55,7 @@ export default function ShopCard({ shop, productsPreview = [] }) {
         )}
 
         <Link
-          to={`/marketplace?shop=${shop.id}`}
+          to={`/shop/${shop.id}`}
           data-testid={`view-shop-${shop.id}`}
           className="mt-4 inline-flex items-center justify-center gap-1.5 bg-[#C84B31] hover:bg-[#A83A23] text-white text-sm font-semibold px-4 py-2.5 rounded-full transition shadow-sm hover:shadow-md"
         >
