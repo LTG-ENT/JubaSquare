@@ -96,6 +96,96 @@ async def create_notification(user_id: str, message: str, ntype: str = "alert", 
     return notif
 
 
+def _parse_iso(s: str) -> Optional[datetime]:
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+async def _generate_seller_unpaid_reminders(seller_id: str) -> int:
+    """For each Unpaid (or Overdue) invoice older than 7 days, post a weekly reminder
+    if no reminder notification was created for it within the last 7 days."""
+    invoices = await db.invoices.find(
+        {"seller_id": seller_id, "status": {"$in": ["Unpaid", "Overdue"]}},
+        {"_id": 0},
+    ).to_list(1000)
+    if not invoices:
+        return 0
+
+    now = datetime.now(timezone.utc)
+    week = timedelta(days=7)
+    created = 0
+    for inv in invoices:
+        created_at = _parse_iso(inv.get("created_at") or "")
+        if not created_at or (now - created_at) < week:
+            continue
+        # Most recent reminder notification for this invoice (kind = commission_reminder)
+        last = await db.notifications.find_one(
+            {"user_id": seller_id, "type": "commission", "meta.invoice_id": inv["id"], "meta.reminder": True},
+            sort=[("created_at", -1)],
+            projection={"_id": 0},
+        )
+        last_at = _parse_iso(last.get("created_at") if last else "") if last else None
+        if last_at and (now - last_at) < week:
+            continue
+        amount = float(inv.get("commission") or inv.get("amount_owed") or 0)
+        label = inv.get("week_label") or inv.get("shop_name") or ""
+        await create_notification(
+            user_id=seller_id,
+            message=f"Reminder: Commission of USD {amount:.2f} is still unpaid — {label}",
+            ntype="commission",
+            meta={"invoice_id": inv["id"], "reminder": True},
+        )
+        created += 1
+    return created
+
+
+async def _generate_admin_unpaid_reminders(admin_id: str) -> int:
+    """For each seller with one or more Unpaid (or Overdue) invoices older than 7 days,
+    post one rolling weekly reminder for the admin (deduped per seller per 7d)."""
+    pipeline = [
+        {"$match": {"status": {"$in": ["Unpaid", "Overdue"]}}},
+        {"$group": {
+            "_id": "$seller_id",
+            "amount_owed": {"$sum": "$commission"},
+            "invoice_count": {"$sum": 1},
+            "oldest_created_at": {"$min": "$created_at"},
+        }},
+    ]
+    rows = await db.invoices.aggregate(pipeline).to_list(1000)
+    now = datetime.now(timezone.utc)
+    week = timedelta(days=7)
+    created = 0
+    for row in rows:
+        sid = row["_id"]
+        if not sid:
+            continue
+        oldest = _parse_iso(row.get("oldest_created_at") or "")
+        if not oldest or (now - oldest) < week:
+            continue
+        last = await db.notifications.find_one(
+            {"user_id": admin_id, "type": "commission", "meta.seller_id": sid, "meta.reminder": True},
+            sort=[("created_at", -1)],
+            projection={"_id": 0},
+        )
+        last_at = _parse_iso(last.get("created_at") if last else "") if last else None
+        if last_at and (now - last_at) < week:
+            continue
+        seller = await db.users.find_one({"id": sid}, {"_id": 0, "name": 1, "email": 1})
+        sname = (seller or {}).get("name") or (seller or {}).get("email") or "Seller"
+        await create_notification(
+            user_id=admin_id,
+            message=f"{sname} has {row['invoice_count']} unpaid invoice(s) — USD {float(row.get('amount_owed') or 0):.2f} owed",
+            ntype="commission",
+            meta={"seller_id": sid, "amount_owed": float(row.get("amount_owed") or 0), "reminder": True},
+        )
+        created += 1
+    return created
+
+
 def create_token(user_id: str, role: str, email: str, tv: int) -> str:
     payload = {
         "sub": user_id,
@@ -956,6 +1046,15 @@ async def delete_review(product_id: str, review_id: str, user: dict = Depends(ge
 # ----------------------------------------------------------------------------
 @api.get("/notifications")
 async def list_notifications(user: dict = Depends(get_current_user), limit: int = 50):
+    # Lazy weekly reminder generation
+    try:
+        if user["role"] == "seller":
+            await _generate_seller_unpaid_reminders(user["id"])
+        elif user["role"] == "admin":
+            await _generate_admin_unpaid_reminders(user["id"])
+    except Exception as e:
+        log.warning(f"reminder gen failed: {e}")
+
     items = await db.notifications.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(min(limit, 200))
     unread = await db.notifications.count_documents({"user_id": user["id"], "is_read": False})
     return {"items": items, "unread_count": unread}
@@ -988,6 +1087,51 @@ async def delete_notification(notif_id: str, user: dict = Depends(get_current_us
     if res.deleted_count == 0:
         raise HTTPException(404, "Notification not found")
     return {"ok": True}
+
+
+@api.post("/admin/notifications/run-reminders")
+async def admin_run_reminders(user: dict = Depends(require_role("admin"))):
+    """Force-generate weekly unpaid-commission reminders for ALL sellers + the admin
+    (ignores the 7-day grace window so admins can preview the reminder flow)."""
+    sellers = await db.users.find({"role": "seller"}, {"_id": 0, "id": 1}).to_list(1000)
+    seller_count = 0
+    for s in sellers:
+        invoices = await db.invoices.find(
+            {"seller_id": s["id"], "status": {"$in": ["Unpaid", "Overdue"]}},
+            {"_id": 0},
+        ).to_list(1000)
+        for inv in invoices:
+            amount = float(inv.get("commission") or inv.get("amount_owed") or 0)
+            label = inv.get("week_label") or inv.get("shop_name") or ""
+            await create_notification(
+                user_id=s["id"],
+                message=f"Reminder: Commission of USD {amount:.2f} is still unpaid — {label}",
+                ntype="commission",
+                meta={"invoice_id": inv["id"], "reminder": True},
+            )
+            seller_count += 1
+
+    # Admin-side digest
+    pipeline = [
+        {"$match": {"status": {"$in": ["Unpaid", "Overdue"]}}},
+        {"$group": {"_id": "$seller_id", "amount_owed": {"$sum": "$commission"}, "invoice_count": {"$sum": 1}}},
+    ]
+    rows = await db.invoices.aggregate(pipeline).to_list(1000)
+    admin_count = 0
+    for row in rows:
+        sid = row["_id"]
+        if not sid:
+            continue
+        seller = await db.users.find_one({"id": sid}, {"_id": 0, "name": 1, "email": 1})
+        sname = (seller or {}).get("name") or (seller or {}).get("email") or "Seller"
+        await create_notification(
+            user_id=user["id"],
+            message=f"{sname} has {row['invoice_count']} unpaid invoice(s) — USD {float(row.get('amount_owed') or 0):.2f} owed",
+            ntype="commission",
+            meta={"seller_id": sid, "amount_owed": float(row.get("amount_owed") or 0), "reminder": True},
+        )
+        admin_count += 1
+    return {"ok": True, "seller_reminders": seller_count, "admin_reminders": admin_count}
 
 
 # ----------------------------------------------------------------------------
@@ -1266,15 +1410,26 @@ async def admin_set_invoice_status(invoice_id: str, body: InvoiceStatusIn, _: di
         raise HTTPException(404, "Invoice not found")
     await db.invoices.update_one({"id": invoice_id}, {"$set": {"status": body.status, "updated_at": now_iso()}})
 
-    # Notify seller when their commission invoice becomes Overdue
-    if body.status == "Overdue" and inv.get("seller_id"):
-        amount = inv.get("commission") or inv.get("amount_owed") or 0
-        await create_notification(
-            user_id=inv["seller_id"],
-            message=f"Your commission invoice is overdue (USD {float(amount):.2f})",
-            ntype="commission",
-            meta={"invoice_id": invoice_id},
-        )
+    sid = inv.get("seller_id")
+    amount = float(inv.get("commission") or inv.get("amount_owed") or 0)
+    label = inv.get("week_label") or inv.get("shop_name") or ""
+
+    # Notify seller on status change
+    if sid:
+        if body.status == "Overdue":
+            await create_notification(
+                user_id=sid,
+                message=f"Your commission invoice is overdue (USD {amount:.2f}) — {label}",
+                ntype="commission",
+                meta={"invoice_id": invoice_id},
+            )
+        elif body.status == "Paid":
+            await create_notification(
+                user_id=sid,
+                message=f"Your commission invoice has been marked as paid (USD {amount:.2f}) — {label}. Thank you!",
+                ntype="commission",
+                meta={"invoice_id": invoice_id, "paid": True},
+            )
 
     return await db.invoices.find_one({"id": invoice_id}, {"_id": 0})
 

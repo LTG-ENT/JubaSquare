@@ -273,6 +273,20 @@ function AdminInvoicesTab() {
         <button onClick={regenerate} data-testid="regenerate-invoices-btn" className="ml-auto bg-[var(--js-subtle)] hover:bg-[var(--js-border)] text-[var(--js-text)] text-sm font-semibold px-4 py-2 rounded-full">
           🔄 Regenerate
         </button>
+        <button
+          onClick={async () => {
+            try {
+              const { data } = await api.post("/admin/notifications/run-reminders");
+              toast.success(`Reminders sent: ${data.seller_reminders} seller, ${data.admin_reminders} admin`);
+            } catch (e) {
+              toast.error("Failed to send reminders");
+            }
+          }}
+          data-testid="send-reminders-btn"
+          className="bg-[#E9C46A] hover:bg-[#D6B45F] text-[#1A1A1A] text-sm font-semibold px-4 py-2 rounded-full"
+        >
+          🔔 Send unpaid reminders
+        </button>
       </div>
 
       <div className="bg-white border border-[var(--js-border)] rounded-2xl overflow-hidden">
