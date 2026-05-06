@@ -190,6 +190,16 @@ function ShopsTab() {
   };
   useEffect(() => { load(); }, []);
 
+  const togglePublic = async (s, next) => {
+    try {
+      await api.patch(`/shops/${s.id}/visibility`, { is_public: next });
+      setShops((prev) => prev.map((x) => (x.id === s.id ? { ...x, is_public: next } : x)));
+      toast.success(next ? "Shop is now public" : "Shop hidden from marketplace");
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail) || "Failed to update visibility");
+    }
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     try {
@@ -315,11 +325,42 @@ function ShopsTab() {
               <span className="absolute top-3 left-3 text-[10px] font-bold px-2 py-1 rounded-full" style={{ background: s._kind === "restaurant" ? "#2D6A4F" : "#C84B31", color: "white" }}>
                 {s._kind === "restaurant" ? "🍔 RESTAURANT" : "🛍️ SHOP"}
               </span>
+              {s._kind !== "restaurant" && s.is_public === false && (
+                <span data-testid={`shop-hidden-badge-${s.id}`} className="absolute bottom-3 left-3 text-[10px] font-bold px-2 py-1 rounded-full bg-[#1A1A1A] text-white inline-flex items-center gap-1">
+                  ● HIDDEN
+                </span>
+              )}
             </div>
             <div className="p-4">
               <p className="text-[10px] uppercase tracking-wider text-[var(--js-text-secondary)] font-bold">{s.area}</p>
               <h3 className="font-display font-semibold text-lg text-[var(--js-text)] mt-0.5">{s.name}</h3>
               <p className="text-sm text-[var(--js-text-secondary)] mt-1 line-clamp-2">{s.description}</p>
+              {s._kind !== "restaurant" && (
+                <div className="mt-3 flex items-center justify-between gap-2 bg-[var(--js-subtle)] border border-[var(--js-border)] rounded-2xl px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">Public visibility</p>
+                    <p className="text-xs text-[var(--js-text)] truncate">
+                      {s.is_public === false ? "Hidden — not listed in marketplace" : "Live — visible to customers"}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={s.is_public !== false}
+                    onClick={() => togglePublic(s, s.is_public === false)}
+                    data-testid={`toggle-shop-public-${s.id}`}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition shrink-0 ${
+                      s.is_public !== false ? "bg-[#2D6A4F]" : "bg-[#A3A39E]"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                        s.is_public !== false ? "translate-x-6" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+              )}
               <div className="mt-3 flex gap-2">
                 <button onClick={() => onEdit(s, s._kind)} data-testid={`edit-shop-${s.id}`} className="flex-1 bg-[var(--js-subtle)] text-[var(--js-text)] text-xs font-semibold py-2 rounded-full inline-flex items-center justify-center gap-1"><Edit2 className="w-3 h-3" /> Quick edit</button>
                 <button onClick={() => onDelete(s, s._kind)} data-testid={`delete-shop-${s.id}`} className="flex-1 bg-[#D90429]/10 text-[#D90429] text-xs font-semibold py-2 rounded-full inline-flex items-center justify-center gap-1"><Trash2 className="w-3 h-3" /> Delete</button>

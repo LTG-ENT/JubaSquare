@@ -38,13 +38,13 @@ Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode fo
   - `_rebuild_invoices()` applies `shop.commission_rate` when set, else global rate
 - 66/66 tests pass (25+18+15+8)
 
-### Iter 5 (Feb 2026) — **Standalone Shop Pages + Internal Messaging**
+### Iter 5 (Feb 2026) — **Standalone Shop Pages + Internal Messaging + Visibility toggle**
 - **Public Shop Page** at `/shop/:shop_id` with hero banner + logo, OPEN/CLOSED status, opening hours, COD-only banner, products grid filtered to that shop, search.
 - **Contact Seller modal** (one-way customer→seller messaging). Anonymous senders redirected to `/login?next=/shop/:id`; logged-in customers post directly. Body required (2–2000 chars).
 - **SellerShopEdit** page at `/seller/shop/:shop_id/edit` — full storefront editor for name, description, area, logo (square), banner (wide), default photo, opening hours, OPEN/CLOSED toggle, and delivery model (free / fixed / per-area). Owner-only (admin override).
 - **Messages tab in Seller Dashboard** with unread badge (`/api/messages/seller/unread-count`), filter (All / Unread), mark-read & delete actions; click-to-call (tel:) and click-to-email (mailto:) on each message.
-- **Backend**: `ShopIn` extended with `banner_url`, `logo_url`, `opening_hours`, `is_open` (already in place); `shop_messages` collection + endpoints `POST /shops/{id}/messages` (anon-allowed but requires email/phone), `GET /messages/seller`, `GET /messages/seller/unread-count`, `PUT /messages/{id}/read`, `DELETE /messages/{id}`.
-- **Frontend**: routes wired in `App.js`; SellerDashboard now exposes "Edit Shop Page" + "View public" links per shop card.
+- **Backend**: `ShopIn` extended with `banner_url`, `logo_url`, `opening_hours`, `is_open`, `is_public`; `shop_messages` collection + endpoints `POST /shops/{id}/messages` (anon-allowed but requires email/phone), `GET /messages/seller`, `GET /messages/seller/unread-count`, `PUT /messages/{id}/read`, `DELETE /messages/{id}`; `PATCH /shops/{id}/visibility` to toggle `is_public`. Public `GET /shops` and `/products` (without `shop_id`) now exclude hidden shops.
+- **Frontend**: routes wired in `App.js`; SellerDashboard now exposes "Edit Shop Page" + "View public" links per shop card and a green/grey **public visibility toggle** with HIDDEN badge; ShopPage shows "Shop unavailable" to non-owners when hidden, and a preview banner to the owner; ShopCard (the marketplace shop card) now links directly to `/shop/:id` instead of the filtered marketplace.
 - 87/87 tests pass (25+18+15+8+21). All iter5 frontend flows green.
 
 ## Backlog (P1 / P2)

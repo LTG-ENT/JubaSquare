@@ -299,6 +299,8 @@ class ShopIn(BaseModel):
     logo_url: Optional[str] = ""
     opening_hours: Optional[str] = ""
     is_open: bool = True
+    # Round 8 — published/public visibility (sellers can hide their shop without deleting)
+    is_public: bool = True
 
 
 class ShopMessageIn(BaseModel):
@@ -951,7 +953,9 @@ def _sort_shops(shops, verified_first: bool):
 
 @api.get("/shops")
 async def list_shops(category: Optional[str] = None, area: Optional[str] = None, kind: Optional[str] = None):
-    q: dict = {}
+    # Public marketplace listing — exclude shops that the seller has hidden (is_public=False).
+    # Legacy shops without the flag default to visible.
+    q: dict = {"$or": [{"is_public": {"$ne": False}}, {"is_public": {"$exists": False}}]}
     if category:
         q["category"] = category
     if area:
@@ -1000,6 +1004,21 @@ async def update_shop(shop_id: str, body: ShopIn, user: dict = Depends(require_r
     if user["role"] != "admin" and shop["seller_id"] != user["id"]:
         raise HTTPException(403, "Forbidden")
     await db.shops.update_one({"id": shop_id}, {"$set": body.model_dump()})
+    return await db.shops.find_one({"id": shop_id}, {"_id": 0})
+
+
+class ShopVisibilityIn(BaseModel):
+    is_public: bool
+
+
+@api.patch("/shops/{shop_id}/visibility")
+async def update_shop_visibility(shop_id: str, body: ShopVisibilityIn, user: dict = Depends(require_role("seller", "admin"))):
+    shop = await db.shops.find_one({"id": shop_id})
+    if not shop:
+        raise HTTPException(404, "Shop not found")
+    if user["role"] != "admin" and shop["seller_id"] != user["id"]:
+        raise HTTPException(403, "Forbidden")
+    await db.shops.update_one({"id": shop_id}, {"$set": {"is_public": bool(body.is_public)}})
     return await db.shops.find_one({"id": shop_id}, {"_id": 0})
 
 
@@ -1126,6 +1145,14 @@ async def list_products(category: Optional[str] = None, area: Optional[str] = No
             shop_q["kind"] = kind
         shop_ids = {s["id"] for s in await db.shops.find(shop_q, {"_id": 0, "id": 1}).to_list(500)}
         products = [p for p in products if p["shop_id"] in shop_ids]
+
+    # Hide products from shops that are not public (sellers can hide their shop without deleting).
+    # Skip when caller is targeting a specific shop_id (so the owner's preview / private shop page still works).
+    if not shop_id:
+        hidden_shops = {s["id"] for s in await db.shops.find(
+            {"is_public": False}, {"_id": 0, "id": 1}).to_list(500)}
+        if hidden_shops:
+            products = [p for p in products if p["shop_id"] not in hidden_shops]
 
     # Auto-hide out-of-stock per seller setting
     seller_ids = list({p["seller_id"] for p in products})

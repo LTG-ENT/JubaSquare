@@ -42,6 +42,7 @@ export default function ShopPage() {
   }, [shop_id]);
 
   const isOwner = !!(user && shop && user.id === shop.seller_id);
+  const isHidden = shop && shop.is_public === false;
 
   const filteredProducts = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -68,6 +69,21 @@ export default function ShopPage() {
           <AlertCircle className="w-12 h-12 mx-auto text-[#D90429] mb-4" />
           <h1 className="font-display font-bold text-2xl text-[var(--js-text)]">{error || "Shop unavailable"}</h1>
           <p className="text-sm text-[var(--js-text-secondary)] mt-2">The shop you're looking for may have been removed or is not yet verified.</p>
+          <Link to="/shops" className="mt-6 inline-flex items-center gap-2 text-sm font-bold text-[#C84B31] hover:underline">
+            <ArrowLeft className="w-4 h-4" /> Back to all shops
+          </Link>
+        </div>
+      </PageWrapper>
+    );
+  }
+
+  if (isHidden && !isOwner && user?.role !== "admin") {
+    return (
+      <PageWrapper>
+        <div className="max-w-2xl mx-auto px-4 py-20 text-center">
+          <AlertCircle className="w-12 h-12 mx-auto text-[#D90429] mb-4" />
+          <h1 className="font-display font-bold text-2xl text-[var(--js-text)]">Shop unavailable</h1>
+          <p className="text-sm text-[var(--js-text-secondary)] mt-2">This shop is not currently public. Please check back later.</p>
           <Link to="/shops" className="mt-6 inline-flex items-center gap-2 text-sm font-bold text-[#C84B31] hover:underline">
             <ArrowLeft className="w-4 h-4" /> Back to all shops
           </Link>
@@ -174,6 +190,13 @@ export default function ShopPage() {
           <div className="flex items-center gap-3 p-3 sm:p-4 bg-[#5C5C5C]/10 border border-[#5C5C5C]/30 rounded-2xl text-sm text-[#5C5C5C] mb-6" data-testid="shop-closed-notice">
             <Clock className="w-5 h-5" />
             <p><strong>This shop is currently closed.</strong> You can still browse but new orders may not be processed until it reopens.</p>
+          </div>
+        )}
+
+        {isHidden && (
+          <div className="flex items-center gap-3 p-3 sm:p-4 bg-[#1A1A1A]/5 border border-[#1A1A1A]/30 rounded-2xl text-sm text-[#1A1A1A] mb-6" data-testid="shop-hidden-notice">
+            <AlertCircle className="w-5 h-5" />
+            <p><strong>This shop is hidden from the marketplace.</strong> Only you (and admins) can see this preview. Toggle visibility from your dashboard to publish.</p>
           </div>
         )}
 
