@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { Logo } from "@/components/Logo";
+import NotificationBell from "@/components/NotificationBell";
 
 const Brand = () => (
   <Link to="/" className="flex items-center gap-2.5" data-testid="brand-logo">
@@ -94,6 +95,8 @@ export default function Header() {
 
           <div className="flex items-center gap-2">
             <CurrencyToggle />
+
+            {user && <NotificationBell />}
 
             <Link to="/cart" data-testid="header-cart-button" className="relative p-2.5 rounded-full hover:bg-white/10 transition">
               <ShoppingCart className="w-5 h-5 text-white" />

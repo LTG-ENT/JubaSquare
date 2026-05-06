@@ -3,13 +3,15 @@ import { useAuth } from "@/context/AuthContext";
 import api, { formatUSD, formatDetail } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse } from "lucide-react";
+import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
 const TABS = [
   { id: "shops", label: "My Shops", icon: Store },
   { id: "products", label: "Products", icon: Package },
   { id: "orders", label: "Orders", icon: ShoppingBag },
+  { id: "notifications", label: "Notifications", icon: Bell },
   { id: "invoices", label: "Invoices", icon: FileText },
   { id: "rate", label: "Exchange Rate", icon: DollarSign },
   { id: "settings", label: "Settings", icon: Settings },
@@ -25,7 +27,16 @@ const CATEGORIES = [
 const AREAS = ["Munuki", "Jebel", "Gudele", "Konyo Konyo", "Hai Cinema", "Nyakuron", "Atlabara"];
 
 export default function SellerDashboard() {
-  const [tab, setTab] = useState("shops");
+  const [searchParams] = useSearchParams();
+  const initial = searchParams.get("tab") || "shops";
+  const [tab, setTab] = useState(initial);
+
+  useEffect(() => {
+    const t = searchParams.get("tab");
+    if (t && t !== tab) setTab(t);
+    // eslint-disable-next-line
+  }, [searchParams]);
+
   return (
     <div className="min-h-screen flex flex-col bg-[#F9F9F6]">
       <Header />
@@ -57,6 +68,7 @@ export default function SellerDashboard() {
           {tab === "shops" && <ShopsTab />}
           {tab === "products" && <ProductsTab />}
           {tab === "orders" && <OrdersTab />}
+          {tab === "notifications" && <NotificationsTab />}
           {tab === "invoices" && <InvoicesTab />}
           {tab === "rate" && <RateTab />}
           {tab === "settings" && <SettingsTab />}
@@ -1099,3 +1111,120 @@ function Modal({ children, onClose, title }) {
     </div>
   );
 }
+
+function NotificationsTab() {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get("/notifications?limit=200");
+      setItems(data.items || []);
+    } catch (e) {
+      toast.error(formatDetail(e.response?.data?.detail));
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { load(); }, []);
+
+  const markRead = async (n) => {
+    if (n.is_read) return;
+    try {
+      await api.put(`/notifications/${n.id}/read`);
+      setItems((prev) => prev.map((it) => (it.id === n.id ? { ...it, is_read: true } : it)));
+    } catch (e) { toast.error(formatDetail(e.response?.data?.detail)); }
+  };
+
+  const markAll = async () => {
+    try {
+      await api.put("/notifications/read-all");
+      setItems((prev) => prev.map((it) => ({ ...it, is_read: true })));
+      toast.success("All notifications marked as read");
+    } catch (e) { toast.error(formatDetail(e.response?.data?.detail)); }
+  };
+
+  const remove = async (id) => {
+    try {
+      await api.delete(`/notifications/${id}`);
+      setItems((prev) => prev.filter((it) => it.id !== id));
+    } catch (e) { toast.error(formatDetail(e.response?.data?.detail)); }
+  };
+
+  const unread = items.filter((n) => !n.is_read).length;
+  const TYPE_BADGE = {
+    order: { label: "Order", cls: "bg-[#2A9D8F]/15 text-[#1F7A6F]" },
+    commission: { label: "Commission", cls: "bg-[#E9C46A]/25 text-[#7A5C12]" },
+    alert: { label: "Alert", cls: "bg-[#C84B31]/15 text-[#A83A23]" },
+  };
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <p className="text-sm text-[#5C5C5C]">{items.length} notification{items.length !== 1 && "s"} · <span className="font-bold text-[#1A1A1A]">{unread} unread</span></p>
+        {unread > 0 && (
+          <button
+            onClick={markAll}
+            data-testid="seller-notif-mark-all"
+            className="bg-[#C84B31] hover:bg-[#A83A23] text-white text-sm font-semibold px-4 py-2.5 rounded-full"
+          >
+            Mark all as read
+          </button>
+        )}
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-[#5C5C5C]">Loading…</p>
+      ) : items.length === 0 ? (
+        <div className="bg-white border border-[#E2E2D9] rounded-3xl p-10 text-center">
+          <Bell className="w-10 h-10 text-[#A3A39E] mx-auto mb-3" />
+          <p className="font-display font-semibold text-lg text-[#1A1A1A]">No notifications yet</p>
+          <p className="text-sm text-[#5C5C5C] mt-1">You'll see new orders and commission reminders here.</p>
+        </div>
+      ) : (
+        <ul className="space-y-2">
+          {items.map((n) => {
+            const t = TYPE_BADGE[n.type] || TYPE_BADGE.alert;
+            return (
+              <li
+                key={n.id}
+                data-testid={`seller-notif-${n.id}`}
+                className={`bg-white border rounded-2xl p-4 flex items-start gap-3 transition ${n.is_read ? "border-[#E2E2D9]" : "border-[#C84B31]/40 bg-[#FFF8EE]"}`}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full ${t.cls}`}>{t.label}</span>
+                    {!n.is_read && <span className="text-[10px] uppercase tracking-wider font-bold text-[#C84B31]">● New</span>}
+                  </div>
+                  <p className={`text-sm ${n.is_read ? "text-[#1A1A1A]" : "font-semibold text-[#1A1A1A]"}`}>{n.message}</p>
+                  <p className="text-xs text-[#5C5C5C] mt-1">{new Date(n.created_at).toLocaleString()}</p>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  {!n.is_read && (
+                    <button
+                      onClick={() => markRead(n)}
+                      data-testid={`seller-notif-read-${n.id}`}
+                      className="text-xs font-semibold text-[#C84B31] hover:underline px-2 py-1"
+                    >
+                      Mark read
+                    </button>
+                  )}
+                  <button
+                    onClick={() => remove(n.id)}
+                    data-testid={`seller-notif-del-${n.id}`}
+                    className="p-1.5 hover:bg-[#F2EBE5] rounded-full"
+                    title="Dismiss"
+                  >
+                    <X className="w-4 h-4 text-[#5C5C5C]" />
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+

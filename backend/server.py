@@ -80,6 +80,22 @@ async def get_settings() -> dict:
     return s or DEFAULT_SETTINGS
 
 
+async def create_notification(user_id: str, message: str, ntype: str = "alert", meta: Optional[dict] = None) -> dict:
+    """Insert a notification for a single user. Safe to call multiple times."""
+    notif = {
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "message": message,
+        "type": ntype,
+        "meta": meta or {},
+        "is_read": False,
+        "created_at": now_iso(),
+    }
+    await db.notifications.insert_one(notif)
+    notif.pop("_id", None)
+    return notif
+
+
 def create_token(user_id: str, role: str, email: str, tv: int) -> str:
     payload = {
         "sub": user_id,
@@ -262,7 +278,7 @@ class SettingsIn(BaseModel):
 
 
 class InvoiceStatusIn(BaseModel):
-    status: Literal["Paid", "Unpaid"]
+    status: Literal["Paid", "Unpaid", "Overdue"]
 
 
 class AreaIn(BaseModel):
@@ -274,6 +290,13 @@ class SellerSettingsIn(BaseModel):
     low_stock_threshold: Optional[int] = None
     auto_hide_out_of_stock: Optional[bool] = None
     order_notifications: Optional[bool] = None
+
+
+class NotificationCreate(BaseModel):
+    user_id: str
+    message: str
+    type: Literal["order", "commission", "alert"] = "alert"
+    meta: Optional[dict] = None
 
 
 class CustomerSettingsIn(BaseModel):
@@ -803,6 +826,22 @@ async def place_order(body: OrderIn, user: dict = Depends(get_current_user)):
     }
     await db.orders.insert_one(order)
     order.pop("_id", None)
+
+    # Notify each unique seller whose products are in this order
+    notified_sellers = set()
+    if shop_ids_in_order:
+        for sh in shops:
+            sid = sh.get("seller_id")
+            if sid and sid not in notified_sellers:
+                notified_sellers.add(sid)
+                short_id = order["id"][:8]
+                await create_notification(
+                    user_id=sid,
+                    message=f"New order received: Order #{short_id}",
+                    ntype="order",
+                    meta={"order_id": order["id"], "customer_name": user["name"], "shop_id": sh["id"]},
+                )
+
     return order
 
 
@@ -909,6 +948,45 @@ async def delete_review(product_id: str, review_id: str, user: dict = Depends(ge
     if user["role"] != "admin" and rv.get("user_id") != user["id"]:
         raise HTTPException(403, "Forbidden")
     await db.reviews.delete_one({"id": review_id})
+    return {"ok": True}
+
+
+# ----------------------------------------------------------------------------
+# Notifications (in-app)
+# ----------------------------------------------------------------------------
+@api.get("/notifications")
+async def list_notifications(user: dict = Depends(get_current_user), limit: int = 50):
+    items = await db.notifications.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(min(limit, 200))
+    unread = await db.notifications.count_documents({"user_id": user["id"], "is_read": False})
+    return {"items": items, "unread_count": unread}
+
+
+@api.get("/notifications/unread-count")
+async def notifications_unread_count(user: dict = Depends(get_current_user)):
+    n = await db.notifications.count_documents({"user_id": user["id"], "is_read": False})
+    return {"unread_count": n}
+
+
+@api.put("/notifications/{notif_id}/read")
+async def mark_notification_read(notif_id: str, user: dict = Depends(get_current_user)):
+    n = await db.notifications.find_one({"id": notif_id, "user_id": user["id"]})
+    if not n:
+        raise HTTPException(404, "Notification not found")
+    await db.notifications.update_one({"id": notif_id}, {"$set": {"is_read": True}})
+    return {"ok": True}
+
+
+@api.put("/notifications/read-all")
+async def mark_all_notifications_read(user: dict = Depends(get_current_user)):
+    res = await db.notifications.update_many({"user_id": user["id"], "is_read": False}, {"$set": {"is_read": True}})
+    return {"ok": True, "modified": res.modified_count}
+
+
+@api.delete("/notifications/{notif_id}")
+async def delete_notification(notif_id: str, user: dict = Depends(get_current_user)):
+    res = await db.notifications.delete_one({"id": notif_id, "user_id": user["id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Notification not found")
     return {"ok": True}
 
 
@@ -1183,7 +1261,21 @@ async def admin_list_invoices(status: Optional[str] = None, _: dict = Depends(re
 
 @api.put("/admin/invoices/{invoice_id}/status")
 async def admin_set_invoice_status(invoice_id: str, body: InvoiceStatusIn, _: dict = Depends(require_role("admin"))):
+    inv = await db.invoices.find_one({"id": invoice_id})
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
     await db.invoices.update_one({"id": invoice_id}, {"$set": {"status": body.status, "updated_at": now_iso()}})
+
+    # Notify seller when their commission invoice becomes Overdue
+    if body.status == "Overdue" and inv.get("seller_id"):
+        amount = inv.get("commission") or inv.get("amount_owed") or 0
+        await create_notification(
+            user_id=inv["seller_id"],
+            message=f"Your commission invoice is overdue (USD {float(amount):.2f})",
+            ntype="commission",
+            meta={"invoice_id": invoice_id},
+        )
+
     return await db.invoices.find_one({"id": invoice_id}, {"_id": 0})
 
 
@@ -1400,6 +1492,8 @@ async def seed_demo():
     await db.invoices.create_index("id", unique=True)
     await db.reviews.create_index([("product_id", 1)])
     await db.reviews.create_index("id", unique=True)
+    await db.notifications.create_index("id", unique=True)
+    await db.notifications.create_index([("user_id", 1), ("created_at", -1)])
 
     # Settings
     existing_s = await db.settings.find_one({"id": "system"})
