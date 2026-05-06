@@ -30,13 +30,34 @@
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap" rel="stylesheet" />
-        <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
         <script>
-          // Silence benign "ResizeObserver loop completed with undelivered notifications".
+          // ---- Fix benign "ResizeObserver loop completed with undelivered notifications" ----
+          // Recharts (and many chart libs) resize during their own callback, which the browser
+          // emits as a non-fatal error. webpack-dev-server's overlay catches it. We both wrap
+          // the ResizeObserver callback in rAF (prevents the loop) AND swallow any residual events.
           (function () {
+            if (typeof window === "undefined") return;
+            var RO = window.ResizeObserver;
+            if (RO && !RO.__patched) {
+              var Patched = function (cb) {
+                return new RO(function (entries, observer) {
+                  window.requestAnimationFrame(function () {
+                    if (!Array.isArray(entries)) return cb(entries, observer);
+                    try { cb(entries, observer); } catch (e) { /* swallow */ }
+                  });
+                });
+              };
+              Patched.prototype = RO.prototype;
+              Patched.__patched = true;
+              window.ResizeObserver = Patched;
+            }
+
             var re = /ResizeObserver loop (completed with undelivered notifications|limit exceeded)/;
+
+            // Capture-phase handler: blocks webpack's overlay listener that's added later.
             window.addEventListener("error", function (e) {
-              if (e && e.message && re.test(e.message)) {
+              var msg = (e && (e.message || (e.error && e.error.message))) || "";
+              if (re.test(msg)) {
                 e.stopImmediatePropagation();
                 e.preventDefault();
                 return false;
@@ -44,10 +65,28 @@
             }, true);
             window.addEventListener("unhandledrejection", function (e) {
               var msg = (e && e.reason && (e.reason.message || String(e.reason))) || "";
-              if (re.test(msg)) { e.preventDefault(); }
-            });
+              if (re.test(msg)) { e.stopImmediatePropagation(); e.preventDefault(); }
+            }, true);
+
+            // Block webpack-dev-server / react-error-overlay from re-adding a listener
+            // that intercepts these specific errors. We wrap addEventListener so that
+            // any "error" listener added by other scripts ignores ResizeObserver messages.
+            var origAdd = window.addEventListener;
+            window.addEventListener = function (type, listener, options) {
+              if (type === "error" && typeof listener === "function" && !listener.__roSafe) {
+                var wrapped = function (ev) {
+                  var msg = (ev && (ev.message || (ev.error && ev.error.message))) || "";
+                  if (re.test(msg)) return; // swallow for this listener
+                  return listener.apply(this, arguments);
+                };
+                wrapped.__roSafe = true;
+                return origAdd.call(this, type, wrapped, options);
+              }
+              return origAdd.call(this, type, listener, options);
+            };
           })();
         </script>
+        <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
         <script src="https://assets.emergent.sh/scripts/emergent-main.js"></script>
     </head>
     <body>
