@@ -338,6 +338,7 @@ const MODE_CONFIG = {
 
 function ProductsTab() {
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [shops, setShops] = useState([]);
   const [restaurants, setRestaurants] = useState([]);
   const [products, setProducts] = useState([]);
@@ -347,6 +348,40 @@ function ProductsTab() {
   const [rate, setRate] = useState(600);
   const [mode, setMode] = useState("marketplace");
   const [form, setForm] = useState(defaultForm());
+
+  // Filter / search state
+  const initialFilter = searchParams.get("filter");
+  const [stockFilter, setStockFilter] = useState(
+    initialFilter === "out-of-stock" ? "out" : initialFilter === "low-stock" ? "low" : "all"
+  );
+  const [shopFilter, setShopFilter] = useState("all"); // "all" | "s:<id>" | "r:<id>"
+  const [searchQ, setSearchQ] = useState("");
+
+  const lowStockThreshold = parseInt(user?.settings?.low_stock_threshold ?? 5, 10) || 5;
+  const stockBucket = (stock) => {
+    const s = Number(stock ?? 0);
+    if (s <= 0) return "out";
+    if (s <= lowStockThreshold) return "low";
+    return "ok";
+  };
+
+  // Sync URL ?filter=low-stock / out-of-stock with stockFilter
+  useEffect(() => {
+    const f = searchParams.get("filter");
+    const next = f === "out-of-stock" ? "out" : f === "low-stock" ? "low" : "all";
+    if (next !== stockFilter) setStockFilter(next);
+    // eslint-disable-next-line
+  }, [searchParams]);
+
+  const setStockFilterAndUrl = (val) => {
+    setStockFilter(val);
+    const sp = new URLSearchParams(searchParams);
+    sp.set("tab", "products");
+    if (val === "low") sp.set("filter", "low-stock");
+    else if (val === "out") sp.set("filter", "out-of-stock");
+    else sp.delete("filter");
+    setSearchParams(sp, { replace: true });
+  };
 
   function defaultForm() {
     return {
@@ -489,9 +524,37 @@ function ProductsTab() {
 
   const totalItems = products.length + menuItems.length;
 
+  // Counts (across ALL products before filtering, so the pills show real totals)
+  const outCount = products.filter((p) => stockBucket(p.stock) === "out").length;
+  const lowCount = products.filter((p) => stockBucket(p.stock) === "low").length;
+
+  // Apply filters: search + shop + stock
+  const q = searchQ.trim().toLowerCase();
+  const matchesSearch = (text) => !q || (text || "").toLowerCase().includes(q);
+  const matchesShop = (kind, id) => {
+    if (shopFilter === "all") return true;
+    if (kind === "shop") return shopFilter === `s:${id}`;
+    if (kind === "rest") return shopFilter === `r:${id}`;
+    return false;
+  };
+
+  const filteredProducts = products.filter((p) => {
+    if (!matchesSearch(p.name) && !matchesSearch(p.category)) return false;
+    if (!matchesShop("shop", p.shop_id)) return false;
+    if (stockFilter !== "all" && stockBucket(p.stock) !== stockFilter) return false;
+    return true;
+  });
+  // Restaurant menu items have no stock — only show when stock filter is "all"
+  const filteredMenuItems = stockFilter === "all" ? menuItems.filter((m) => {
+    if (!matchesSearch(m.name) && !matchesSearch(m.food_category)) return false;
+    if (!matchesShop("rest", m.restaurant_id)) return false;
+    return true;
+  }) : [];
+  const filteredCount = filteredProducts.length + filteredMenuItems.length;
+
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <p className="text-sm text-[var(--js-text-secondary)]">{totalItems} item{totalItems !== 1 && "s"} · Exchange rate <span className="font-bold text-[var(--js-text)]">1 USD = {rate} SSP</span></p>
         <button
           onClick={openNew}
@@ -501,6 +564,70 @@ function ProductsTab() {
         >
           <Plus className="w-4 h-4" /> Add Item
         </button>
+      </div>
+
+      {/* Filter / search bar */}
+      <div className="mb-4 bg-white border border-[var(--js-border)] rounded-2xl p-3 flex flex-wrap items-center gap-2 shadow-sm">
+        <div className="relative flex-1 min-w-[200px]">
+          <input
+            type="text"
+            value={searchQ}
+            onChange={(e) => setSearchQ(e.target.value)}
+            placeholder="Search products by name or category..."
+            data-testid="seller-products-search"
+            className="w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-full pl-10 pr-4 py-2 text-sm focus:outline-none focus:border-[#C84B31]"
+          />
+          <svg className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--js-text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+        </div>
+        <select
+          value={shopFilter}
+          onChange={(e) => setShopFilter(e.target.value)}
+          data-testid="seller-products-shop-filter"
+          className="bg-[var(--js-bg)] border border-[var(--js-border)] rounded-full px-4 py-2 text-sm font-semibold focus:outline-none focus:border-[#C84B31] min-w-[180px]"
+        >
+          <option value="all">🏬 All shops &amp; restaurants</option>
+          {shops.length > 0 && (
+            <optgroup label="🛍️ Shops">
+              {shops.map((s) => <option key={s.id} value={`s:${s.id}`}>{s.name}</option>)}
+            </optgroup>
+          )}
+          {restaurants.length > 0 && (
+            <optgroup label="🍔 Restaurants">
+              {restaurants.map((r) => <option key={r.id} value={`r:${r.id}`}>{r.name}</option>)}
+            </optgroup>
+          )}
+        </select>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setStockFilterAndUrl("all")}
+            data-testid="stock-filter-all"
+            className={`text-xs font-bold px-3 py-2 rounded-full border transition ${stockFilter === "all" ? "bg-[#1A1A1A] text-white border-[#1A1A1A]" : "bg-white text-[var(--js-text)] border-[var(--js-border)] hover:border-[#1A1A1A]"}`}
+          >
+            All
+          </button>
+          <button
+            type="button"
+            onClick={() => setStockFilterAndUrl("low")}
+            data-testid="stock-filter-low"
+            className={`text-xs font-bold px-3 py-2 rounded-full border transition inline-flex items-center gap-1.5 ${stockFilter === "low" ? "bg-[#E9C46A] text-[#1A1A1A] border-[#E9C46A]" : "bg-white text-[var(--js-text)] border-[var(--js-border)] hover:border-[#E9C46A]"}`}
+          >
+            <AlertTriangle className="w-3.5 h-3.5" /> Low stock
+            <span className="bg-white/70 text-[#9F6B00] rounded-full px-1.5 py-0.5 text-[10px]">{lowCount}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setStockFilterAndUrl("out")}
+            data-testid="stock-filter-out"
+            className={`text-xs font-bold px-3 py-2 rounded-full border transition inline-flex items-center gap-1.5 ${stockFilter === "out" ? "bg-[#D90429] text-white border-[#D90429]" : "bg-white text-[var(--js-text)] border-[var(--js-border)] hover:border-[#D90429]"}`}
+          >
+            <XCircle className="w-3.5 h-3.5" /> Out
+            <span className={`${stockFilter === "out" ? "bg-white/30 text-white" : "bg-[#D90429]/10 text-[#D90429]"} rounded-full px-1.5 py-0.5 text-[10px]`}>{outCount}</span>
+          </button>
+        </div>
+        <p className="ml-auto text-xs text-[var(--js-text-secondary)]" data-testid="seller-products-count">
+          {filteredCount} of {totalItems} item{totalItems !== 1 && "s"}
+        </p>
       </div>
 
       {showForm && (
@@ -606,15 +733,28 @@ function ProductsTab() {
               </tr>
             </thead>
             <tbody>
-              {products.map((p) => {
+              {filteredProducts.map((p) => {
                 const isWs = !!p.is_wholesale || p.mode === "wholesale";
+                const bucket = stockBucket(p.stock);
                 return (
-                  <tr key={`p-${p.id}`} className="border-t border-[var(--js-border)]" data-testid={`product-row-${p.id}`}>
+                  <tr key={`p-${p.id}`} className={`border-t border-[var(--js-border)] ${bucket === "out" ? "bg-[#D90429]/5" : bucket === "low" ? "bg-[#FFF7E0]" : ""}`} data-testid={`product-row-${p.id}`}>
                     <td className="p-4">
                       <div className="flex items-center gap-3">
                         <img src={p.image_url} alt="" className="w-10 h-10 rounded-lg object-cover" />
                         <div className="min-w-0">
-                          <p className="font-semibold text-[var(--js-text)] truncate">{p.name}</p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-semibold text-[var(--js-text)] truncate">{p.name}</p>
+                            {bucket === "out" && (
+                              <span data-testid={`out-badge-${p.id}`} className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#D90429] text-white">
+                                <XCircle className="w-3 h-3" /> OUT OF STOCK
+                              </span>
+                            )}
+                            {bucket === "low" && (
+                              <span data-testid={`low-badge-${p.id}`} className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#E9C46A] text-[#1A1A1A]">
+                                <AlertTriangle className="w-3 h-3" /> LOW STOCK
+                              </span>
+                            )}
+                          </div>
                           <p className="text-xs text-[var(--js-text-secondary)]">{p.category}</p>
                         </div>
                       </div>
@@ -630,7 +770,7 @@ function ProductsTab() {
                       {isWs && p.bulk_price_usd && <p className="text-[10px] text-[#2D6A4F] font-bold">Bulk: {formatUSD(p.bulk_price_usd)}</p>}
                     </td>
                     <td className="p-4 hidden sm:table-cell text-xs">
-                      <p>Stock: {p.stock}</p>
+                      <p className={bucket === "out" ? "text-[#D90429] font-bold" : bucket === "low" ? "text-[#9F6B00] font-bold" : ""}>Stock: {p.stock}</p>
                       {isWs && <p className="text-[var(--js-text-secondary)]">MOQ: {p.min_order_qty}</p>}
                     </td>
                     <td className="p-4 text-right">
@@ -642,7 +782,7 @@ function ProductsTab() {
                   </tr>
                 );
               })}
-              {menuItems.map((m) => (
+              {filteredMenuItems.map((m) => (
                 <tr key={`m-${m.id}`} className="border-t border-[var(--js-border)]" data-testid={`menu-row-${m.id}`}>
                   <td className="p-4">
                     <div className="flex items-center gap-3">
@@ -670,8 +810,14 @@ function ProductsTab() {
                   </td>
                 </tr>
               ))}
-              {totalItems === 0 && (
-                <tr><td colSpan={6} className="p-8 text-center text-[var(--js-text-secondary)]">No products or menu items yet. Click a button above to add one.</td></tr>
+              {filteredCount === 0 && (
+                <tr><td colSpan={6} className="p-8 text-center text-[var(--js-text-secondary)]" data-testid="seller-products-empty">
+                  {totalItems === 0
+                    ? "No products or menu items yet. Click a button above to add one."
+                    : (q || shopFilter !== "all" || stockFilter !== "all")
+                      ? `No items match the current filters${q ? ` for "${searchQ}"` : ""}.`
+                      : "No products or menu items yet."}
+                </td></tr>
               )}
             </tbody>
           </table>
@@ -947,9 +1093,36 @@ function DeliveryEditor({ form, setForm }) {
 }
 
 function OrdersTab() {
+  const { user } = useAuth();
   const [orders, setOrders] = useState([]);
+  const [stockMap, setStockMap] = useState({}); // product_id -> stock
   const [search, setSearch] = useState("");
-  const load = () => api.get("/orders/seller").then((r) => setOrders(r.data));
+  const [stockAlertOnly, setStockAlertOnly] = useState(false);
+
+  const lowStockThreshold = parseInt(user?.settings?.low_stock_threshold ?? 5, 10) || 5;
+  const stockBucket = (stock) => {
+    const s = Number(stock ?? 0);
+    if (s <= 0) return "out";
+    if (s <= lowStockThreshold) return "low";
+    return "ok";
+  };
+
+  const load = async () => {
+    const oRes = await api.get("/orders/seller");
+    setOrders(oRes.data);
+    // Build a stock map across all the seller's shops
+    try {
+      const sRes = await api.get("/shops/mine");
+      const map = {};
+      for (const sh of sRes.data) {
+        const r = await api.get(`/products?shop_id=${sh.id}`);
+        for (const p of r.data) map[p.id] = Number(p.stock ?? 0);
+      }
+      setStockMap(map);
+    } catch {
+      setStockMap({});
+    }
+  };
   useEffect(() => { load(); }, []);
 
   const updateStatus = async (id, status) => {
@@ -958,12 +1131,37 @@ function OrdersTab() {
     load();
   };
 
+  // Returns {low: n, out: n} for an order based on its product items' current stock
+  const orderStockAlerts = (o) => {
+    let low = 0, out = 0;
+    for (const it of (o.items || [])) {
+      if (it.item_type !== "product") continue;
+      const s = stockMap[it.item_id];
+      if (s === undefined) continue;
+      const b = stockBucket(s);
+      if (b === "out") out += 1;
+      else if (b === "low") low += 1;
+    }
+    return { low, out };
+  };
+
   const q = search.trim().toLowerCase();
-  const filtered = !q ? orders : orders.filter((o) =>
+  let filtered = !q ? orders : orders.filter((o) =>
     (o.customer_name || "").toLowerCase().includes(q) ||
     (o.id || "").toLowerCase().includes(q) ||
     (o.id || "").slice(0, 8).toLowerCase().includes(q)
   );
+  if (stockAlertOnly) {
+    filtered = filtered.filter((o) => {
+      const a = orderStockAlerts(o);
+      return a.low > 0 || a.out > 0;
+    });
+  }
+
+  const totalAlertOrders = orders.filter((o) => {
+    const a = orderStockAlerts(o);
+    return a.low > 0 || a.out > 0;
+  }).length;
 
   return (
     <div>
@@ -979,6 +1177,15 @@ function OrdersTab() {
           />
           <svg className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--js-text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
         </div>
+        <button
+          type="button"
+          onClick={() => setStockAlertOnly((v) => !v)}
+          data-testid="seller-orders-stock-alert-toggle"
+          className={`text-xs font-bold px-3 py-2 rounded-full border transition inline-flex items-center gap-1.5 ${stockAlertOnly ? "bg-[#E9C46A] text-[#1A1A1A] border-[#E9C46A]" : "bg-white text-[var(--js-text)] border-[var(--js-border)] hover:border-[#E9C46A]"}`}
+        >
+          <AlertTriangle className="w-3.5 h-3.5" /> Stock alerts only
+          <span className={`${stockAlertOnly ? "bg-white/70 text-[#9F6B00]" : "bg-[#E9C46A]/30 text-[#9F6B00]"} rounded-full px-1.5 py-0.5 text-[10px]`}>{totalAlertOrders}</span>
+        </button>
         <p className="text-xs text-[var(--js-text-secondary)]" data-testid="seller-orders-count">
           {filtered.length} of {orders.length} order{orders.length !== 1 && "s"}
         </p>
@@ -997,17 +1204,37 @@ function OrdersTab() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((o) => (
-              <tr key={o.id} className="border-t border-[#E2E2D9]" data-testid={`seller-order-${o.id}`}>
+            {filtered.map((o) => {
+              const alerts = orderStockAlerts(o);
+              const hasAlert = alerts.low > 0 || alerts.out > 0;
+              return (
+              <tr key={o.id} className={`border-t border-[#E2E2D9] ${alerts.out > 0 ? "bg-[#D90429]/5" : alerts.low > 0 ? "bg-[#FFF7E0]" : ""}`} data-testid={`seller-order-${o.id}`}>
                 <td className="p-4">
-                  <p className="font-semibold text-[#1A1A1A]">#{o.id.slice(0, 8).toUpperCase()}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-semibold text-[#1A1A1A]">#{o.id.slice(0, 8).toUpperCase()}</p>
+                    {alerts.out > 0 && (
+                      <span data-testid={`order-out-badge-${o.id}`} className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#D90429] text-white">
+                        <XCircle className="w-3 h-3" /> {alerts.out} out
+                      </span>
+                    )}
+                    {alerts.low > 0 && (
+                      <span data-testid={`order-low-badge-${o.id}`} className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#E9C46A] text-[#1A1A1A]">
+                        <AlertTriangle className="w-3 h-3" /> {alerts.low} low
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-[#5C5C5C]">{new Date(o.created_at).toLocaleDateString()}</p>
                 </td>
                 <td className="p-4 hidden sm:table-cell">
                   <p className="font-semibold text-[#1A1A1A]">{o.customer_name}</p>
                   <p className="text-xs text-[#5C5C5C]">{o.area}</p>
                 </td>
-                <td className="p-4 hidden lg:table-cell text-[#5C5C5C]">{o.items.length} item{o.items.length !== 1 && "s"}</td>
+                <td className="p-4 hidden lg:table-cell text-[#5C5C5C]">
+                  <p>{o.items.length} item{o.items.length !== 1 && "s"}</p>
+                  {hasAlert && (
+                    <p className="text-[10px] text-[#9F6B00] font-semibold mt-0.5">⚠ Restock needed for some items</p>
+                  )}
+                </td>
                 <td className="p-4 font-bold">{formatUSD(o.subtotal_usd)}</td>
                 <td className="p-4">
                   <select
@@ -1022,10 +1249,13 @@ function OrdersTab() {
                   </select>
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {filtered.length === 0 && (
               <tr><td colSpan={5} className="p-8 text-center text-[#5C5C5C]" data-testid="seller-orders-empty">
-                {q ? `No orders match "${search}"` : "No orders yet."}
+                {stockAlertOnly && orders.length > 0
+                  ? "No orders contain low or out-of-stock items right now. 🎉"
+                  : q ? `No orders match "${search}"` : "No orders yet."}
               </td></tr>
             )}
           </tbody>

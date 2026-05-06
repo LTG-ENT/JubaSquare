@@ -257,6 +257,32 @@ frontend:
           agent: "main"
           comment: "Shop edit modal now includes a Delivery pricing block with three modes (🆓 Free / 💵 Fixed / 📍 Per area). Per-area mode supports add/remove rows with area dropdown + USD fee. Orders tab now has a sticky search input that filters by customer name OR Order ID (full or 8-char prefix). Verified via screenshot."
 
+  - task: "Seller Products tab filters (search + shop dropdown + low/out-of-stock pills + row badges)"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/pages/SellerDashboard.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            Added a filter bar above the Products table with: (1) text search across product name + category, (2) shop/restaurant dropdown ("All shops & restaurants" + per-shop and per-restaurant entries), (3) three filter pills "All / Low stock (n) / Out (n)". Filter pills sync with URL ?filter=low-stock|out-of-stock and the existing dashboard banner button "View low-stock items" now actually filters the table. Each product row gets a 🔴 OUT OF STOCK or 🟡 LOW STOCK badge inline with the name and a tinted row background; stock cell text turns red/amber. Empty-state message adapts to active filters. lowStockThreshold comes from user.settings.low_stock_threshold (default 5).
+
+  - task: "Seller Orders tab — low/out-of-stock badges per order + 'Stock alerts only' filter"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/pages/SellerDashboard.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            OrdersTab now also fetches the seller's products to build a {product_id -> stock} map. Each order row shows inline badges "X out" (red) and "X low" (amber) for product items whose CURRENT stock has dropped to/below threshold/zero, plus a tinted row background. Added a "Stock alerts only" toggle pill (with count) that filters the list down to orders containing low/out-of-stock items. Empty state messaging updated for the new filter case.
+
   - task: "Cart with per-shop delivery breakdown"
     implemented: true
     working: "NA"
@@ -288,7 +314,9 @@ metadata:
   run_ui: false
 
 test_plan:
-  current_focus: []
+  current_focus:
+    - "Seller Products tab filters (search + shop dropdown + low/out-of-stock pills + row badges)"
+    - "Seller Orders tab — low/out-of-stock badges per order + 'Stock alerts only' filter"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -296,7 +324,12 @@ test_plan:
 agent_communication:
     - agent: "main"
       message: |
-        Implemented continuation request. Backend additions need testing:
+        Round 4 (frontend-only): Seller dashboard now has proper low-stock visibility AND product filtering.
+        Pure UI changes in /app/frontend/src/pages/SellerDashboard.jsx — no backend changes.
+        ProductsTab: search input + shop dropdown + All/Low/Out filter pills (synced with URL ?filter=); inline LOW STOCK / OUT OF STOCK badges + tinted rows.
+        OrdersTab: pulls current stock per product, shows "N low" / "N out" badges per order, plus a "Stock alerts only" pill filter.
+        threshold = user.settings.low_stock_threshold (default 5).
+        Awaiting user decision on whether to run automated frontend testing.
           1. Shop delivery fields — POST/PUT /api/shops with delivery_mode in {free, fixed, per_area}, delivery_fee_usd (number), delivery_per_area=[{area, fee_usd}].
           2. Reviews — GET/POST /api/products/{id}/reviews. POST requires customer auth. GET is public and returns {reviews, average, count}. Test with seeded product.
           3. Order endpoints — POST /api/orders/quote (preview) and POST /api/orders (creates) should both return delivery_fee_usd + delivery_breakdown computed per-shop based on each shop's delivery_mode and customer area.
