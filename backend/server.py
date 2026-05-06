@@ -22,6 +22,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr
 
 import email_service
+from pages_seed import PAGES_DEFAULT, PAGE_SLUGS
 
 
 # ----------------------------------------------------------------------------
@@ -423,6 +424,17 @@ class CustomerSettingsIn(BaseModel):
     dark_mode: Optional[bool] = None
 
 
+class PageIn(BaseModel):
+    title: str
+    subtitle: Optional[str] = ""
+    body_html: str
+    # contact-specific structured fields (optional, only used by the contact page)
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+    contact_location: Optional[str] = None
+    business_hours: Optional[str] = None
+
+
 # ----------------------------------------------------------------------------
 # Auth endpoints
 # ----------------------------------------------------------------------------
@@ -728,6 +740,82 @@ async def get_areas():
 @api.get("/meta/health")
 async def health():
     return {"ok": True, "service": "JubaSquare API"}
+
+
+# ----------------------------------------------------------------------------
+# Pages (CMS) — admin-editable Terms / Privacy / Returns / About / Contact
+# ----------------------------------------------------------------------------
+def _public_page(p: dict) -> dict:
+    """Strip _id, return only the public fields."""
+    if not p:
+        return None
+    return {
+        "slug": p.get("slug"),
+        "title": p.get("title", ""),
+        "subtitle": p.get("subtitle", ""),
+        "body_html": p.get("body_html", ""),
+        "contact_email": p.get("contact_email"),
+        "contact_phone": p.get("contact_phone"),
+        "contact_location": p.get("contact_location"),
+        "business_hours": p.get("business_hours"),
+        "last_updated": p.get("last_updated"),
+    }
+
+
+@api.get("/pages")
+async def list_pages():
+    """Public — returns minimal page list (for navigation/discovery)."""
+    docs = await db.pages.find({}, {"_id": 0}).to_list(50)
+    return [
+        {"slug": d.get("slug"), "title": d.get("title", ""), "last_updated": d.get("last_updated")}
+        for d in docs
+    ]
+
+
+@api.get("/pages/{slug}")
+async def get_page(slug: str):
+    p = await db.pages.find_one({"slug": slug}, {"_id": 0})
+    if not p:
+        raise HTTPException(404, "Page not found")
+    return _public_page(p)
+
+
+@api.put("/pages/{slug}")
+async def update_page(slug: str, body: PageIn, user: dict = Depends(require_role("admin"))):
+    if slug not in PAGE_SLUGS:
+        raise HTTPException(400, f"Unknown page slug. Allowed: {', '.join(PAGE_SLUGS)}")
+    update_doc = {
+        "slug": slug,
+        "title": body.title,
+        "subtitle": body.subtitle or "",
+        "body_html": body.body_html,
+        "last_updated": now_iso(),
+        "updated_by": user.get("id"),
+    }
+    if slug == "contact":
+        update_doc["contact_email"] = body.contact_email or ""
+        update_doc["contact_phone"] = body.contact_phone or ""
+        update_doc["contact_location"] = body.contact_location or ""
+        update_doc["business_hours"] = body.business_hours or ""
+    await db.pages.update_one({"slug": slug}, {"$set": update_doc}, upsert=True)
+    saved = await db.pages.find_one({"slug": slug}, {"_id": 0})
+    return _public_page(saved)
+
+
+@api.get("/admin/pages")
+async def admin_list_pages(user: dict = Depends(require_role("admin"))):
+    """Admin — returns full content of all pages (for the editor UI)."""
+    docs = await db.pages.find({}, {"_id": 0}).to_list(50)
+    by_slug = {d.get("slug"): _public_page(d) for d in docs}
+    # Always return all known slugs (with default content if missing)
+    out = []
+    for slug in PAGE_SLUGS:
+        if slug in by_slug:
+            out.append(by_slug[slug])
+        else:
+            d = PAGES_DEFAULT[slug]
+            out.append({**d, "last_updated": None})
+    return out
 
 
 @api.get("/meta/categories")
@@ -1907,6 +1995,15 @@ async def seed_production():
     existing_s = await db.settings.find_one({"id": "system"})
     if not existing_s:
         await db.settings.insert_one(DEFAULT_SETTINGS.copy())
+
+    # Pages (CMS) — seed defaults the FIRST time only. Once a page exists in
+    # the DB, never overwrite it.
+    await db.pages.create_index("slug", unique=True)
+    for slug, default_doc in PAGES_DEFAULT.items():
+        existing_page = await db.pages.find_one({"slug": slug})
+        if not existing_page:
+            await db.pages.insert_one({**default_doc, "last_updated": now_iso()})
+            log.info(f"📄 Seeded default page: {slug}")
 
     # Admin account (from env)
     admin_email = (os.environ.get("ADMIN_EMAIL") or "").strip().lower()

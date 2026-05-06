@@ -169,3 +169,32 @@ body {
 }
 .js-switch input:checked + .slider { background: var(--js-primary); }
 .js-switch input:checked + .slider::before { transform: translateX(20px); }
+
+/* Styles for admin-edited HTML page bodies (legal/about/contact). */
+.legal-body h2 {
+    font-family: var(--js-display, "Plus Jakarta Sans", system-ui, sans-serif);
+    font-weight: 700;
+    font-size: 1.25rem;
+    line-height: 1.4;
+    margin-top: 1.75rem;
+    margin-bottom: 0.5rem;
+    color: var(--js-text);
+}
+.legal-body h3 {
+    font-family: var(--js-display, "Plus Jakarta Sans", system-ui, sans-serif);
+    font-weight: 700;
+    font-size: 1.05rem;
+    line-height: 1.4;
+    margin-top: 1.25rem;
+    margin-bottom: 0.4rem;
+    color: var(--js-text);
+}
+.legal-body p { margin: 0.6rem 0; }
+.legal-body ul { list-style: disc; padding-left: 1.25rem; margin: 0.5rem 0; }
+.legal-body ol { list-style: decimal; padding-left: 1.25rem; margin: 0.5rem 0; }
+.legal-body li { margin: 0.2rem 0; }
+.legal-body a { color: #C84B31; font-weight: 600; }
+.legal-body a:hover { text-decoration: underline; }
+.legal-body strong { font-weight: 700; }
+.legal-body em { font-style: italic; }
+.legal-body code { background: var(--js-subtle); padding: 0.1rem 0.35rem; border-radius: 0.25rem; font-size: 0.85em; }
