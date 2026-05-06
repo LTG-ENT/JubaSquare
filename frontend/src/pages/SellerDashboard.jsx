@@ -4,7 +4,7 @@ import api, { formatUSD, formatDetail } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ImageUpload from "@/components/ImageUpload";
-import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell } from "lucide-react";
+import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -28,15 +28,48 @@ const CATEGORIES = [
 const AREAS = ["Munuki", "Jebel", "Gudele", "Konyo Konyo", "Hai Cinema", "Nyakuron", "Atlabara"];
 
 export default function SellerDashboard() {
-  const [searchParams] = useSearchParams();
+  const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const initial = searchParams.get("tab") || "shops";
   const [tab, setTab] = useState(initial);
+  const [lowStockCount, setLowStockCount] = useState(0);
 
   useEffect(() => {
     const t = searchParams.get("tab");
     if (t && t !== tab) setTab(t);
     // eslint-disable-next-line
   }, [searchParams]);
+
+  // Compute low-stock products at dashboard level so the banner is visible from any tab
+  const lowStockEnabled = user?.settings?.low_stock_alert !== false; // default ON
+  const lowStockThreshold = parseInt(user?.settings?.low_stock_threshold ?? 5, 10) || 5;
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: shops } = await api.get("/shops/mine");
+        if (cancelled || shops.length === 0) { setLowStockCount(0); return; }
+        const allProducts = [];
+        for (const sh of shops) {
+          const r = await api.get(`/products?shop_id=${sh.id}`);
+          allProducts.push(...r.data);
+        }
+        if (cancelled) return;
+        const lowCount = allProducts.filter((p) => Number(p.stock ?? 0) <= lowStockThreshold).length;
+        setLowStockCount(lowCount);
+      } catch {
+        if (!cancelled) setLowStockCount(0);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id, lowStockThreshold, tab]); // recompute when switching tabs (after edits)
+
+  const goToLowStock = () => {
+    setSearchParams({ tab: "products", filter: "low-stock" }, { replace: false });
+    setTab("products");
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-[#F9F9F6]">
@@ -45,9 +78,36 @@ export default function SellerDashboard() {
         <p className="text-[10px] uppercase tracking-[0.2em] text-[#5C5C5C] font-bold mb-2">Seller Dashboard</p>
         <h1 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">Manage your business</h1>
 
+        {/* Low-stock alert banner */}
+        {lowStockEnabled && lowStockCount > 0 && (
+          <div className="mt-6 rounded-2xl border border-[#E9C46A] bg-[#FFF7E0] p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3" data-testid="low-stock-banner">
+            <div className="flex items-start gap-3 flex-1 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-[#E9C46A]/30 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-[#9F6B00]" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-display font-bold text-sm text-[#1A1A1A]">
+                  {lowStockCount} product{lowStockCount > 1 ? "s are" : " is"} low on stock
+                </p>
+                <p className="text-xs text-[#5C5C5C] mt-0.5">
+                  Stock at or below your threshold ({lowStockThreshold}). Restock soon to avoid lost sales.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={goToLowStock}
+              data-testid="low-stock-banner-action"
+              className="bg-[#1A1A1A] hover:bg-black text-white text-xs font-semibold px-4 py-2 rounded-full whitespace-nowrap"
+            >
+              View low-stock items
+            </button>
+          </div>
+        )}
+
         <div className="mt-8 flex flex-wrap gap-2 border-b border-[#E2E2D9] overflow-x-auto">
           {TABS.map((t) => {
             const Icon = t.icon;
+            const showBadge = t.id === "products" && lowStockEnabled && lowStockCount > 0;
             return (
               <button
                 key={t.id}
@@ -60,6 +120,11 @@ export default function SellerDashboard() {
                 }`}
               >
                 <Icon className="w-4 h-4" /> {t.label}
+                {showBadge && (
+                  <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] text-[10px] font-bold bg-[#E9C46A] text-[#1A1A1A] rounded-full px-1.5">
+                    {lowStockCount}
+                  </span>
+                )}
               </button>
             );
           })}
