@@ -38,11 +38,26 @@ Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode fo
   - `_rebuild_invoices()` applies `shop.commission_rate` when set, else global rate
 - 66/66 tests pass (25+18+15+8)
 
+### Iter 5 (Feb 2026) — **Standalone Shop Pages + Internal Messaging**
+- **Public Shop Page** at `/shop/:shop_id` with hero banner + logo, OPEN/CLOSED status, opening hours, COD-only banner, products grid filtered to that shop, search.
+- **Contact Seller modal** (one-way customer→seller messaging). Anonymous senders redirected to `/login?next=/shop/:id`; logged-in customers post directly. Body required (2–2000 chars).
+- **SellerShopEdit** page at `/seller/shop/:shop_id/edit` — full storefront editor for name, description, area, logo (square), banner (wide), default photo, opening hours, OPEN/CLOSED toggle, and delivery model (free / fixed / per-area). Owner-only (admin override).
+- **Messages tab in Seller Dashboard** with unread badge (`/api/messages/seller/unread-count`), filter (All / Unread), mark-read & delete actions; click-to-call (tel:) and click-to-email (mailto:) on each message.
+- **Backend**: `ShopIn` extended with `banner_url`, `logo_url`, `opening_hours`, `is_open` (already in place); `shop_messages` collection + endpoints `POST /shops/{id}/messages` (anon-allowed but requires email/phone), `GET /messages/seller`, `GET /messages/seller/unread-count`, `PUT /messages/{id}/read`, `DELETE /messages/{id}`.
+- **Frontend**: routes wired in `App.js`; SellerDashboard now exposes "Edit Shop Page" + "View public" links per shop card.
+- 87/87 tests pass (25+18+15+8+21). All iter5 frontend flows green.
+
 ## Backlog (P1 / P2)
+- **P1** Unread message badge polling / realtime updates on Messages tab
+- **P1** COD-only checkout enforcement on `/shop/:shop_id` order flow (currently only banner)
+- **P1** Pagination on `GET /api/messages/seller` (currently 500-item cap)
+- **P1** Rate-limit `POST /shops/{id}/messages` (anti-spam) + `Field(max_length=...)` on `ShopMessageIn`
+- **P1** Switch `PUT /shops/{id}` to PATCH semantics (currently full-replace via ShopIn) so partial edits can't clobber unset fields
+- **P1** Re-raise non-auth `HTTPException` in `send_shop_message` (e.g. blocked-email user shouldn't silently fall to anonymous branch)
 - **P1** Drop `ProductIn.mode` in favor of `is_wholesale` exclusively (two sources of truth risk)
 - **P1** Deprecate `ShopIn.kind` field (iter4 phases out shop-level retail/wholesale)
 - **P1** Apply pricing tiers to cart pricing server-side at checkout (currently UI only)
-- **P2** Split `server.py` (1383 lines) into routers; split `SellerDashboard.jsx` (923 lines) into `pages/seller/*`
+- **P2** Split `server.py` (~2230 lines) into routers; split `SellerDashboard.jsx` (~1700 lines) into `pages/seller/*` (MessagesTab, ShopsTab, ProductsTab, …)
 - **P2** Optimistic UI refresh on admin shop commission save
 - **P2** Invoice detail page with line-item orders
 - **P2** Email notifications, i18n, document upload for verification
