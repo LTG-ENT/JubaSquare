@@ -6,7 +6,8 @@ import AdminAnalytics from "@/components/AdminAnalytics";
 import AdminIntegrations from "@/components/AdminIntegrations";
 import AdminPagesTab from "@/components/AdminPagesTab";
 import AdminSettingsTab from "@/components/AdminSettingsTab";
-import { Store, Mail, ShoppingBag, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Percent, Eye, X, BarChart3, Settings as SettingsIcon, BookOpen, Sliders } from "lucide-react";
+import AdminFooterTab from "@/components/AdminFooterTab";
+import { Store, Mail, ShoppingBag, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Percent, Eye, X, BarChart3, Settings as SettingsIcon, BookOpen, Sliders, PanelBottom } from "lucide-react";
 import { toast } from "sonner";
 
 const TABS = [
@@ -16,6 +17,7 @@ const TABS = [
   { id: "emails", label: "Blocked Emails", icon: Mail },
   { id: "orders", label: "All Orders", icon: ShoppingBag },
   { id: "pages", label: "Pages", icon: BookOpen },
+  { id: "footer", label: "Footer", icon: PanelBottom },
   { id: "settings", label: "Settings", icon: Sliders },
   { id: "integrations", label: "Integrations", icon: SettingsIcon },
 ];
@@ -55,6 +57,7 @@ export default function AdminDashboard() {
           {tab === "emails" && <AdminEmailsTab />}
           {tab === "orders" && <AdminOrdersTab />}
           {tab === "pages" && <AdminPagesTab />}
+          {tab === "footer" && <AdminFooterTab />}
           {tab === "settings" && <AdminSettingsTab onGoToShop={() => setTab("shops")} />}
           {tab === "integrations" && <AdminIntegrations />}
         </div>

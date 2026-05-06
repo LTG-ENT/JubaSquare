@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field, EmailStr
 
 import email_service
 from pages_seed import PAGES_DEFAULT, PAGE_SLUGS
+from footer_seed import FOOTER_DEFAULT
 
 
 # ----------------------------------------------------------------------------
@@ -435,6 +436,30 @@ class PageIn(BaseModel):
     business_hours: Optional[str] = None
 
 
+class FooterLink(BaseModel):
+    label: str
+    url: str
+
+
+class FooterIn(BaseModel):
+    tagline: Optional[str] = None
+    social_facebook: Optional[str] = None
+    social_instagram: Optional[str] = None
+    social_twitter: Optional[str] = None
+    shop_title: Optional[str] = None
+    shop_links: Optional[List[FooterLink]] = None
+    company_title: Optional[str] = None
+    company_links: Optional[List[FooterLink]] = None
+    legal_title: Optional[str] = None
+    legal_links: Optional[List[FooterLink]] = None
+    contact_title: Optional[str] = None
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+    contact_location: Optional[str] = None
+    copyright_text: Optional[str] = None
+    tagline_bottom: Optional[str] = None
+
+
 # ----------------------------------------------------------------------------
 # Auth endpoints
 # ----------------------------------------------------------------------------
@@ -816,6 +841,44 @@ async def admin_list_pages(user: dict = Depends(require_role("admin"))):
             d = PAGES_DEFAULT[slug]
             out.append({**d, "last_updated": None})
     return out
+
+
+# ----------------------------------------------------------------------------
+# Footer (site-wide editable config)
+# ----------------------------------------------------------------------------
+def _footer_doc(d: dict) -> dict:
+    """Strip _id; ensure all expected keys exist with sensible fallbacks."""
+    if not d:
+        d = {}
+    merged = {**FOOTER_DEFAULT, **{k: v for k, v in d.items() if v is not None}}
+    merged.pop("_id", None)
+    return merged
+
+
+@api.get("/site-config/footer")
+async def get_footer():
+    """Public — current footer config (with defaults filled in)."""
+    doc = await db.site_config.find_one({"id": "footer"}, {"_id": 0})
+    return _footer_doc(doc)
+
+
+@api.put("/admin/site-config/footer")
+async def update_footer(body: FooterIn, user: dict = Depends(require_role("admin"))):
+    payload = {k: v for k, v in body.dict().items() if v is not None}
+    # Ensure links are stored as plain dicts
+    for key in ("shop_links", "company_links", "legal_links"):
+        if key in payload and payload[key] is not None:
+            payload[key] = [
+                {"label": (lk.get("label") or "").strip(), "url": (lk.get("url") or "").strip()}
+                for lk in payload[key]
+                if (lk.get("label") or "").strip() and (lk.get("url") or "").strip()
+            ]
+    payload["id"] = "footer"
+    payload["last_updated"] = now_iso()
+    payload["updated_by"] = user.get("id")
+    await db.site_config.update_one({"id": "footer"}, {"$set": payload}, upsert=True)
+    saved = await db.site_config.find_one({"id": "footer"}, {"_id": 0})
+    return _footer_doc(saved)
 
 
 @api.get("/meta/categories")
@@ -2004,6 +2067,13 @@ async def seed_production():
         if not existing_page:
             await db.pages.insert_one({**default_doc, "last_updated": now_iso()})
             log.info(f"📄 Seeded default page: {slug}")
+
+    # Site config — seed footer defaults the first time only
+    await db.site_config.create_index("id", unique=True)
+    existing_footer = await db.site_config.find_one({"id": "footer"})
+    if not existing_footer:
+        await db.site_config.insert_one({**FOOTER_DEFAULT, "last_updated": now_iso()})
+        log.info("🦶 Seeded default footer config")
 
     # Admin account (from env)
     admin_email = (os.environ.get("ADMIN_EMAIL") or "").strip().lower()
