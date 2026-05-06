@@ -9,10 +9,11 @@ FOOTER_DEFAULT = {
     # Brand block (left column)
     "tagline": "Juba's marketplace for retail, wholesale and food delivery — built for South Sudan.",
 
-    # Social links (empty string = hide the icon)
+    # Social links — only Facebook is exposed in the UI; the other slots stay
+    # empty (kept on the model for backwards-compat).
     "social_facebook": "https://facebook.com/",
-    "social_instagram": "https://instagram.com/",
-    "social_twitter": "https://twitter.com/",
+    "social_instagram": "",
+    "social_twitter": "",
 
     # Shop column
     "shop_title": "Shop",

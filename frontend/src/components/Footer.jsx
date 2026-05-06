@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Logo } from "@/components/Logo";
-import { Facebook, Instagram, Twitter, Mail, Phone } from "lucide-react";
+import { Facebook, Mail, Phone } from "lucide-react";
 import api from "@/lib/api";
 
 const DEFAULT_FOOTER = {
@@ -84,18 +84,6 @@ export default function Footer() {
                 <a href={cfg.social_facebook} target="_blank" rel="noreferrer" aria-label="Facebook"
                    className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition">
                   <Facebook className="w-4 h-4" />
-                </a>
-              )}
-              {cfg.social_instagram && (
-                <a href={cfg.social_instagram} target="_blank" rel="noreferrer" aria-label="Instagram"
-                   className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition">
-                  <Instagram className="w-4 h-4" />
-                </a>
-              )}
-              {cfg.social_twitter && (
-                <a href={cfg.social_twitter} target="_blank" rel="noreferrer" aria-label="Twitter"
-                   className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition">
-                  <Twitter className="w-4 h-4" />
                 </a>
               )}
             </div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import api, { formatDetail } from "@/lib/api";
-import { Save, RotateCcw, Plus, Trash2, GripVertical, ExternalLink, Facebook, Instagram, Twitter, Mail, Phone, MapPin, Info } from "lucide-react";
+import { Save, RotateCcw, Plus, Trash2, GripVertical, ExternalLink, Facebook, Mail, Phone, MapPin, Info } from "lucide-react";
 import { toast } from "sonner";
 
 const COLUMN_KEYS = [
@@ -109,13 +109,11 @@ export default function AdminFooterTab() {
             className="w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#C84B31]"
           />
         </Field>
-        <div className="grid sm:grid-cols-3 gap-3 mt-3">
+        <div className="grid sm:grid-cols-1 gap-3 mt-3">
           <SocialField icon={Facebook} label="Facebook URL" value={draft.social_facebook} onChange={(v) => set("social_facebook", v)} testId="footer-edit-facebook" />
-          <SocialField icon={Instagram} label="Instagram URL" value={draft.social_instagram} onChange={(v) => set("social_instagram", v)} testId="footer-edit-instagram" />
-          <SocialField icon={Twitter} label="Twitter / X URL" value={draft.social_twitter} onChange={(v) => set("social_twitter", v)} testId="footer-edit-twitter" />
         </div>
         <p className="text-[11px] text-[var(--js-text-secondary)] mt-2 flex items-center gap-1.5">
-          <Info className="w-3.5 h-3.5" /> Leave a social URL empty to hide that icon from the footer.
+          <Info className="w-3.5 h-3.5" /> Leave the Facebook URL empty to hide the icon from the footer.
         </p>
       </Card>
 
