@@ -9,7 +9,7 @@ Tests ONLY:
 import requests
 import sys
 
-BASE_URL = "https://juba-storefront-new.preview.emergentagent.com/api"
+BASE_URL = "https://publish-ready-34.preview.emergentagent.com/api"
 
 # Test credentials from /app/memory/test_credentials.md
 ADMIN_EMAIL = "admin@demo.com"
