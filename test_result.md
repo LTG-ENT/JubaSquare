@@ -335,6 +335,23 @@ frontend:
             
             All CMS pages endpoints working correctly. Auth gating correct (401 without token, admin-only for PUT/admin endpoints). Structured contact fields work as designed. Seed is idempotent. No critical issues found.
 
+  - task: "Admin Settings tab — global commission rate + per-shop overrides view"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/components/AdminSettingsTab.jsx, /app/frontend/src/pages/AdminDashboard.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            Added a new "Settings" tab in /admin (icon: Sliders, between Pages and Integrations). New `AdminSettingsTab` component contains:
+            (1) "Global commission rate" card — large % input bound to settings.commission_rate via `PUT /admin/settings`. On save, runs `POST /admin/invoices/generate` automatically so pending invoices pick up the new rate. Confirmation dialog before save. Validates 0–100 range. "Currently saved" indicator + Discard button when dirty.
+            (2) Info box explains the rule: `shop.commission_rate ?? global_rate`.
+            (3) "Shops with a custom rate" table — lists every shop where `commission_rate != null`, showing the rate, +/- difference vs global, "Reset to global" button (PUT /admin/shops/:id/commission with null), and an "Edit" button that switches back to the Shops tab. Empty state when no overrides exist.
+            All endpoints already existed in backend — this is pure UI on top of existing GET /admin/settings, PUT /admin/settings, GET /shops, PUT /admin/shops/:id/commission. Verified via screenshot.
+
   - task: "CMS pages frontend — admin editor + dynamic public legal pages"
     implemented: true
     working: "NA"
