@@ -31,6 +31,23 @@
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap" rel="stylesheet" />
         <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
+        <script>
+          // Silence benign "ResizeObserver loop completed with undelivered notifications".
+          (function () {
+            var re = /ResizeObserver loop (completed with undelivered notifications|limit exceeded)/;
+            window.addEventListener("error", function (e) {
+              if (e && e.message && re.test(e.message)) {
+                e.stopImmediatePropagation();
+                e.preventDefault();
+                return false;
+              }
+            }, true);
+            window.addEventListener("unhandledrejection", function (e) {
+              var msg = (e && e.reason && (e.reason.message || String(e.reason))) || "";
+              if (re.test(msg)) { e.preventDefault(); }
+            });
+          })();
+        </script>
         <script src="https://assets.emergent.sh/scripts/emergent-main.js"></script>
     </head>
     <body>
