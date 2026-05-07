@@ -1525,7 +1525,14 @@ function Select({ label, value, onChange, options, testId }) {
   return (
     <label className="block">
       <span className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)} data-testid={testId} className="js-input">
+      <select 
+        value={value} 
+        onChange={(e) => onChange(e.target.value)} 
+        data-testid={testId} 
+        className="js-input"
+        size={opts.length > 6 ? 6 : undefined}
+        style={opts.length > 6 ? { height: 'auto', overflowY: 'auto' } : undefined}
+      >
         {opts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
     </label>
