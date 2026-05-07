@@ -461,6 +461,7 @@ function ProductsTab() {
   const [rate, setRate] = useState(600);
   const [mode, setMode] = useState("marketplace");
   const [form, setForm] = useState(defaultForm());
+  const [restaurantCategoriesMap, setRestaurantCategoriesMap] = useState({});
 
   // Filter / search state
   const initialFilter = searchParams.get("filter");
@@ -531,6 +532,23 @@ function ProductsTab() {
       allMenu.push(...m.data.map((mi) => ({ ...mi, restaurant_name: r.name })));
     }
     setMenuItems(allMenu);
+
+    // Fetch restaurant categories with sub-categories from database
+    try {
+      const categoriesRes = await api.get("/categories?group=restaurant");
+      const categoryTree = categoriesRes.data?.restaurant || [];
+      
+      // Build map of parent category name -> array of child category names
+      const catMap = {};
+      categoryTree.forEach(parent => {
+        catMap[parent.name] = (parent.children || []).map(child => child.name);
+      });
+      setRestaurantCategoriesMap(catMap);
+    } catch (err) {
+      console.error("Failed to load restaurant categories:", err);
+      // Fallback to hardcoded if API fails
+      setRestaurantCategoriesMap(FOOD_SUBCATEGORIES_MAP);
+    }
   };
   useEffect(() => { loadAll(); }, [user?.id]); // eslint-disable-line
 
@@ -547,10 +565,10 @@ function ProductsTab() {
       setMode("marketplace");
     } else if (restaurants.length > 0) {
       next.restaurant_id = restaurants[0].id;
-      // Use the first restaurant's first sub-category
+      // Use the first restaurant's first sub-category from database
       const restaurantCategory = restaurants[0].category || "Fast Food";
-      const subcategories = FOOD_SUBCATEGORIES_MAP[restaurantCategory] || [];
-      next.food_category = subcategories[0] || "Burgers";
+      const subcategories = restaurantCategoriesMap[restaurantCategory] || [];
+      next.food_category = subcategories[0] || "";
       setMode("restaurant");
     }
     setForm(next);
@@ -579,13 +597,13 @@ function ProductsTab() {
     // Keep the existing food_category when editing (it's already a sub-category)
     const restaurant = restaurants.find(r => r.id === m.restaurant_id);
     const restaurantCategory = restaurant?.category || "Fast Food";
-    const subcategories = FOOD_SUBCATEGORIES_MAP[restaurantCategory] || [];
+    const subcategories = restaurantCategoriesMap[restaurantCategory] || [];
     setForm({
       ...defaultForm(),
       restaurant_id: m.restaurant_id, name: m.name,
       price_usd: m.price_usd,
       description: m.description || "", image_url: m.image_url || "",
-      food_category: m.food_category || subcategories[0] || "Burgers",
+      food_category: m.food_category || subcategories[0] || "",
       side_items: m.side_items || [],
     });
     setShowForm(true);
@@ -762,11 +780,11 @@ function ProductsTab() {
                   const [kind, id] = e.target.value.split(":");
                   if (kind === "r") {
                     setMode("restaurant");
-                    // Find the restaurant and use its first sub-category
+                    // Find the restaurant and use its first sub-category from database
                     const restaurant = restaurants.find(r => r.id === id);
                     const restaurantCategory = restaurant?.category || "Fast Food";
-                    const subcategories = FOOD_SUBCATEGORIES_MAP[restaurantCategory] || [];
-                    setForm({ ...form, restaurant_id: id, food_category: subcategories[0] || "Burgers" });
+                    const subcategories = restaurantCategoriesMap[restaurantCategory] || [];
+                    setForm({ ...form, restaurant_id: id, food_category: subcategories[0] || "" });
                   } else {
                     setMode(form.is_wholesale_toggle ? "wholesale" : "marketplace");
                     setForm({ ...form, shop_id: id, category: form.category || RETAIL_CATEGORIES[0] });
@@ -789,10 +807,22 @@ function ProductsTab() {
               <>
                 <Input label="Food name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required testId="product-name-input" />
                 {(() => {
-                  // Get the selected restaurant's category to show relevant sub-categories
+                  // Get the selected restaurant's category to show relevant sub-categories from database
                   const restaurant = restaurants.find(r => r.id === form.restaurant_id);
                   const restaurantCategory = restaurant?.category || "Fast Food";
-                  const subcategories = FOOD_SUBCATEGORIES_MAP[restaurantCategory] || [];
+                  const subcategories = restaurantCategoriesMap[restaurantCategory] || [];
+                  
+                  if (subcategories.length === 0) {
+                    return (
+                      <div className="block">
+                        <span className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Food category</span>
+                        <div className="js-input text-[#A3A39E] italic">
+                          No Categories! Admin needs to add sub-categories for {restaurantCategory}
+                        </div>
+                      </div>
+                    );
+                  }
+                  
                   return (
                     <Select 
                       label="Food category" 
