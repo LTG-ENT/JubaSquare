@@ -43,6 +43,52 @@ export const getList = async (path, options = {}) => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// Request dedupe + tiny TTL cache
+// ---------------------------------------------------------------------------
+// On low-resource hosts a Marketplace render with 200 ProductCards firing 200
+// simultaneous /favorites GETs is a self-DoS. `getCached(url, ttlMs)` solves
+// this by:
+//   • Returning the same in-flight Promise to all callers in the same tick
+//     (request dedupe), and
+//   • Caching the resolved data for `ttlMs` so subsequent renders skip the
+//     network entirely.
+// Cache is invalidated by `invalidateCache(prefix)` (called after writes that
+// would change the cached data — e.g. toggling a favorite).
+const _cache = new Map();   // url → { exp, data }
+const _inflight = new Map(); // url → Promise
+
+export const getCached = (path, ttlMs = 30000) => {
+  const now = Date.now();
+  const hit = _cache.get(path);
+  if (hit && hit.exp > now) return Promise.resolve(hit.data);
+  const pending = _inflight.get(path);
+  if (pending) return pending;
+  const p = api
+    .get(path)
+    .then((r) => {
+      _cache.set(path, { exp: Date.now() + ttlMs, data: r.data });
+      _inflight.delete(path);
+      return r.data;
+    })
+    .catch((err) => {
+      _inflight.delete(path);
+      throw err;
+    });
+  _inflight.set(path, p);
+  return p;
+};
+
+export const invalidateCache = (prefix = "") => {
+  if (!prefix) {
+    _cache.clear();
+    return;
+  }
+  for (const key of Array.from(_cache.keys())) {
+    if (key.startsWith(prefix)) _cache.delete(key);
+  }
+};
+
 export const formatDetail = (detail) => {
   if (detail == null) return "Something went wrong.";
   if (typeof detail === "string") return detail;

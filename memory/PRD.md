@@ -47,6 +47,17 @@ Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode fo
 - **Frontend**: routes wired in `App.js`; SellerDashboard now exposes "Edit Shop Page" + "View public" links per shop card and a green/grey **public visibility toggle** with HIDDEN badge; ShopPage shows "Shop unavailable" to non-owners when hidden, and a preview banner to the owner; ShopCard (the marketplace shop card) now links directly to `/shop/:id` instead of the filtered marketplace.
 - 87/87 tests pass (25+18+15+8+21). All iter5 frontend flows green.
 
+### Iter 6 (Feb 2026) — **Hierarchical categories + Low-resource optimization**
+- DB-backed hierarchical categories (`categories` collection + seeder); admin CRUD UI; hover mega-menu on Home nav.
+- React `lazy()` + Suspense routing with `RouteLoader`.
+- Backend pagination on all list endpoints (default 50); lightweight `/api/seller/low-stock-count`.
+- 60s TTL in-memory cache on `/meta/categories`, `/categories/tree`, `/meta/areas`, `/pages`, `/site-config/footer`.
+- Frontend request deduplication + safe-array fallback in `lib/api.js`.
+- `DEPLOY.md` + `.env.example` for self-hosting.
+
+### Iter 6.1 (Feb 2026) — Bug fix
+- **SellerDashboard Modal** — fixed scroll issue when many delivery areas added in shop create/edit form. Modal now uses `flex flex-col` with sticky header and a dedicated `flex-1 min-h-0 overflow-y-auto` body so long forms scroll reliably on mobile + desktop.
+
 ## Backlog (P1 / P2)
 - **P1** Unread message badge polling / realtime updates on Messages tab
 - **P1** COD-only checkout enforcement on `/shop/:shop_id` order flow (currently only banner)

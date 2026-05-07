@@ -262,6 +262,52 @@ def clamp_pagination(limit: Optional[int], skip: Optional[int]) -> tuple[int, in
 
 
 # ----------------------------------------------------------------------------
+# In-process TTL cache for hot read endpoints
+# ----------------------------------------------------------------------------
+# Designed for low-resource hosts: a tiny dict-backed cache keyed by a string
+# key. Values expire after `ttl_seconds`. No background sweeper — entries are
+# checked on access. Memory footprint is ~O(number of cached endpoints) which
+# is tiny because we cache only a handful of read-heavy public endpoints.
+#
+# Cache is process-local; if you run multiple uvicorn workers each gets its
+# own copy. That is fine because TTL is small (60s) and the data is read-only
+# from the public's perspective.
+import time as _time
+from typing import Awaitable, Callable, TypeVar
+
+_T = TypeVar("_T")
+_cache_store: dict[str, tuple[float, object]] = {}
+DEFAULT_CACHE_TTL = 60.0  # seconds
+
+
+async def cached(
+    key: str,
+    loader: Callable[[], Awaitable[_T]],
+    ttl: float = DEFAULT_CACHE_TTL,
+) -> _T:
+    now = _time.time()
+    hit = _cache_store.get(key)
+    if hit is not None and now - hit[0] < ttl:
+        return hit[1]  # type: ignore[return-value]
+    value = await loader()
+    _cache_store[key] = (now, value)
+    return value
+
+
+def cache_invalidate(*prefixes: str) -> int:
+    """Drop all cached keys whose name starts with any of the given prefixes.
+    Returns number of entries dropped. Called by admin write endpoints so
+    public reads see fresh data immediately."""
+    if not prefixes:
+        _cache_store.clear()
+        return 0
+    keys = [k for k in _cache_store if any(k.startswith(p) for p in prefixes)]
+    for k in keys:
+        _cache_store.pop(k, None)
+    return len(keys)
+
+
+# ----------------------------------------------------------------------------
 # Models
 # ----------------------------------------------------------------------------
 class LoginIn(BaseModel):
@@ -781,23 +827,27 @@ async def upload_file(request: Request, file: UploadFile = File(...), user: dict
 # ----------------------------------------------------------------------------
 @api.get("/settings/public")
 async def public_settings():
-    s = await get_settings()
-    return {
-        "global_rate": s.get("global_rate", 600.0),
-        "currency_display": s.get("currency_display", True),
-        "verified_first": s.get("verified_first", True),
-        "module_marketplace": s.get("module_marketplace", True),
-        "module_restaurants": s.get("module_restaurants", True),
-        "module_wholesale": s.get("module_wholesale", True),
-        "maintenance_mode": s.get("maintenance_mode", False),
-        "areas": s.get("areas", DEFAULT_AREAS),
-    }
+    async def _build():
+        s = await get_settings()
+        return {
+            "global_rate": s.get("global_rate", 600.0),
+            "currency_display": s.get("currency_display", True),
+            "verified_first": s.get("verified_first", True),
+            "module_marketplace": s.get("module_marketplace", True),
+            "module_restaurants": s.get("module_restaurants", True),
+            "module_wholesale": s.get("module_wholesale", True),
+            "maintenance_mode": s.get("maintenance_mode", False),
+            "areas": s.get("areas", DEFAULT_AREAS),
+        }
+    return await cached("settings:public", _build)
 
 
 @api.get("/meta/areas")
 async def get_areas():
-    s = await get_settings()
-    return s.get("areas", DEFAULT_AREAS)
+    async def _build():
+        s = await get_settings()
+        return s.get("areas", DEFAULT_AREAS)
+    return await cached("meta:areas", _build)
 
 
 @api.get("/meta/health")
@@ -827,20 +877,26 @@ def _public_page(p: dict) -> dict:
 
 @api.get("/pages")
 async def list_pages():
-    """Public — returns minimal page list (for navigation/discovery)."""
-    docs = await db.pages.find({}, {"_id": 0}).to_list(50)
-    return [
-        {"slug": d.get("slug"), "title": d.get("title", ""), "last_updated": d.get("last_updated")}
-        for d in docs
-    ]
+    """Public — returns minimal page list (for navigation/discovery). Cached 60s."""
+
+    async def _build():
+        docs = await db.pages.find({}, {"_id": 0}).to_list(50)
+        return [
+            {"slug": d.get("slug"), "title": d.get("title", ""), "last_updated": d.get("last_updated")}
+            for d in docs
+        ]
+
+    return await cached("pages:list", _build)
 
 
 @api.get("/pages/{slug}")
 async def get_page(slug: str):
-    p = await db.pages.find_one({"slug": slug}, {"_id": 0})
-    if not p:
-        raise HTTPException(404, "Page not found")
-    return _public_page(p)
+    async def _build():
+        p = await db.pages.find_one({"slug": slug}, {"_id": 0})
+        if not p:
+            raise HTTPException(404, "Page not found")
+        return _public_page(p)
+    return await cached(f"pages:slug:{slug}", _build)
 
 
 @api.put("/pages/{slug}")
@@ -861,6 +917,7 @@ async def update_page(slug: str, body: PageIn, user: dict = Depends(require_role
         update_doc["contact_location"] = body.contact_location or ""
         update_doc["business_hours"] = body.business_hours or ""
     await db.pages.update_one({"slug": slug}, {"$set": update_doc}, upsert=True)
+    cache_invalidate("pages:")
     saved = await db.pages.find_one({"slug": slug}, {"_id": 0})
     return _public_page(saved)
 
@@ -895,9 +952,13 @@ def _footer_doc(d: dict) -> dict:
 
 @api.get("/site-config/footer")
 async def get_footer():
-    """Public — current footer config (with defaults filled in)."""
-    doc = await db.site_config.find_one({"id": "footer"}, {"_id": 0})
-    return _footer_doc(doc)
+    """Public — current footer config (with defaults filled in). Cached 60s."""
+
+    async def _build():
+        doc = await db.site_config.find_one({"id": "footer"}, {"_id": 0})
+        return _footer_doc(doc)
+
+    return await cached("footer:public", _build)
 
 
 @api.put("/admin/site-config/footer")
@@ -915,6 +976,7 @@ async def update_footer(body: FooterIn, user: dict = Depends(require_role("admin
     payload["last_updated"] = now_iso()
     payload["updated_by"] = user.get("id")
     await db.site_config.update_one({"id": "footer"}, {"$set": payload}, upsert=True)
+    cache_invalidate("footer:")
     saved = await db.site_config.find_one({"id": "footer"}, {"_id": 0})
     return _footer_doc(saved)
 
@@ -969,48 +1031,52 @@ def _build_tree(flat: list) -> list:
 
 @api.get("/meta/categories")
 async def get_categories():
-    """Backward-compatible flat lists per group, plus structured tree."""
-    flat = await _categories_query(None, active_only=True)
-    by_group: dict = {g: [] for g in ALLOWED_CATEGORY_GROUPS}
-    for c in flat:
-        by_group.setdefault(c["group"], []).append(c)
+    """Backward-compatible flat lists per group, plus structured tree. Cached
+    for 60s — admin writes invalidate the `cat:` prefix immediately."""
 
-    def _names(group_key: str) -> list:
-        # Top-level names only (mirrors the old shape)
-        return [c["name"] for c in by_group.get(group_key, []) if not c.get("parent_id")]
+    async def _build():
+        flat = await _categories_query(None, active_only=True)
+        by_group: dict = {g: [] for g in ALLOWED_CATEGORY_GROUPS}
+        for c in flat:
+            by_group.setdefault(c["group"], []).append(c)
 
-    # Aggregate all children across all groups for the legacy flat
-    # "food_subcategories" array — anything that has a parent is treated as a sub.
-    all_subs = [c["name"] for c in flat if c.get("parent_id")]
-    food_top_subs = [c["name"] for c in flat if c.get("group") == "food" and not c.get("parent_id")]
+        def _names(group_key: str) -> list:
+            return [c["name"] for c in by_group.get(group_key, []) if not c.get("parent_id")]
 
-    # Tree per group (each top-level with its children)
-    trees = {g: _build_tree([c for c in flat if c["group"] == g]) for g in ALLOWED_CATEGORY_GROUPS}
+        all_subs = [c["name"] for c in flat if c.get("parent_id")]
+        food_top_subs = [c["name"] for c in flat if c.get("group") == "food" and not c.get("parent_id")]
+        trees = {g: _build_tree([c for c in flat if c["group"] == g]) for g in ALLOWED_CATEGORY_GROUPS}
 
-    return {
-        # legacy flat lists (still used by older UI code)
-        "retail": _names("retail"),
-        "wholesale": _names("wholesale"),
-        "restaurant": _names("restaurant"),
-        "food_subcategories": food_top_subs or all_subs,
-        # new structured tree, keyed by group
-        "groups": trees,
-    }
+        return {
+            "retail": _names("retail"),
+            "wholesale": _names("wholesale"),
+            "restaurant": _names("restaurant"),
+            "food_subcategories": food_top_subs or all_subs,
+            "groups": trees,
+        }
+
+    return await cached("cat:meta", _build)
 
 
 @api.get("/categories")
 async def list_categories(group: Optional[str] = None):
-    """Public flat list of active categories."""
-    return await _categories_query(group, active_only=True)
+    """Public flat list of active categories. Cached for 60s."""
+    key = f"cat:flat:{group or 'all'}"
+    return await cached(key, lambda: _categories_query(group, active_only=True))
 
 
 @api.get("/categories/tree")
 async def categories_tree(group: Optional[str] = None):
-    """Public tree (parent → children). Active only."""
-    flat = await _categories_query(group, active_only=True)
-    if group:
-        return _build_tree(flat)
-    return {g: _build_tree([c for c in flat if c["group"] == g]) for g in ALLOWED_CATEGORY_GROUPS}
+    """Public tree (parent → children). Active only. Cached for 60s."""
+    key = f"cat:tree:{group or 'all'}"
+
+    async def _build():
+        flat = await _categories_query(group, active_only=True)
+        if group:
+            return _build_tree(flat)
+        return {g: _build_tree([c for c in flat if c["group"] == g]) for g in ALLOWED_CATEGORY_GROUPS}
+
+    return await cached(key, _build)
 
 
 @api.get("/admin/categories")
@@ -1091,6 +1157,7 @@ async def admin_create_category(body: CategoryCreateIn, user: dict = Depends(req
         "updated_at": now_iso(),
     }
     await db.categories.insert_one(doc)
+    cache_invalidate("cat:")
     return _category_doc(doc)
 
 
@@ -1123,6 +1190,7 @@ async def admin_update_category(cat_id: str, body: CategoryUpdateIn, user: dict 
         updates["order"] = int(body.order)
 
     await db.categories.update_one({"id": cat_id}, {"$set": updates})
+    cache_invalidate("cat:")
     saved = await db.categories.find_one({"id": cat_id}, {"_id": 0})
     return _category_doc(saved)
 
@@ -1144,6 +1212,7 @@ async def admin_delete_category(cat_id: str, force: bool = False, user: dict = D
     if child_count > 0 and force:
         await db.categories.delete_many({"parent_id": cat_id})
     await db.categories.delete_one({"id": cat_id})
+    cache_invalidate("cat:")
     return {"ok": True, "deleted_children": child_count if force else 0}
 
 
@@ -2193,6 +2262,7 @@ async def admin_update_settings(body: SettingsIn, _: dict = Depends(require_role
     update = {k: v for k, v in body.model_dump().items() if v is not None}
     if update:
         await db.settings.update_one({"id": "system"}, {"$set": update}, upsert=True)
+        cache_invalidate("settings:", "meta:areas")
     return await get_settings()
 
 
@@ -2204,6 +2274,7 @@ async def admin_add_area(body: AreaIn, _: dict = Depends(require_role("admin")))
         raise HTTPException(400, "Area already exists")
     areas.append(body.area)
     await db.settings.update_one({"id": "system"}, {"$set": {"areas": areas}}, upsert=True)
+    cache_invalidate("settings:", "meta:areas")
     return {"areas": areas}
 
 
@@ -2212,6 +2283,7 @@ async def admin_delete_area(area: str, _: dict = Depends(require_role("admin")))
     s = await get_settings()
     areas = [a for a in s.get("areas", DEFAULT_AREAS) if a != area]
     await db.settings.update_one({"id": "system"}, {"$set": {"areas": areas}}, upsert=True)
+    cache_invalidate("settings:", "meta:areas")
     return {"areas": areas}
 
 

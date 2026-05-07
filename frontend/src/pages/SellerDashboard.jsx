@@ -1469,12 +1469,14 @@ function Select({ label, value, onChange, options, testId }) {
 function Modal({ children, onClose, title }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
-      <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
+      <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-lg max-h-[90vh] sm:max-h-[85vh] flex flex-col shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 pt-6 pb-3 shrink-0 border-b border-[var(--js-border)]/60">
           <h2 className="font-display font-semibold text-xl">{title}</h2>
           <button onClick={onClose} data-testid="close-modal" className="p-2 hover:bg-[#F2EBE5] rounded-full"><X className="w-4 h-4" /></button>
         </div>
-        {children}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 py-5">
+          {children}
+        </div>
       </div>
     </div>
   );
