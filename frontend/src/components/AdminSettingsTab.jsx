@@ -263,6 +263,7 @@ function UserManagement() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [selectedUserIds, setSelectedUserIds] = useState([]);
 
   const loadUsers = async () => {
     setLoading(true);
@@ -314,6 +315,43 @@ function UserManagement() {
       toast.error(formatDetail(err.response?.data?.detail) || "Failed to delete user");
     }
   };
+
+
+  const bulkDeleteUsers = async () => {
+    if (selectedUserIds.length === 0) {
+      toast.error("No users selected");
+      return;
+    }
+    
+    const confirmMsg = `Delete ${selectedUserIds.length} selected user(s)? This action cannot be undone.\n\nAll their data (shops, products, orders) will be removed.`;
+    if (!window.confirm(confirmMsg)) return;
+    
+    try {
+      const { data } = await api.post("/admin/users/bulk-delete", { user_ids: selectedUserIds });
+      toast.success(data.message || `${selectedUserIds.length} user(s) deleted successfully`);
+      setSelectedUserIds([]);
+      loadUsers();
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail) || "Failed to delete users");
+    }
+  };
+
+  const toggleSelectUser = (userId) => {
+    setSelectedUserIds(prev => 
+      prev.includes(userId) 
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedUserIds.length === users.length) {
+      setSelectedUserIds([]);
+    } else {
+      setSelectedUserIds(users.map(u => u.id));
+    }
+  };
+
 
   const counts = {
     total: users.length,
@@ -401,6 +439,29 @@ function UserManagement() {
         </button>
       </div>
 
+      {/* Bulk Actions Bar */}
+      {selectedUserIds.length > 0 && (
+        <div className="mb-4 flex items-center justify-between gap-3 p-3 bg-[#2D6A4F]/10 border border-[#2D6A4F]/30 rounded-xl">
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={selectedUserIds.length === users.length}
+              onChange={toggleSelectAll}
+              className="w-4 h-4 rounded border-[var(--js-border)] text-[#2D6A4F] focus:ring-[#2D6A4F]"
+            />
+            <span className="text-sm font-semibold text-[var(--js-text)]">
+              {selectedUserIds.length} user(s) selected
+            </span>
+          </div>
+          <button
+            onClick={bulkDeleteUsers}
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#D90429] hover:bg-[#9B2C2C] text-white text-sm font-bold rounded-xl transition"
+          >
+            <Trash2 className="w-4 h-4" /> Delete Selected
+          </button>
+        </div>
+      )}
+
       {/* Users Table */}
       {loading ? (
         <p className="text-sm text-[var(--js-text-secondary)] py-8 text-center">Loading users...</p>
@@ -411,6 +472,14 @@ function UserManagement() {
           <table className="w-full text-sm">
             <thead className="text-xs uppercase tracking-wider text-[var(--js-text-secondary)] bg-[var(--js-bg)]">
               <tr>
+                <th className="text-left p-3 font-bold w-10">
+                  <input
+                    type="checkbox"
+                    checked={selectedUserIds.length === users.length && users.length > 0}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded border-[var(--js-border)] text-[#2D6A4F] focus:ring-[#2D6A4F]"
+                  />
+                </th>
                 <th className="text-left p-3 font-bold">User</th>
                 <th className="text-left p-3 font-bold hidden md:table-cell">Role</th>
                 <th className="text-left p-3 font-bold hidden lg:table-cell">Status</th>
@@ -423,7 +492,9 @@ function UserManagement() {
               {users.map((user) => (
                 <UserRow 
                   key={user.id} 
-                  user={user} 
+                  user={user}
+                  selected={selectedUserIds.includes(user.id)}
+                  onToggleSelect={() => toggleSelectUser(user.id)}
                   onToggleStatus={toggleUserStatus}
                   onDelete={deleteUser}
                   onEdit={() => { setSelectedUser(user); setShowEditModal(true); }}
@@ -462,7 +533,7 @@ function UserManagement() {
   );
 }
 
-function UserRow({ user, onToggleStatus, onDelete, onEdit, onPassword }) {
+function UserRow({ user, selected, onToggleSelect, onToggleStatus, onDelete, onEdit, onPassword }) {
   const [showMenu, setShowMenu] = useState(false);
   
   const formatDate = (iso) => {
@@ -489,6 +560,14 @@ function UserRow({ user, onToggleStatus, onDelete, onEdit, onPassword }) {
 
   return (
     <tr className="border-t border-[var(--js-border)] hover:bg-[var(--js-bg)]">
+      <td className="p-3 w-10">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggleSelect}
+          className="w-4 h-4 rounded border-[var(--js-border)] text-[#2D6A4F] focus:ring-[#2D6A4F]"
+        />
+      </td>
       <td className="p-3">
         <div>
           <p className="font-semibold text-[var(--js-text)]">{user.name}</p>

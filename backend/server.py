@@ -569,6 +569,11 @@ class AdminUserStatusIn(BaseModel):
     is_active: bool
 
 
+class AdminBulkDeleteUsersIn(BaseModel):
+    user_ids: List[str] = Field(min_length=1)
+
+
+
 
 # ----------------------------------------------------------------------------
 # Auth endpoints
@@ -2631,6 +2636,55 @@ async def admin_delete_user(user_id: str, admin: dict = Depends(require_role("ad
         await db.products.delete_many({"shop_id": {"$in": shop_ids}})
         await db.restaurants.delete_many({"seller_id": user_id})
         # Note: Orders are kept for historical records but seller_id will be orphaned
+
+
+@api.post("/admin/users/bulk-delete")
+async def admin_bulk_delete_users(body: AdminBulkDeleteUsersIn, admin: dict = Depends(require_role("admin"))):
+    """Delete multiple user accounts at once (hard delete with cascade)."""
+    user_ids = body.user_ids
+    
+    # Prevent admin from deleting themselves
+    if admin["id"] in user_ids:
+        raise HTTPException(400, "You cannot delete your own account")
+    
+    # Get all users to delete
+    users = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0}).to_list(1000)
+    if not users:
+        raise HTTPException(404, "No users found to delete")
+    
+    deleted_count = 0
+    seller_ids = []
+    
+    for user in users:
+        user_id = user["id"]
+        
+        # Delete user and related data
+        await db.users.delete_one({"id": user_id})
+        await db.notifications.delete_many({"user_id": user_id})
+        await db.favorites.delete_many({"user_id": user_id})
+        await db.email_verifications.delete_many({"user_id": user_id})
+        await db.password_resets.delete_many({"user_id": user_id})
+        
+        # Track sellers for cascade delete
+        if user.get("role") == "seller":
+            seller_ids.append(user_id)
+        
+        deleted_count += 1
+    
+    # Cascade delete for sellers (shops, products, restaurants)
+    if seller_ids:
+        shops = await db.shops.find({"seller_id": {"$in": seller_ids}}, {"_id": 0, "id": 1}).to_list(10000)
+        shop_ids = [s["id"] for s in shops]
+        await db.shops.delete_many({"seller_id": {"$in": seller_ids}})
+        await db.products.delete_many({"shop_id": {"$in": shop_ids}})
+        await db.restaurants.delete_many({"seller_id": {"$in": seller_ids}})
+    
+    return {
+        "ok": True,
+        "message": f"Successfully deleted {deleted_count} user(s)",
+        "deleted_count": deleted_count,
+    }
+
     
     return {"ok": True, "message": f"User {user.get('name') or user.get('email')} has been deleted"}
 
