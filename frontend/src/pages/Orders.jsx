@@ -111,7 +111,7 @@ export default function Orders() {
   const [reviewedIds, setReviewedIds] = useState(new Set()); // session-only set of product_ids the user reviewed via this page
 
   useEffect(() => {
-    api.get("/orders/mine").then((r) => setOrders(r.data));
+    api.get("/orders/mine?limit=200").then((r) => setOrders(r.data));
   }, []);
 
   const onReviewSubmitted = (productId) => {

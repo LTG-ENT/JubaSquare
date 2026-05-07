@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import api from "@/lib/api";
+import api, { safeArray } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ShopCard from "@/components/ShopCard";
@@ -50,10 +50,10 @@ export default function Home() {
   const { area, setArea } = useCart();
 
   useEffect(() => {
-    api.get("/shops?kind=retail").then((r) => setShops(r.data));
-    api.get("/restaurants").then((r) => setRestaurants(r.data));
-    api.get("/products?is_wholesale=true").then((r) => setWholesaleProducts(r.data));
-    api.get("/products").then((r) => setAllProducts(r.data));
+    api.get("/shops?kind=retail&limit=24").then((r) => setShops(safeArray(r.data)));
+    api.get("/restaurants?limit=24").then((r) => setRestaurants(safeArray(r.data)));
+    api.get("/products?is_wholesale=true&limit=24").then((r) => setWholesaleProducts(safeArray(r.data)));
+    api.get("/products?limit=48").then((r) => setAllProducts(safeArray(r.data)));
     api
       .get("/categories/tree?group=retail")
       .then((r) => setRetailCats(Array.isArray(r.data) ? r.data : []))

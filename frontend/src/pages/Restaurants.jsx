@@ -13,7 +13,7 @@ export default function Restaurants() {
   const { area, setArea } = useCart();
 
   useEffect(() => {
-    api.get("/restaurants").then((r) => setRestaurants(r.data));
+    api.get("/restaurants?limit=200").then((r) => setRestaurants(r.data));
   }, []);
 
   const cats = useMemo(() => ["All", ...new Set(restaurants.map((r) => r.category))], [restaurants]);

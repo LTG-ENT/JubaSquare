@@ -18,6 +18,31 @@ api.interceptors.request.use((config) => {
 
 export default api;
 
+// ---------------------------------------------------------------------------
+// Safe-array fallback layer
+// ---------------------------------------------------------------------------
+// Guarantees every consumer of a list endpoint gets an array — even if the
+// API returns null, an object error, or undefined. Eliminates the entire
+// class of "x.map is not a function" runtime crashes and makes the app
+// resilient on flaky low-resource hosts where requests can return early.
+//
+// Usage: const products = safeArray(r.data); products.map(...)
+//        const products = await getList("/products?limit=50");
+export const safeArray = (val, key) => {
+  if (Array.isArray(val)) return val;
+  if (val && typeof val === "object" && key && Array.isArray(val[key])) return val[key];
+  return [];
+};
+
+export const getList = async (path, options = {}) => {
+  try {
+    const r = await api.get(path, options);
+    return safeArray(r.data);
+  } catch {
+    return [];
+  }
+};
+
 export const formatDetail = (detail) => {
   if (detail == null) return "Something went wrong.";
   if (typeof detail === "string") return detail;

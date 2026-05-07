@@ -77,7 +77,7 @@ function AdminShopsTab() {
   const [globalRate, setGlobalRate] = useState(0.10);
 
   const load = async () => {
-    const [s, g] = await Promise.all([api.get("/shops"), api.get("/admin/settings")]);
+    const [s, g] = await Promise.all([api.get("/shops?limit=200"), api.get("/admin/settings")]);
     setShops(s.data);
     setGlobalRate(g.data.commission_rate || 0.10);
   };
@@ -423,7 +423,7 @@ function AdminEmailsTab() {
 
 function AdminOrdersTab() {
   const [orders, setOrders] = useState([]);
-  const load = () => api.get("/orders").then((r) => setOrders(r.data));
+  const load = () => api.get("/orders?limit=200").then((r) => setOrders(r.data));
   useEffect(() => { load(); }, []);
 
   const updateStatus = async (id, status) => { await api.put(`/orders/${id}/status`, { status }); toast.success("Status updated"); load(); };

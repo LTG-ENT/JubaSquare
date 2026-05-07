@@ -25,7 +25,7 @@ export default function ShopPage() {
     setError(null);
     Promise.all([
       api.get(`/shops/${shop_id}`),
-      api.get(`/products?shop_id=${shop_id}`),
+      api.get(`/products?shop_id=${shop_id}&limit=200`),
     ])
       .then(([s, p]) => {
         if (cancelled) return;

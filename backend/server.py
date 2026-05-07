@@ -240,6 +240,28 @@ def require_role(*roles: str):
 
 
 # ----------------------------------------------------------------------------
+# Pagination helper — keeps low-resource hosts safe from giant responses.
+# Default page = 50 items. Hard ceiling = 200. Negative skip clamped to 0.
+# ----------------------------------------------------------------------------
+DEFAULT_PAGE_LIMIT = 50
+MAX_PAGE_LIMIT = 200
+
+
+def clamp_pagination(limit: Optional[int], skip: Optional[int]) -> tuple[int, int]:
+    try:
+        page_size = int(limit) if limit is not None else DEFAULT_PAGE_LIMIT
+    except (TypeError, ValueError):
+        page_size = DEFAULT_PAGE_LIMIT
+    try:
+        offset = int(skip) if skip is not None else 0
+    except (TypeError, ValueError):
+        offset = 0
+    page_size = max(1, min(page_size, MAX_PAGE_LIMIT))
+    offset = max(0, offset)
+    return page_size, offset
+
+
+# ----------------------------------------------------------------------------
 # Models
 # ----------------------------------------------------------------------------
 class LoginIn(BaseModel):
@@ -1159,9 +1181,16 @@ def _sort_shops(shops, verified_first: bool):
 
 
 @api.get("/shops")
-async def list_shops(category: Optional[str] = None, area: Optional[str] = None, kind: Optional[str] = None):
+async def list_shops(
+    category: Optional[str] = None,
+    area: Optional[str] = None,
+    kind: Optional[str] = None,
+    limit: Optional[int] = None,
+    skip: Optional[int] = None,
+):
     # Public marketplace listing — exclude shops that the seller has hidden (is_public=False).
     # Legacy shops without the flag default to visible.
+    lim, off = clamp_pagination(limit, skip)
     q: dict = {"$or": [{"is_public": {"$ne": False}}, {"is_public": {"$exists": False}}]}
     if category:
         q["category"] = category
@@ -1169,14 +1198,23 @@ async def list_shops(category: Optional[str] = None, area: Optional[str] = None,
         q["area"] = area
     if kind:
         q["kind"] = kind
-    shops = await db.shops.find(q, {"_id": 0}).to_list(500)
+    # Verified-first sort happens in Python; we have to fetch a wider window
+    # than `limit` so the sort is meaningful, then slice.
+    raw = await db.shops.find(q, {"_id": 0}).to_list(MAX_PAGE_LIMIT + off + lim)
     s = await get_settings()
-    return _sort_shops(shops, s.get("verified_first", True))
+    sorted_shops = _sort_shops(raw, s.get("verified_first", True))
+    return sorted_shops[off : off + lim]
 
 
 @api.get("/shops/mine")
-async def my_shops(user: dict = Depends(require_role("seller", "admin"))):
-    return await db.shops.find({"seller_id": user["id"]}, {"_id": 0}).to_list(500)
+async def my_shops(
+    user: dict = Depends(require_role("seller", "admin")),
+    limit: Optional[int] = None,
+    skip: Optional[int] = None,
+):
+    lim, off = clamp_pagination(limit, skip)
+    return await db.shops.find({"seller_id": user["id"]}, {"_id": 0}).skip(off).to_list(lim)
+
 
 
 @api.get("/shops/{shop_id}")
@@ -1289,12 +1327,16 @@ async def send_shop_message(shop_id: str, body: ShopMessageIn, request: Request)
 
 
 @api.get("/messages/seller")
-async def list_seller_messages(user: dict = Depends(require_role("seller", "admin"))):
+async def list_seller_messages(
+    user: dict = Depends(require_role("seller", "admin")),
+    limit: Optional[int] = None,
+    skip: Optional[int] = None,
+):
+    lim, off = clamp_pagination(limit, skip)
     q: dict = {}
     if user["role"] != "admin":
         q["seller_id"] = user["id"]
-    msgs = await db.shop_messages.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
-    return msgs
+    return await db.shop_messages.find(q, {"_id": 0}).sort("created_at", -1).skip(off).to_list(lim)
 
 
 @api.get("/messages/seller/unread-count")
@@ -1334,7 +1376,9 @@ async def delete_message(message_id: str, user: dict = Depends(require_role("sel
 @api.get("/products")
 async def list_products(category: Optional[str] = None, area: Optional[str] = None,
                         shop_id: Optional[str] = None, kind: Optional[str] = None,
-                        is_wholesale: Optional[bool] = None):
+                        is_wholesale: Optional[bool] = None,
+                        limit: Optional[int] = None, skip: Optional[int] = None):
+    lim, off = clamp_pagination(limit, skip)
     q: dict = {}
     if category:
         q["category"] = category
@@ -1342,7 +1386,10 @@ async def list_products(category: Optional[str] = None, area: Optional[str] = No
         q["shop_id"] = shop_id
     if is_wholesale is not None:
         q["is_wholesale"] = is_wholesale
-    products = await db.products.find(q, {"_id": 0}).to_list(2000)
+    # Internal cap: post-filtering reduces the count, so we fetch a wider window
+    # than the caller's page so pagination after filtering still has data.
+    INTERNAL_CAP = 1000
+    products = await db.products.find(q, {"_id": 0}).to_list(INTERNAL_CAP)
 
     if area or kind:
         shop_q = {}
@@ -1350,20 +1397,20 @@ async def list_products(category: Optional[str] = None, area: Optional[str] = No
             shop_q["area"] = area
         if kind:
             shop_q["kind"] = kind
-        shop_ids = {s["id"] for s in await db.shops.find(shop_q, {"_id": 0, "id": 1}).to_list(500)}
+        shop_ids = {s["id"] for s in await db.shops.find(shop_q, {"_id": 0, "id": 1}).to_list(INTERNAL_CAP)}
         products = [p for p in products if p["shop_id"] in shop_ids]
 
     # Hide products from shops that are not public (sellers can hide their shop without deleting).
     # Skip when caller is targeting a specific shop_id (so the owner's preview / private shop page still works).
     if not shop_id:
         hidden_shops = {s["id"] for s in await db.shops.find(
-            {"is_public": False}, {"_id": 0, "id": 1}).to_list(500)}
+            {"is_public": False}, {"_id": 0, "id": 1}).to_list(INTERNAL_CAP)}
         if hidden_shops:
             products = [p for p in products if p["shop_id"] not in hidden_shops]
 
     # Auto-hide out-of-stock per seller setting
     seller_ids = list({p["seller_id"] for p in products})
-    sellers = await db.users.find({"id": {"$in": seller_ids}}, {"_id": 0, "id": 1, "settings": 1}).to_list(500)
+    sellers = await db.users.find({"id": {"$in": seller_ids}}, {"_id": 0, "id": 1, "settings": 1}).to_list(INTERNAL_CAP)
     auto_hide = {u["id"]: bool((u.get("settings") or {}).get("auto_hide_out_of_stock")) for u in sellers}
     products = [p for p in products if not (auto_hide.get(p["seller_id"]) and p.get("stock", 0) <= 0)]
 
@@ -1371,12 +1418,12 @@ async def list_products(category: Optional[str] = None, area: Optional[str] = No
     s = await get_settings()
     global_rate = float(s.get("global_rate", 600.0))
     rate_records = await db.exchange_rates.find(
-        {"seller_id": {"$in": seller_ids}}, {"_id": 0}).to_list(500)
+        {"seller_id": {"$in": seller_ids}}, {"_id": 0}).to_list(INTERNAL_CAP)
     rate_by_seller = {r["seller_id"]: float(r.get("rate", global_rate)) for r in rate_records}
 
     shop_ids_in = list({p["shop_id"] for p in products})
     shops_meta = await db.shops.find(
-        {"id": {"$in": shop_ids_in}}, {"_id": 0, "id": 1, "verification": 1}).to_list(500)
+        {"id": {"$in": shop_ids_in}}, {"_id": 0, "id": 1, "verification": 1}).to_list(INTERNAL_CAP)
     verif_by_shop = {sh["id"]: sh.get("verification", "Pending") for sh in shops_meta}
 
     for p in products:
@@ -1387,7 +1434,8 @@ async def list_products(category: Optional[str] = None, area: Optional[str] = No
     if s.get("verified_first", True):
         order = {"Verified": 0, "Pending": 1, "Rejected": 2}
         products.sort(key=lambda p: order.get(p.get("shop_verification", "Pending"), 1))
-    return products
+    # Final pagination slice
+    return products[off : off + lim]
 
 
 @api.get("/products/{product_id}")
@@ -1450,18 +1498,20 @@ async def delete_product(product_id: str, user: dict = Depends(require_role("sel
 # Restaurants & menu items
 # ----------------------------------------------------------------------------
 @api.get("/restaurants")
-async def list_restaurants(area: Optional[str] = None, category: Optional[str] = None):
+async def list_restaurants(area: Optional[str] = None, category: Optional[str] = None,
+                           limit: Optional[int] = None, skip: Optional[int] = None):
+    lim, off = clamp_pagination(limit, skip)
     q: dict = {}
     if area:
         q["area"] = area
     if category:
         q["category"] = category
-    rests = await db.restaurants.find(q, {"_id": 0}).to_list(500)
+    rests = await db.restaurants.find(q, {"_id": 0}).to_list(MAX_PAGE_LIMIT + off + lim)
     s = await get_settings()
     if s.get("verified_first", True):
         order = {"Verified": 0, "Pending": 1, "Rejected": 2}
         rests.sort(key=lambda r: order.get(r.get("verification", "Pending"), 1))
-    return rests
+    return rests[off : off + lim]
 
 
 @api.get("/restaurants/{restaurant_id}")
@@ -1473,8 +1523,9 @@ async def get_restaurant(restaurant_id: str):
 
 
 @api.get("/restaurants/{restaurant_id}/menu")
-async def get_menu(restaurant_id: str):
-    return await db.menu_items.find({"restaurant_id": restaurant_id}, {"_id": 0}).to_list(500)
+async def get_menu(restaurant_id: str, limit: Optional[int] = None, skip: Optional[int] = None):
+    lim, off = clamp_pagination(limit, skip)
+    return await db.menu_items.find({"restaurant_id": restaurant_id}, {"_id": 0}).skip(off).to_list(lim)
 
 
 @api.post("/restaurants")
@@ -1663,23 +1714,54 @@ async def place_order(body: OrderIn, user: dict = Depends(get_current_user)):
 
 
 @api.get("/orders/mine")
-async def my_orders(user: dict = Depends(get_current_user)):
-    return await db.orders.find({"customer_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(500)
+async def my_orders(
+    user: dict = Depends(get_current_user),
+    limit: Optional[int] = None,
+    skip: Optional[int] = None,
+):
+    lim, off = clamp_pagination(limit, skip)
+    return await db.orders.find({"customer_id": user["id"]}, {"_id": 0}).sort("created_at", -1).skip(off).to_list(lim)
+
+
+@api.get("/seller/low-stock-count")
+async def seller_low_stock_count(
+    threshold: int = 5,
+    user: dict = Depends(require_role("seller", "admin")),
+):
+    """Lightweight: returns just the count of low-stock products for the seller.
+    Used by the seller dashboard banner so we don't load every product on every
+    tab change. Single aggregated query against an indexable field."""
+    threshold = max(0, min(int(threshold or 0), 10_000))
+    count = await db.products.count_documents({
+        "seller_id": user["id"],
+        "stock": {"$lte": threshold},
+    })
+    return {"count": int(count), "threshold": threshold}
 
 
 @api.get("/orders/seller")
-async def seller_orders(user: dict = Depends(require_role("seller", "admin"))):
+async def seller_orders(
+    user: dict = Depends(require_role("seller", "admin")),
+    limit: Optional[int] = None,
+    skip: Optional[int] = None,
+):
+    lim, off = clamp_pagination(limit, skip)
     seller_products = await db.products.find({"seller_id": user["id"]}, {"_id": 0, "id": 1}).to_list(2000)
     seller_menu = await db.menu_items.find({"seller_id": user["id"]}, {"_id": 0, "id": 1}).to_list(2000)
     ids = {p["id"] for p in seller_products} | {m["id"] for m in seller_menu}
     if not ids:
         return []
-    return await db.orders.find({"items.item_id": {"$in": list(ids)}}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return await db.orders.find({"items.item_id": {"$in": list(ids)}}, {"_id": 0}).sort("created_at", -1).skip(off).to_list(lim)
 
 
 @api.get("/orders")
-async def all_orders(_: dict = Depends(require_role("admin"))):
-    return await db.orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+async def all_orders(
+    _: dict = Depends(require_role("admin")),
+    limit: Optional[int] = None,
+    skip: Optional[int] = None,
+):
+    lim, off = clamp_pagination(limit, skip)
+    return await db.orders.find({}, {"_id": 0}).sort("created_at", -1).skip(off).to_list(lim)
 
 
 @api.put("/orders/{order_id}/status")
@@ -1712,8 +1794,13 @@ async def update_status(order_id: str, body: StatusIn, _: dict = Depends(require
 # Favorites (customer)
 # ----------------------------------------------------------------------------
 @api.get("/favorites")
-async def list_favorites(user: dict = Depends(get_current_user)):
-    return await db.favorites.find({"user_id": user["id"]}, {"_id": 0}).to_list(500)
+async def list_favorites(
+    user: dict = Depends(get_current_user),
+    limit: Optional[int] = None,
+    skip: Optional[int] = None,
+):
+    lim, off = clamp_pagination(limit, skip)
+    return await db.favorites.find({"user_id": user["id"]}, {"_id": 0}).skip(off).to_list(lim)
 
 
 @api.post("/favorites")
@@ -1745,12 +1832,16 @@ async def remove_favorite(target_type: str, target_id: str, user: dict = Depends
 # Reviews (product feedback)
 # ----------------------------------------------------------------------------
 @api.get("/products/{product_id}/reviews")
-async def list_reviews(product_id: str):
-    reviews = await db.reviews.find({"product_id": product_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
-    if not reviews:
+async def list_reviews(product_id: str, limit: Optional[int] = None, skip: Optional[int] = None):
+    lim, off = clamp_pagination(limit, skip)
+    # Aggregate stats across the FULL set so the average is correct, but only
+    # return a paginated slice of review docs.
+    cursor = db.reviews.find({"product_id": product_id}, {"_id": 0}).sort("created_at", -1)
+    all_reviews = await cursor.to_list(MAX_PAGE_LIMIT * 5)  # internal cap for stats
+    if not all_reviews:
         return {"reviews": [], "average": 0, "count": 0}
-    avg = round(sum(r.get("rating", 0) for r in reviews) / len(reviews), 1)
-    return {"reviews": reviews, "average": avg, "count": len(reviews)}
+    avg = round(sum(r.get("rating", 0) for r in all_reviews) / len(all_reviews), 1)
+    return {"reviews": all_reviews[off : off + lim], "average": avg, "count": len(all_reviews)}
 
 
 @api.post("/products/{product_id}/reviews")

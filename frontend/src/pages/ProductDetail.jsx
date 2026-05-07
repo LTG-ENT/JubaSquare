@@ -61,8 +61,9 @@ export default function ProductDetail() {
 
   useEffect(() => {
     if (!user || user.role !== "customer" || !product) return;
-    api.get("/favorites").then((r) => {
-      setFav(!!r.data.find((f) => f.target_type === "product" && f.target_id === product.id));
+    api.get("/favorites?limit=200").then((r) => {
+      const list = Array.isArray(r.data) ? r.data : [];
+      setFav(!!list.find((f) => f.target_type === "product" && f.target_id === product.id));
     }).catch(() => {});
   }, [user, product]);
 

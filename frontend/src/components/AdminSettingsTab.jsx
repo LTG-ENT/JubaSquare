@@ -22,7 +22,7 @@ export default function AdminSettingsTab({ onGoToShop }) {
     try {
       const [s, sh] = await Promise.all([
         api.get("/admin/settings"),
-        api.get("/shops"),
+        api.get("/shops?limit=200"),
       ]);
       const g = Number(s.data.commission_rate ?? 0.10);
       setGlobalRate(g);

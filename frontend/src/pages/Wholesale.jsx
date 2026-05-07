@@ -16,8 +16,8 @@ export default function Wholesale() {
   const { area, setArea } = useCart();
 
   useEffect(() => {
-    api.get("/shops?kind=wholesale").then((r) => setShops(r.data));
-    api.get("/products?kind=wholesale").then((r) => setProducts(r.data));
+    api.get("/shops?kind=wholesale&limit=200").then((r) => setShops(r.data));
+    api.get("/products?kind=wholesale&limit=200").then((r) => setProducts(r.data));
   }, []);
 
   const cats = useMemo(() => ["All", ...new Set(shops.map((s) => s.category))], [shops]);

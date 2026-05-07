@@ -50,7 +50,9 @@ export default function SellerDashboard() {
       .then((r) => { if (!cancelled) setUnreadMessages(r.data?.count || 0); })
       .catch(() => { if (!cancelled) setUnreadMessages(0); });
     return () => { cancelled = true; };
-  }, [user?.id, tab]);
+    // Refresh only when the user changes — refetching on every tab click would
+    // be wasteful on a low-resource host.
+  }, [user?.id]);
 
   // Compute low-stock products at dashboard level so the banner is visible from any tab
   const lowStockEnabled = user?.settings?.low_stock_alert !== false; // default ON
@@ -59,24 +61,15 @@ export default function SellerDashboard() {
   useEffect(() => {
     if (!user?.id) return;
     let cancelled = false;
-    (async () => {
-      try {
-        const { data: shops } = await api.get("/shops/mine");
-        if (cancelled || shops.length === 0) { setLowStockCount(0); return; }
-        const allProducts = [];
-        for (const sh of shops) {
-          const r = await api.get(`/products?shop_id=${sh.id}`);
-          allProducts.push(...r.data);
-        }
-        if (cancelled) return;
-        const lowCount = allProducts.filter((p) => Number(p.stock ?? 0) <= lowStockThreshold).length;
-        setLowStockCount(lowCount);
-      } catch {
-        if (!cancelled) setLowStockCount(0);
-      }
-    })();
+    api
+      .get(`/seller/low-stock-count?threshold=${lowStockThreshold}`)
+      .then((r) => { if (!cancelled) setLowStockCount(r.data?.count || 0); })
+      .catch(() => { if (!cancelled) setLowStockCount(0); });
     return () => { cancelled = true; };
-  }, [user?.id, lowStockThreshold, tab]); // recompute when switching tabs (after edits)
+    // Intentionally NOT depending on `tab` — this would otherwise refetch
+    // products on every tab click. The count refreshes when the threshold
+    // changes (settings) or when the user remounts the dashboard.
+  }, [user?.id, lowStockThreshold]);
 
   const goToLowStock = () => {
     setSearchParams({ tab: "products", filter: "low-stock" }, { replace: false });
@@ -182,7 +175,7 @@ function ShopsTab() {
   const [form, setForm] = useState(emptyForm);
 
   const load = async () => {
-    const [s, r] = await Promise.all([api.get("/shops/mine"), api.get("/restaurants")]);
+    const [s, r] = await Promise.all([api.get("/shops/mine?limit=200"), api.get("/restaurants?limit=200")]);
     setShops(s.data);
     // Filter restaurants owned by current seller (using seller_id match by first shop's seller)
     const myId = s.data[0]?.seller_id;
@@ -476,8 +469,8 @@ function ProductsTab() {
 
   const loadAll = async () => {
     const [sRes, rRes, rateRes] = await Promise.all([
-      api.get("/shops/mine"),
-      api.get("/restaurants"),
+      api.get("/shops/mine?limit=200"),
+      api.get("/restaurants?limit=200"),
       api.get(user?.id ? `/exchange-rate?seller_id=${user.id}` : "/exchange-rate"),
     ]);
     setShops(sRes.data);
@@ -486,7 +479,7 @@ function ProductsTab() {
 
     const allProducts = [];
     for (const sh of sRes.data) {
-      const r = await api.get(`/products?shop_id=${sh.id}`);
+      const r = await api.get(`/products?shop_id=${sh.id}&limit=200`);
       allProducts.push(...r.data.map((p) => ({ ...p, shop_name: sh.name, shop_kind: sh.kind })));
     }
     setProducts(allProducts);
@@ -1187,14 +1180,14 @@ function OrdersTab() {
   };
 
   const load = async () => {
-    const oRes = await api.get("/orders/seller");
+    const oRes = await api.get("/orders/seller?limit=200");
     setOrders(oRes.data);
     // Build a stock map across all the seller's shops
     try {
-      const sRes = await api.get("/shops/mine");
+      const sRes = await api.get("/shops/mine?limit=200");
       const map = {};
       for (const sh of sRes.data) {
-        const r = await api.get(`/products?shop_id=${sh.id}`);
+        const r = await api.get(`/products?shop_id=${sh.id}&limit=200`);
         for (const p of r.data) map[p.id] = Number(p.stock ?? 0);
       }
       setStockMap(map);

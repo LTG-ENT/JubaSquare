@@ -16,10 +16,10 @@ export default function Favorites() {
 
   const load = async () => {
     const [f, p, s, r] = await Promise.all([
-      api.get("/favorites"),
-      api.get("/products"),
-      api.get("/shops"),
-      api.get("/restaurants"),
+      api.get("/favorites?limit=200"),
+      api.get("/products?limit=200"),
+      api.get("/shops?limit=200"),
+      api.get("/restaurants?limit=200"),
     ]);
     setFavs(f.data); setProducts(p.data); setShops(s.data); setRestaurants(r.data);
   };

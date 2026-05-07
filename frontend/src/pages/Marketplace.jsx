@@ -30,7 +30,7 @@ export default function Marketplace() {
   const selectedShop = searchParams.get("shop") || "";
 
   useEffect(() => {
-    api.get("/shops").then((r) => setShops(r.data));
+    api.get("/shops?limit=200").then((r) => setShops(r.data));
     // Pull retail tree (with sub-categories) for the sidebar.
     api
       .get("/categories/tree?group=retail")
@@ -44,7 +44,7 @@ export default function Marketplace() {
     if (selectedShop) params.shop_id = selectedShop;
     if (typeFilter === "retail") params.is_wholesale = false;
     if (typeFilter === "wholesale") params.is_wholesale = true;
-    api.get("/products", { params }).then((r) => setProducts(r.data));
+    api.get("/products", { params: { ...params, limit: 200 } }).then((r) => setProducts(r.data));
   }, [selectedCategory, selectedShop, typeFilter]);
 
   const categories = useMemo(

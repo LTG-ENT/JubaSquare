@@ -15,8 +15,8 @@ export default function Shops() {
   const { area, setArea } = useCart();
 
   useEffect(() => {
-    api.get("/shops").then((r) => setShops(r.data));
-    api.get("/products").then((r) => setProducts(r.data));
+    api.get("/shops?limit=200").then((r) => setShops(r.data));
+    api.get("/products?limit=200").then((r) => setProducts(r.data));
   }, []);
 
   const cats = useMemo(() => ["All", ...new Set(shops.map((s) => s.category).filter(Boolean))], [shops]);
