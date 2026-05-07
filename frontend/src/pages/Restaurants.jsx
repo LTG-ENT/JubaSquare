@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import api from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -7,14 +8,21 @@ import AreaSelector from "@/components/AreaSelector";
 import { useCart } from "@/context/CartContext";
 
 export default function Restaurants() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [restaurants, setRestaurants] = useState([]);
-  const [activeCat, setActiveCat] = useState("All");
+  const [activeCat, setActiveCat] = useState(searchParams.get("category") || "All");
   const [sortBy, setSortBy] = useState("recommended");
   const { area, setArea } = useCart();
 
   useEffect(() => {
     api.get("/restaurants?limit=200").then((r) => setRestaurants(r.data));
   }, []);
+
+  // Update activeCat when URL params change
+  useEffect(() => {
+    const cat = searchParams.get("category");
+    if (cat) setActiveCat(cat);
+  }, [searchParams]);
 
   const cats = useMemo(() => ["All", ...new Set(restaurants.map((r) => r.category))], [restaurants]);
   const filtered = activeCat === "All" ? restaurants : restaurants.filter((r) => r.category === activeCat);
@@ -47,7 +55,14 @@ export default function Restaurants() {
           {cats.map((c) => (
             <button
               key={c}
-              onClick={() => setActiveCat(c)}
+              onClick={() => {
+                setActiveCat(c);
+                if (c === "All") {
+                  setSearchParams({});
+                } else {
+                  setSearchParams({ category: c });
+                }
+              }}
               data-testid={`restaurant-cat-${c.replace(/\s+/g, "-").toLowerCase()}`}
               className={`px-4 py-2 rounded-full text-sm font-semibold transition ${
                 activeCat === c

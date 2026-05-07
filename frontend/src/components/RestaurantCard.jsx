@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { MapPin, X, Plus, Search } from "lucide-react";
 import api, { formatPrice, formatPriceAlt } from "@/lib/api";
 import { useCart } from "@/context/CartContext";
@@ -31,6 +32,7 @@ function MiniCurrencyToggle() {
 }
 
 export default function RestaurantCard({ restaurant }) {
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [menu, setMenu] = useState([]);
   const [search, setSearch] = useState("");
@@ -65,7 +67,15 @@ export default function RestaurantCard({ restaurant }) {
           </div>
         </div>
         <div className="p-4">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--js-text-secondary)] font-bold">{restaurant.category}</p>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/restaurants?category=${encodeURIComponent(restaurant.category)}`);
+            }}
+            className="text-[10px] uppercase tracking-[0.18em] text-[var(--js-text-secondary)] hover:text-[#C84B31] font-bold transition"
+          >
+            {restaurant.category}
+          </button>
           <h3 className="font-display font-semibold text-lg text-[var(--js-text)] mt-0.5">{restaurant.name}</h3>
           <p className="text-sm text-[var(--js-text-secondary)] mt-1 line-clamp-2">{restaurant.description}</p>
           <div className="mt-3 flex items-center gap-1 text-xs text-[var(--js-text-secondary)]">
@@ -86,7 +96,15 @@ export default function RestaurantCard({ restaurant }) {
             <div className="p-6">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--js-text-secondary)] font-bold">{restaurant.category}</p>
+                  <button
+                    onClick={() => {
+                      setOpen(false);
+                      navigate(`/restaurants?category=${encodeURIComponent(restaurant.category)}`);
+                    }}
+                    className="text-[10px] uppercase tracking-[0.18em] text-[var(--js-text-secondary)] hover:text-[#C84B31] font-bold transition"
+                  >
+                    {restaurant.category}
+                  </button>
                   <h2 className="font-display font-bold text-2xl text-[var(--js-text)] mt-1">{restaurant.name}</h2>
                   <p className="text-sm text-[var(--js-text-secondary)] mt-1">📍 {restaurant.area}</p>
                 </div>

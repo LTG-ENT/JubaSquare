@@ -1710,6 +1710,28 @@ async def toggle_open(restaurant_id: str, user: dict = Depends(require_role("sel
     return {"is_open": new_state}
 
 
+
+@api.put("/restaurants/{restaurant_id}")
+async def update_restaurant(restaurant_id: str, body: RestaurantIn, user: dict = Depends(require_role("seller", "admin"))):
+    """Update restaurant details (name, category, description, area, image)"""
+    r = await db.restaurants.find_one({"id": restaurant_id})
+    if not r:
+        raise HTTPException(404, "Restaurant not found")
+    if user["role"] != "admin" and r["seller_id"] != user["id"]:
+        raise HTTPException(403, "Forbidden")
+    
+    update_data = {
+        "name": body.name,
+        "category": body.category,
+        "description": body.description or "",
+        "image_url": body.image_url or "",
+        "area": body.area,
+        "is_open": body.is_open,
+    }
+    await db.restaurants.update_one({"id": restaurant_id}, {"$set": update_data})
+    return await db.restaurants.find_one({"id": restaurant_id}, {"_id": 0})
+
+
 @api.post("/menu-items")
 async def create_menu_item(body: MenuItemIn, user: dict = Depends(require_role("seller", "admin"))):
     r = await db.restaurants.find_one({"id": body.restaurant_id})

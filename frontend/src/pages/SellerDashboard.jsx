@@ -202,9 +202,13 @@ function ShopsTab() {
           name: form.name, description: form.description, area: form.area,
           image_url: form.image_url, category: form.category || "Fast Food", is_open: true,
         };
-        if (editing?._kind === "restaurant") await api.put(`/restaurants/${editing.id}/toggle-open`); // no PUT endpoint; just re-noop for edit
-        else await api.post("/restaurants", payload);
-        toast.success("Restaurant created (pending verification)");
+        if (editing?._kind === "restaurant") {
+          await api.put(`/restaurants/${editing.id}`, payload);
+          toast.success("Restaurant updated");
+        } else {
+          await api.post("/restaurants", payload);
+          toast.success("Restaurant created (pending verification)");
+        }
       } else {
         const payload = {
           name: form.name,
@@ -302,6 +306,23 @@ function ShopsTab() {
               <span className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Area</span>
               <AreaSelectField value={form.area} onChange={(v) => setForm({ ...form, area: v })} testId="shop-area-select" />
             </label>
+            
+            {form.type === "restaurant" && (
+              <label className="block">
+                <span className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Food Category</span>
+                <select
+                  value={form.category || RESTAURANT_CATEGORIES[0]}
+                  onChange={(e) => setForm({ ...form, category: e.target.value })}
+                  className="w-full border border-[var(--js-border)] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#C84B31]"
+                  data-testid="restaurant-category-select"
+                >
+                  {RESTAURANT_CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            
             <ImageUpload label="Shop photo" value={form.image_url} onChange={(v) => setForm({ ...form, image_url: v })} testId="shop-image-upload" />
             <Textarea label="Description" value={form.description} onChange={(v) => setForm({ ...form, description: v })} testId="shop-desc-input" />
 
