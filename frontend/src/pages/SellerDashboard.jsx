@@ -536,13 +536,22 @@ function ProductsTab() {
     // Fetch restaurant categories with sub-categories from database
     try {
       const categoriesRes = await api.get("/categories?group=restaurant");
-      const categoryTree = categoriesRes.data?.restaurant || [];
+      const flatCategories = categoriesRes.data || [];
       
       // Build map of parent category name -> array of child category names
       const catMap = {};
-      categoryTree.forEach(parent => {
-        catMap[parent.name] = (parent.children || []).map(child => child.name);
+      
+      // First, get all parent categories (those with parent_id = null)
+      const parents = flatCategories.filter(cat => cat.parent_id === null);
+      
+      // For each parent, find its children and map by name
+      parents.forEach(parent => {
+        const children = flatCategories
+          .filter(cat => cat.parent_id === parent.id && cat.is_active !== false)
+          .map(child => child.name);
+        catMap[parent.name] = children;
       });
+      
       setRestaurantCategoriesMap(catMap);
     } catch (err) {
       console.error("Failed to load restaurant categories:", err);
