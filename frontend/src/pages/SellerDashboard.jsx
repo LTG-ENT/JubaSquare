@@ -430,16 +430,6 @@ function ShopsTab() {
   );
 }
 
-const RESTAURANT_CATEGORIES = ["Fast Food", "Local Food", "Drinks", "Bakery"];
-
-// Sub-categories for each restaurant category
-const FOOD_SUBCATEGORIES_MAP = {
-  "Fast Food": ["Burgers", "Fried Chicken", "Fries", "Shawarma", "Sandwiches", "Pizza"],
-  "Local Food": ["Kisra & Stews", "Asida", "Goat Meat Dishes", "Fish Dishes", "Rice Meals", "Grills & BBQ"],
-  "Drinks": ["Coffee", "Tea", "Juice", "Smoothies", "Soft Drinks"],
-  "Bakery": ["Cakes", "Bread", "Pastries", "Desserts", "Cookies"],
-};
-
 const RETAIL_CATEGORIES = [
   "Groceries", "Clothing & Fashion", "Shoes & Bags", "Beauty & Cosmetics",
   "Electronics & Accessories", "Home Essentials", "Health & Pharmacy",

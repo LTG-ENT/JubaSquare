@@ -165,51 +165,11 @@ CATEGORIES_DEFAULT = {
         },
     ],
     "restaurant": [
-        {
-            "name": "Fast Food",
-            "image_url": "",
-            "children": [
-                {"name": "Burgers", "image_url": ""},
-                {"name": "Fried Chicken", "image_url": ""},
-                {"name": "Fries", "image_url": ""},
-                {"name": "Shawarma", "image_url": ""},
-                {"name": "Sandwiches", "image_url": ""},
-                {"name": "Pizza", "image_url": ""},
-            ],
-        },
-        {
-            "name": "Local Food",
-            "image_url": "",
-            "children": [
-                {"name": "Kisra & Stews", "image_url": ""},
-                {"name": "Asida", "image_url": ""},
-                {"name": "Goat Meat Dishes", "image_url": ""},
-                {"name": "Fish Dishes", "image_url": ""},
-                {"name": "Rice Meals", "image_url": ""},
-                {"name": "Grills & BBQ", "image_url": ""},
-            ],
-        },
-        {
-            "name": "Drinks",
-            "image_url": "",
-            "children": [
-                {"name": "Coffee", "image_url": ""},
-                {"name": "Tea", "image_url": ""},
-                {"name": "Juice", "image_url": ""},
-                {"name": "Smoothies", "image_url": ""},
-                {"name": "Soft Drinks", "image_url": ""},
-            ],
-        },
-        {
-            "name": "Bakery",
-            "image_url": "",
-            "children": [
-                {"name": "Cakes", "image_url": ""},
-                {"name": "Bread", "image_url": ""},
-                {"name": "Pastries", "image_url": ""},
-                {"name": "Desserts", "image_url": ""},
-                {"name": "Cookies", "image_url": ""},
-            ],
-        },
+        {"name": "Fast Food", "image_url": "", "children": []},
+        {"name": "Local Food", "image_url": "", "children": []},
+        {"name": "Café", "image_url": "", "children": []},
+        {"name": "Grill & BBQ", "image_url": "", "children": []},
+        {"name": "Bakery", "image_url": "", "children": []},
+        {"name": "Drinks & Juice", "image_url": "", "children": []},
     ],
 }
