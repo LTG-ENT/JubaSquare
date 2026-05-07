@@ -544,6 +544,23 @@ class FooterIn(BaseModel):
     tagline_bottom: Optional[str] = None
 
 
+# Admin user management models
+class AdminUserUpdateIn(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=120)
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    role: Optional[Literal["customer", "seller", "admin"]] = None
+
+
+class AdminResetPasswordIn(BaseModel):
+    new_password: str = Field(min_length=6)
+
+
+class AdminUserStatusIn(BaseModel):
+    is_active: bool
+
+
+
 # ----------------------------------------------------------------------------
 # Auth endpoints
 # ----------------------------------------------------------------------------
@@ -588,7 +605,22 @@ async def login(payload: LoginIn, request: Request, response: Response):
     if user.get("suspended"):
         raise HTTPException(status_code=403, detail="Your account has been suspended. Contact support.")
 
+    # Check if account is disabled by admin
+    if not user.get("is_active", True):
+        raise HTTPException(status_code=403, detail="Your account has been disabled. Contact support.")
+
+    # Check if user must change password (after admin temp password)
+    if user.get("must_change_password", False):
+        raise HTTPException(
+            status_code=403,
+            detail="You must change your password. Please use the 'Forgot password' feature to set a new password.",
+        )
+
     await db.login_attempts.delete_one({"key": key})
+    
+    # Update last login timestamp
+    await db.users.update_one({"id": user["id"]}, {"$set": {"last_login": now_iso()}})
+    
     tv = settings.get("token_version", 1)
     token = create_token(user["id"], user["role"], user["email"], tv)
     response.set_cookie(
@@ -653,6 +685,8 @@ async def signup(body: SignupIn):
         "phone": (body.phone or "").strip(),
         "password_hash": hash_password(body.password),
         "email_verified": False,
+        "is_active": True,
+        "must_change_password": False,
         "settings": {},
         "created_at": now_iso(),
     }
@@ -740,7 +774,10 @@ async def reset_password(body: ResetPasswordIn):
         raise HTTPException(400, "Invalid or expired reset link. Please request a new one.")
     await db.users.update_one(
         {"id": rec["user_id"]},
-        {"$set": {"password_hash": hash_password(body.new_password)}},
+        {"$set": {
+            "password_hash": hash_password(body.new_password),
+            "must_change_password": False,
+        }},
     )
     await db.password_resets.delete_many({"user_id": rec["user_id"]})
     return {"ok": True, "message": "Password updated — you can now sign in."}
@@ -2300,6 +2337,252 @@ async def admin_update_settings(body: SettingsIn, _: dict = Depends(require_role
     return await get_settings()
 
 
+
+# ----------------------------------------------------------------------------
+# Admin User Management
+# ----------------------------------------------------------------------------
+@api.get("/admin/users")
+async def admin_list_users(
+    limit: Optional[int] = None,
+    skip: Optional[int] = None,
+    role: Optional[str] = None,
+    search: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    email_verified: Optional[bool] = None,
+    _: dict = Depends(require_role("admin")),
+):
+    """List all users with filters and aggregated stats."""
+    page_size, offset = clamp_pagination(limit, skip)
+    
+    # Build query
+    query: dict = {}
+    if role in {"customer", "seller", "admin"}:
+        query["role"] = role
+    if is_active is not None:
+        query["is_active"] = is_active
+    if email_verified is not None:
+        query["email_verified"] = email_verified
+    if search:
+        # Search by name or email
+        query["$or"] = [
+            {"name": {"$regex": search, "$options": "i"}},
+            {"email": {"$regex": search, "$options": "i"}},
+        ]
+    
+    # Get users
+    users = await db.users.find(query, {"_id": 0, "password_hash": 0}).skip(offset).limit(page_size).to_list(page_size)
+    
+    # Aggregate stats for each user
+    user_ids = [u["id"] for u in users]
+    
+    # Get order counts for customers
+    orders_pipeline = [
+        {"$match": {"customer_id": {"$in": user_ids}}},
+        {"$group": {"_id": "$customer_id", "count": {"$sum": 1}}},
+    ]
+    orders_counts = {r["_id"]: r["count"] for r in await db.orders.aggregate(orders_pipeline).to_list(1000)}
+    
+    # Get sales totals for sellers (from invoices)
+    invoices_pipeline = [
+        {"$match": {"seller_id": {"$in": user_ids}}},
+        {"$group": {"_id": "$seller_id", "total_sales": {"$sum": "$total_sales"}}},
+    ]
+    sales_totals = {r["_id"]: round(float(r.get("total_sales") or 0), 2) for r in await db.invoices.aggregate(invoices_pipeline).to_list(1000)}
+    
+    # Enrich user data
+    for user in users:
+        uid = user["id"]
+        if user.get("role") == "customer":
+            user["total_orders"] = orders_counts.get(uid, 0)
+        elif user.get("role") == "seller":
+            user["total_sales"] = sales_totals.get(uid, 0.0)
+        # Ensure defaults for new fields
+        user.setdefault("is_active", True)
+        user.setdefault("must_change_password", False)
+        user.setdefault("last_login", None)
+    
+    return users
+
+
+@api.get("/admin/users/{user_id}")
+async def admin_get_user(user_id: str, _: dict = Depends(require_role("admin"))):
+    """Get single user with full details."""
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    if not user:
+        raise HTTPException(404, "User not found")
+    
+    # Add stats
+    if user.get("role") == "customer":
+        user["total_orders"] = await db.orders.count_documents({"customer_id": user_id})
+    elif user.get("role") == "seller":
+        pipeline = [
+            {"$match": {"seller_id": user_id}},
+            {"$group": {"_id": None, "total": {"$sum": "$total_sales"}}},
+        ]
+        result = await db.invoices.aggregate(pipeline).to_list(1)
+        user["total_sales"] = round(float(result[0]["total"]) if result else 0.0, 2)
+    
+    # Ensure defaults
+    user.setdefault("is_active", True)
+    user.setdefault("must_change_password", False)
+    user.setdefault("last_login", None)
+    
+    return user
+
+
+@api.put("/admin/users/{user_id}")
+async def admin_update_user(user_id: str, body: AdminUserUpdateIn, admin: dict = Depends(require_role("admin"))):
+    """Update user details (name, email, phone, role)."""
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(404, "User not found")
+    
+    # Prevent admin from changing their own role
+    if user_id == admin["id"] and body.role and body.role != "admin":
+        raise HTTPException(400, "You cannot change your own role")
+    
+    update: dict = {}
+    if body.name:
+        update["name"] = body.name.strip()
+    if body.email:
+        # Check email uniqueness
+        existing = await db.users.find_one({"email": body.email.lower(), "id": {"$ne": user_id}})
+        if existing:
+            raise HTTPException(400, "Email already in use by another account")
+        update["email"] = body.email.lower()
+    if body.phone is not None:
+        update["phone"] = body.phone.strip()
+    if body.role:
+        update["role"] = body.role
+    
+    if update:
+        await db.users.update_one({"id": user_id}, {"$set": update})
+    
+    return await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+
+
+@api.post("/admin/users/{user_id}/reset-password")
+async def admin_reset_password_direct(user_id: str, body: AdminResetPasswordIn, admin: dict = Depends(require_role("admin"))):
+    """Admin sets a new password directly for user."""
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(404, "User not found")
+    
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {
+            "password_hash": hash_password(body.new_password),
+            "must_change_password": False,
+        }},
+    )
+    
+    return {"ok": True, "message": f"Password updated for {user.get('name') or user.get('email')}"}
+
+
+@api.post("/admin/users/{user_id}/send-reset-email")
+async def admin_send_password_reset_email(user_id: str, _: dict = Depends(require_role("admin"))):
+    """Send password reset email to user."""
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(404, "User not found")
+    
+    email = user["email"]
+    
+    # Delete any existing password reset tokens for this user
+    await db.password_resets.delete_many({"user_id": user_id})
+    
+    # Create new token
+    token = _make_token()
+    await db.password_resets.insert_one({
+        "token": token,
+        "user_id": user_id,
+        "email": email,
+        "created_at": now_iso(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=RESET_TTL_MINUTES)).isoformat(),
+    })
+    
+    try:
+        await email_service.send_password_reset_email(to=email, name=user.get("name", ""), token=token)
+        return {"ok": True, "message": f"Password reset email sent to {email}"}
+    except Exception as e:
+        log.error(f"Admin password reset email failed: {e}")
+        return {"ok": True, "message": f"Reset token created (email service unavailable). Token: {token}"}
+
+
+@api.post("/admin/users/{user_id}/generate-temp-password")
+async def admin_generate_temp_password(user_id: str, _: dict = Depends(require_role("admin"))):
+    """Generate a temporary password for user."""
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(404, "User not found")
+    
+    # Generate random 12-character password
+    import string
+    temp_password = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(12))
+    
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {
+            "password_hash": hash_password(temp_password),
+            "must_change_password": True,
+        }},
+    )
+    
+    return {
+        "ok": True,
+        "temp_password": temp_password,
+        "message": f"Temporary password generated for {user.get('name') or user.get('email')}. User must change it on next login.",
+    }
+
+
+@api.put("/admin/users/{user_id}/status")
+async def admin_update_user_status(user_id: str, body: AdminUserStatusIn, admin: dict = Depends(require_role("admin"))):
+    """Enable or disable user account."""
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(404, "User not found")
+    
+    # Prevent admin from disabling themselves
+    if user_id == admin["id"]:
+        raise HTTPException(400, "You cannot disable your own account")
+    
+    await db.users.update_one({"id": user_id}, {"$set": {"is_active": body.is_active}})
+    
+    action = "enabled" if body.is_active else "disabled"
+    return {"ok": True, "message": f"User {user.get('name') or user.get('email')} has been {action}"}
+
+
+@api.delete("/admin/users/{user_id}")
+async def admin_delete_user(user_id: str, admin: dict = Depends(require_role("admin"))):
+    """Delete user account (hard delete with cascade)."""
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(404, "User not found")
+    
+    # Prevent admin from deleting themselves
+    if user_id == admin["id"]:
+        raise HTTPException(400, "You cannot delete your own account")
+    
+    # Delete user and related data
+    await db.users.delete_one({"id": user_id})
+    await db.notifications.delete_many({"user_id": user_id})
+    await db.favorites.delete_many({"user_id": user_id})
+    await db.email_verifications.delete_many({"user_id": user_id})
+    await db.password_resets.delete_many({"user_id": user_id})
+    
+    # If seller, delete their shops, products, restaurants
+    if user.get("role") == "seller":
+        shops = await db.shops.find({"seller_id": user_id}, {"_id": 0, "id": 1}).to_list(1000)
+        shop_ids = [s["id"] for s in shops]
+        await db.shops.delete_many({"seller_id": user_id})
+        await db.products.delete_many({"shop_id": {"$in": shop_ids}})
+        await db.restaurants.delete_many({"seller_id": user_id})
+        # Note: Orders are kept for historical records but seller_id will be orphaned
+    
+    return {"ok": True, "message": f"User {user.get('name') or user.get('email')} has been deleted"}
+
+
+
 @api.post("/admin/areas")
 async def admin_add_area(body: AreaIn, _: dict = Depends(require_role("admin"))):
     s = await get_settings()
@@ -2654,11 +2937,11 @@ async def seed_production():
 
     existing = await db.users.find_one({"email": admin_email})
     if existing:
-        # Make sure existing admin account stays an admin + is flagged verified,
+        # Make sure existing admin account stays an admin + is flagged verified + active,
         # but never overwrite the password after first seed.
         await db.users.update_one(
             {"email": admin_email},
-            {"$set": {"role": "admin", "email_verified": True}},
+            {"$set": {"role": "admin", "email_verified": True, "is_active": True}},
         )
     else:
         await db.users.insert_one({
@@ -2669,6 +2952,8 @@ async def seed_production():
             "phone": "",
             "settings": {},
             "email_verified": True,
+            "is_active": True,
+            "must_change_password": False,
             "password_hash": hash_password(admin_password),
             "created_at": now_iso(),
         })

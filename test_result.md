@@ -1212,3 +1212,332 @@ agent_communication:
         
         The application is production-ready with no critical issues found.
 
+
+
+#====================================================================================================
+# CONTINUATION TASK — Admin User Management in Settings
+#====================================================================================================
+
+user_problem_statement_continuation: |
+  Add admin user management features to Settings tab:
+  - View all users with filters (role, status, verified) and search
+  - Display full user details: name, email, role, verified status, active/disabled, stats (orders/sales), join date, last login
+  - Admin actions: Edit user details, Reset password (3 options), Enable/Disable account, Delete user
+  - Password reset options: Direct set, Send email, Generate temp password
+
+backend_continuation:
+  - task: "Admin user management endpoints + user schema updates"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            Added new user management features:
+            
+            1. Database Schema Updates:
+               - Added is_active field (boolean, default true) to users
+               - Added last_login field (ISO datetime string) to users
+               - Added must_change_password field (boolean, default false) to users
+               - Updated login endpoint to track last_login and check is_active
+               - Updated signup to set default values for new fields
+               - Updated admin seed to include new fields
+            
+            2. New Pydantic Models:
+               - AdminUserUpdateIn: for editing user details
+               - AdminResetPasswordIn: for direct password reset
+               - AdminUserStatusIn: for enable/disable
+            
+            3. New API Endpoints (all admin-only):
+               GET /api/admin/users - List users with filters (role, is_active, email_verified, search)
+                 • Returns users with aggregated stats (total_orders for customers, total_sales for sellers)
+                 • Supports pagination (limit, skip)
+               
+               GET /api/admin/users/{user_id} - Get single user with full details
+               
+               PUT /api/admin/users/{user_id} - Update user (name, email, phone, role)
+                 • Validates email uniqueness
+                 • Prevents admin from changing own role
+               
+               POST /api/admin/users/{user_id}/reset-password - Direct password reset
+                 • Admin sets new password directly
+               
+               POST /api/admin/users/{user_id}/send-reset-email - Send password reset email
+                 • Creates token in password_resets collection
+                 • Sends email via email_service (or logs if no-op mode)
+               
+               POST /api/admin/users/{user_id}/generate-temp-password - Generate temp password
+                 • Creates random 12-char password
+                 • Sets must_change_password = true
+                 • Returns temp password to admin
+               
+               PUT /api/admin/users/{user_id}/status - Enable/disable account
+                 • Prevents admin from disabling own account
+               
+               DELETE /api/admin/users/{user_id} - Delete user
+                 • Hard delete with cascade (notifications, favorites, etc.)
+                 • If seller: deletes shops, products, restaurants
+                 • Prevents admin from deleting own account
+            
+            4. Login Flow Updates:
+               - Check is_active field (403 if disabled)
+               - Check must_change_password flag (403 with message)
+               - Update last_login timestamp on successful login
+            
+            5. Password Reset Flow Updates:
+               - Clear must_change_password flag when user resets password via forgot/reset flow
+        - working: true
+          agent: "testing"
+          comment: |
+            ✅ PASSED all 9 comprehensive admin user management tests (9/9):
+            
+            **Test 1: GET /api/admin/users (list with filters) - PASSED:**
+            • Without auth returns 401 ✓
+            • As customer returns 403 ✓
+            • As admin returns 200 with user list ✓
+            • Response includes all required fields: id, name, email, role, is_active, email_verified, created_at ✓
+            • Stats fields present: total_orders for customers, total_sales for sellers ✓
+            • Filter by role=customer works correctly ✓
+            • Filter by is_active=false works correctly ✓
+            • Filter by email_verified=true works correctly ✓
+            • Search by name/email works correctly ✓
+            
+            **Test 2: GET /api/admin/users/{user_id} (get single user) - PASSED:**
+            • Without auth returns 401 ✓
+            • As admin for existing user returns 200 with full details and stats ✓
+            • Non-existent user returns 404 ✓
+            
+            **Test 3: PUT /api/admin/users/{user_id} (update user) - PASSED:**
+            • Without auth returns 401 ✓
+            • Update name, email, phone works correctly ✓
+            • Update role works correctly ✓
+            • Duplicate email returns 400 (email uniqueness enforced) ✓
+            • Admin changing own role returns 400 (self-protection works) ✓
+            
+            **Test 4: POST /api/admin/users/{user_id}/reset-password (direct reset) - PASSED:**
+            • Without auth returns 401 ✓
+            • Valid password reset (min 6 chars) works correctly ✓
+            • New password works for login ✓
+            • must_change_password is set to false after reset ✓
+            
+            **Test 5: POST /api/admin/users/{user_id}/send-reset-email (send email) - PASSED:**
+            • Without auth returns 401 ✓
+            • As admin returns 200 with success message ✓
+            • Token created in password_resets collection ✓
+            
+            **Test 6: POST /api/admin/users/{user_id}/generate-temp-password (generate temp) - PASSED:**
+            • Without auth returns 401 ✓
+            • As admin returns 200 with temp_password in response ✓
+            • Temp password is 12 characters ✓
+            • must_change_password is set to true ✓
+            
+            **Test 7: PUT /api/admin/users/{user_id}/status (enable/disable) - PASSED:**
+            • Without auth returns 401 ✓
+            • Disable user (is_active=false) works correctly ✓
+            • Verified is_active=false persists ✓
+            • Enable user (is_active=true) works correctly ✓
+            • Admin disabling own account returns 400 (self-protection works) ✓
+            
+            **Test 8: DELETE /api/admin/users/{user_id} (delete with cascade) - PASSED:**
+            • Without auth returns 401 ✓
+            • Delete customer user works correctly ✓
+            • Verified user is deleted (404 on GET) ✓
+            • Delete seller user works correctly ✓
+            • Verified seller shops are deleted (cascade works) ✓
+            • Admin deleting own account returns 400 (self-protection works) ✓
+            
+            **Test 9: Login flow updates - PASSED:**
+            • Disabled user login returns 403 with "account disabled" message ✓
+            • last_login timestamp is updated after successful login ✓
+            • User with must_change_password=true cannot login (returns 403 with "change your password" message) ✓
+            
+            **Summary:**
+            All 8 admin user management endpoints working correctly with proper:
+            - Auth gating (401 without token, 403 for non-admin)
+            - Validation rules (email uniqueness, self-protection for admin)
+            - Response structures matching expected format
+            - Edge cases handled (non-existent users, invalid data)
+            - Database state verified after mutations (updates, deletes, cascades)
+            - Login flow checks (is_active, must_change_password, last_login tracking)
+            
+            No critical issues found. All endpoints are production-ready.
+
+frontend_continuation:
+  - task: "Admin user management UI in Settings tab"
+    implemented: true
+    working: false
+    file: "/app/frontend/src/components/AdminSettingsTab.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            Added comprehensive user management section to AdminSettingsTab:
+            
+            1. UserManagement Component:
+               - Stats banner showing total users (customers, sellers, active, disabled)
+               - Filter bar with:
+                 * Search input (by name or email)
+                 * Role dropdown (All/Customers/Sellers/Admins)
+                 * Status dropdown (All/Active/Disabled)
+                 * Verified dropdown (All/Verified/Unverified)
+                 * Search button
+               
+            2. Users Table:
+               - Responsive table with columns:
+                 * User (name, email, verified icon, disabled badge)
+                 * Role badge (color-coded for admin/seller/customer)
+                 * Status (Active/Disabled + last login date)
+                 * Stats (orders for customers, sales for sellers)
+                 * Join date
+                 * Actions menu (3-dot menu)
+               
+            3. UserRow Component:
+               - Verified/unverified email icon (green checkmark / yellow X)
+               - Role badges with distinct colors
+               - Stats display based on role
+               - Actions dropdown menu with:
+                 * Edit details
+                 * Reset password
+                 * Enable/Disable account
+                 * Delete user (in red)
+            
+            4. EditUserModal:
+               - Form to edit name, email, phone, role
+               - Validates and updates via PUT /api/admin/users/{id}
+            
+            5. PasswordResetModal:
+               - 3 tabs for password reset options:
+                 a. Set Password - Admin enters new password directly
+                 b. Send Email - Sends password reset link to user's email
+                 c. Generate Temp - Generates random password with copy button
+               - Shows generated temp password with copy-to-clipboard button
+            
+            6. Features:
+               - Real-time search and filtering
+               - Inline status toggle (enable/disable)
+               - Confirmation dialogs for destructive actions
+               - Toast notifications for all actions
+               - Loading states
+               - Error handling with formatted error messages
+               - Responsive design (mobile-friendly)
+
+metadata:
+  created_by: "main_agent"
+  version: "4.0"
+  test_sequence: 0
+  run_ui: false
+
+test_plan:
+  current_focus: []
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+    - agent: "main"
+      message: |
+        Implemented comprehensive admin user management feature in Settings tab.
+        
+        BACKEND (needs testing):
+        - 8 new admin endpoints for user management (list, get, update, 3 password reset options, status, delete)
+        - Updated user schema with is_active, last_login, must_change_password fields
+        - Updated login flow to check is_active and track last_login
+        - Updated signup and admin seed to set default values
+        
+        FRONTEND (visual verification done):
+        - Added UserManagement component to Settings tab
+        - Users table with filters (role, status, verified, search)
+        - Actions: Edit details, Reset password (3 options), Enable/Disable, Delete
+        - Modals for edit and password reset with 3 tabs
+        - Responsive design with loading states and error handling
+        
+        Please test all 8 new backend endpoints:
+        1. GET /api/admin/users - with various filters (role, is_active, email_verified, search)
+        2. GET /api/admin/users/{user_id} - verify full details and stats
+        3. PUT /api/admin/users/{user_id} - test edit (name, email, phone, role)
+        4. POST /api/admin/users/{user_id}/reset-password - direct password reset
+        5. POST /api/admin/users/{user_id}/send-reset-email - email reset flow
+        6. POST /api/admin/users/{user_id}/generate-temp-password - temp password generation
+        7. PUT /api/admin/users/{user_id}/status - enable/disable account
+        8. DELETE /api/admin/users/{user_id} - user deletion with cascade
+        
+        Test credentials: ltg-general-trading@hotmail.com / Kokobleake1 (admin)
+        
+        Validation points:
+        - Auth gating (401 without auth, admin-only for all endpoints)
+        - Stats aggregation (total_orders for customers, total_sales for sellers)
+        - Email uniqueness validation
+        - Self-protection (admin cannot disable/delete own account, cannot change own role)
+        - is_active check during login (disabled users get 403)
+        - last_login timestamp updates
+        - must_change_password flag enforcement
+        - Cascade delete for sellers (shops, products, restaurants)
+    
+    - agent: "testing"
+      message: |
+        ✅ ADMIN USER MANAGEMENT BACKEND TESTING COMPLETE (9/9 tests PASSED)
+        
+        Tested all 8 new admin user management endpoints + login flow updates as requested:
+        
+        **1. GET /api/admin/users (list with filters) - PASSED:**
+        - Auth gating: 401 without auth, 403 as customer, 200 as admin ✓
+        - Response structure: all required fields present (id, name, email, role, is_active, email_verified, created_at) ✓
+        - Stats aggregation: total_orders for customers, total_sales for sellers ✓
+        - Filters working: role=customer, is_active=false, email_verified=true ✓
+        - Search by name/email working ✓
+        
+        **2. GET /api/admin/users/{user_id} (get single user) - PASSED:**
+        - Auth gating: 401 without auth ✓
+        - Returns full user details with stats ✓
+        - Non-existent user returns 404 ✓
+        
+        **3. PUT /api/admin/users/{user_id} (update user) - PASSED:**
+        - Auth gating: 401 without auth ✓
+        - Update name, email, phone works correctly ✓
+        - Update role works correctly ✓
+        - Email uniqueness validation: duplicate email returns 400 ✓
+        - Self-protection: admin changing own role returns 400 ✓
+        
+        **4. POST /api/admin/users/{user_id}/reset-password (direct reset) - PASSED:**
+        - Auth gating: 401 without auth ✓
+        - Password reset with min 6 chars works ✓
+        - New password works for login ✓
+        - must_change_password set to false after reset ✓
+        
+        **5. POST /api/admin/users/{user_id}/send-reset-email (send email) - PASSED:**
+        - Auth gating: 401 without auth ✓
+        - Returns 200 with success message ✓
+        - Token created in password_resets collection ✓
+        
+        **6. POST /api/admin/users/{user_id}/generate-temp-password (generate temp) - PASSED:**
+        - Auth gating: 401 without auth ✓
+        - Returns 200 with temp_password in response ✓
+        - Temp password is 12 characters ✓
+        - must_change_password set to true ✓
+        
+        **7. PUT /api/admin/users/{user_id}/status (enable/disable) - PASSED:**
+        - Auth gating: 401 without auth ✓
+        - Disable user (is_active=false) works ✓
+        - Enable user (is_active=true) works ✓
+        - Self-protection: admin disabling own account returns 400 ✓
+        
+        **8. DELETE /api/admin/users/{user_id} (delete with cascade) - PASSED:**
+        - Auth gating: 401 without auth ✓
+        - Delete customer user works ✓
+        - Delete seller user works with cascade (shops deleted) ✓
+        - Self-protection: admin deleting own account returns 400 ✓
+        
+        **9. Login flow updates - PASSED:**
+        - Disabled user login returns 403 with "account disabled" message ✓
+        - last_login timestamp updates after successful login ✓
+        - User with must_change_password=true cannot login (403 with "change your password" message) ✓
+        
+        All admin user management endpoints working correctly. No critical issues found. Backend is production-ready.
+

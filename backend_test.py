@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Round 7 Backend Testing: Admin-managed categories CRUD + sub-categories
-Tests all 8 endpoint scenarios as specified in the review request.
+Admin User Management Backend Testing
+Tests all 8 new admin user management endpoints + login flow updates
 """
 
 import requests
 import sys
 import json
+import time
 from typing import Optional
 
 BASE_URL = "https://user-admin-center.preview.emergentagent.com/api"
@@ -15,8 +16,8 @@ BASE_URL = "https://user-admin-center.preview.emergentagent.com/api"
 ADMIN_EMAIL = "ltg-general-trading@hotmail.com"
 ADMIN_PASSWORD = "Kokobleake1"
 
-# Track created categories for cleanup
-created_categories = []
+# Track created users for cleanup
+created_users = []
 
 def log(msg: str):
     print(f"  {msg}")
@@ -46,750 +47,912 @@ def admin_login() -> str:
     log(f"✅ Admin login successful")
     return token
 
-def create_customer_account() -> tuple[str, str]:
-    """Create a customer account for non-admin testing. Returns (email, token)."""
+def create_test_user(role: str = "customer", verify: bool = True) -> tuple[str, str, str]:
+    """Create a test user and return (user_id, email, password)."""
     import uuid
-    email = f"test-customer-{uuid.uuid4().hex[:8]}@test.com"
+    import time
+    email = f"test-{role}-{uuid.uuid4().hex[:8]}@test.com"
     password = "testpass123"
     
-    log(f"Creating customer account: {email}")
+    log(f"Creating {role} account: {email}")
     resp = requests.post(f"{BASE_URL}/auth/signup", json={
         "email": email,
         "password": password,
-        "name": "Test Customer",
-        "role": "customer"
+        "name": f"Test {role.title()}",
+        "phone": "+211912345678",
+        "role": role
     })
     
     if resp.status_code != 200:
-        log(f"❌ Customer signup failed: {resp.status_code} - {resp.text}")
-        return None, None
+        log(f"❌ Signup failed: {resp.status_code} - {resp.text}")
+        return None, None, None
     
-    # Manually verify the customer via MongoDB (since email is in no-op mode)
-    # For testing purposes, we'll try to login and expect 403 (unverified)
-    # Then we'll just use the fact that admin endpoints should return 403 for customers
-    
-    # Try to get verification token from MongoDB and verify
+    # Get user_id from MongoDB
     import os
     from pymongo import MongoClient
+    from dotenv import load_dotenv
+    
+    # Load environment variables from backend .env
+    load_dotenv("/app/backend/.env")
     
     mongo_url = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
-    db_name = os.environ.get("DB_NAME", "jubasquare")
+    db_name = os.environ.get("DB_NAME", "jubasquare_db")
+    
+    try:
+        # Wait a moment for the database write to complete
+        time.sleep(0.5)
+        
+        client = MongoClient(mongo_url)
+        db = client[db_name]
+        
+        user = db.users.find_one({"email": email})
+        if not user:
+            log(f"❌ User not found in database")
+            return None, None, None
+        
+        user_id = user.get("id")
+        
+        if verify:
+            # Get verification token and verify
+            verification = db.email_verifications.find_one({"email": email})
+            if verification:
+                token = verification.get("token")
+                verify_resp = requests.post(f"{BASE_URL}/auth/verify-email", json={"token": token})
+                if verify_resp.status_code == 200:
+                    log(f"✅ Email verified for {email}")
+                else:
+                    log(f"⚠️ Email verification failed: {verify_resp.status_code}")
+        
+        client.close()
+        created_users.append(user_id)
+        log(f"✅ Created {role}: {email} (id: {user_id})")
+        return user_id, email, password
+        
+    except Exception as e:
+        log(f"❌ Error creating user: {e}")
+        return None, None, None
+
+def cleanup_users(admin_token: str):
+    """Delete all test users created during testing."""
+    if not created_users:
+        return
+    
+    test_header("CLEANUP: Deleting test users")
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    
+    for user_id in created_users:
+        resp = requests.delete(f"{BASE_URL}/admin/users/{user_id}", headers=headers)
+        if resp.status_code == 200:
+            log(f"✅ Deleted user {user_id}")
+        else:
+            log(f"⚠️ Failed to delete user {user_id}: {resp.status_code}")
+
+def test_1_list_users(admin_token: str):
+    """Test 1: GET /api/admin/users - List users with filters"""
+    test_header("TEST 1: GET /api/admin/users (list with filters)")
+    
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    
+    # Test 1.1: Without auth -> 401
+    log("\n--- Test 1.1: Without auth (expect 401) ---")
+    resp = requests.get(f"{BASE_URL}/admin/users")
+    if resp.status_code != 401:
+        log(f"❌ FAIL: Expected 401, got {resp.status_code}")
+        return False
+    log(f"✅ Without auth returns 401")
+    
+    # Test 1.2: As customer -> 403
+    log("\n--- Test 1.2: As customer (expect 403) ---")
+    customer_id, customer_email, customer_pass = create_test_user("customer", verify=True)
+    if customer_id:
+        # Login as customer
+        login_resp = requests.post(f"{BASE_URL}/auth/login", json={
+            "email": customer_email,
+            "password": customer_pass
+        })
+        if login_resp.status_code == 200:
+            customer_token = login_resp.json().get("token")
+            customer_headers = {"Authorization": f"Bearer {customer_token}"}
+            resp = requests.get(f"{BASE_URL}/admin/users", headers=customer_headers)
+            if resp.status_code != 403:
+                log(f"❌ FAIL: Expected 403, got {resp.status_code}")
+                return False
+            log(f"✅ As customer returns 403")
+        else:
+            log(f"⚠️ Customer login failed, skipping 403 test")
+    
+    # Test 1.3: As admin with no filters -> 200
+    log("\n--- Test 1.3: As admin with no filters (expect 200) ---")
+    resp = requests.get(f"{BASE_URL}/admin/users", headers=headers)
+    if resp.status_code != 200:
+        log(f"❌ FAIL: Expected 200, got {resp.status_code}")
+        return False
+    
+    users = resp.json()
+    if not isinstance(users, list):
+        log(f"❌ FAIL: Response is not a list")
+        return False
+    
+    log(f"✅ Returns list with {len(users)} users")
+    
+    # Verify response structure
+    if len(users) > 0:
+        user = users[0]
+        required_fields = ["id", "name", "email", "role", "is_active", "email_verified", "created_at"]
+        for field in required_fields:
+            if field not in user:
+                log(f"❌ FAIL: Missing field '{field}' in user response")
+                return False
+        log(f"✅ User response includes all required fields: {required_fields}")
+        
+        # Check for stats fields
+        if user.get("role") == "customer" and "total_orders" not in user:
+            log(f"❌ FAIL: Customer missing 'total_orders' field")
+            return False
+        if user.get("role") == "seller" and "total_sales" not in user:
+            log(f"❌ FAIL: Seller missing 'total_sales' field")
+            return False
+        log(f"✅ Stats fields present for user roles")
+    
+    # Test 1.4: Filter by role=customer
+    log("\n--- Test 1.4: Filter by role=customer ---")
+    resp = requests.get(f"{BASE_URL}/admin/users?role=customer", headers=headers)
+    if resp.status_code != 200:
+        log(f"❌ FAIL: Expected 200, got {resp.status_code}")
+        return False
+    
+    users = resp.json()
+    for user in users:
+        if user.get("role") != "customer":
+            log(f"❌ FAIL: Non-customer user in filtered results: {user.get('role')}")
+            return False
+    log(f"✅ Role filter works: {len(users)} customers")
+    
+    # Test 1.5: Filter by is_active=false
+    log("\n--- Test 1.5: Filter by is_active=false ---")
+    resp = requests.get(f"{BASE_URL}/admin/users?is_active=false", headers=headers)
+    if resp.status_code != 200:
+        log(f"❌ FAIL: Expected 200, got {resp.status_code}")
+        return False
+    
+    users = resp.json()
+    log(f"✅ is_active filter works: {len(users)} inactive users")
+    
+    # Test 1.6: Filter by email_verified=true
+    log("\n--- Test 1.6: Filter by email_verified=true ---")
+    resp = requests.get(f"{BASE_URL}/admin/users?email_verified=true", headers=headers)
+    if resp.status_code != 200:
+        log(f"❌ FAIL: Expected 200, got {resp.status_code}")
+        return False
+    
+    users = resp.json()
+    for user in users:
+        if not user.get("email_verified"):
+            log(f"❌ FAIL: Unverified user in filtered results")
+            return False
+    log(f"✅ email_verified filter works: {len(users)} verified users")
+    
+    # Test 1.7: Search by name/email
+    log("\n--- Test 1.7: Search by 'admin' ---")
+    resp = requests.get(f"{BASE_URL}/admin/users?search=admin", headers=headers)
+    if resp.status_code != 200:
+        log(f"❌ FAIL: Expected 200, got {resp.status_code}")
+        return False
+    
+    users = resp.json()
+    log(f"✅ Search works: {len(users)} users matching 'admin'")
+    
+    log(f"\n✅ TEST 1 PASSED")
+    return True
+
+def test_2_get_user(admin_token: str):
+    """Test 2: GET /api/admin/users/{user_id} - Get single user"""
+    test_header("TEST 2: GET /api/admin/users/{user_id} (get single user)")
+    
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    
+    # Create a test user
+    user_id, email, password = create_test_user("customer", verify=True)
+    if not user_id:
+        log(f"❌ FAIL: Could not create test user")
+        return False
+    
+    # Test 2.1: Without auth -> 401
+    log("\n--- Test 2.1: Without auth (expect 401) ---")
+    resp = requests.get(f"{BASE_URL}/admin/users/{user_id}")
+    if resp.status_code != 401:
+        log(f"❌ FAIL: Expected 401, got {resp.status_code}")
+        return False
+    log(f"✅ Without auth returns 401")
+    
+    # Test 2.2: As admin for existing user -> 200
+    log("\n--- Test 2.2: As admin for existing user (expect 200) ---")
+    resp = requests.get(f"{BASE_URL}/admin/users/{user_id}", headers=headers)
+    if resp.status_code != 200:
+        log(f"❌ FAIL: Expected 200, got {resp.status_code}")
+        return False
+    
+    user = resp.json()
+    required_fields = ["id", "name", "email", "role", "is_active", "email_verified", "created_at", "total_orders"]
+    for field in required_fields:
+        if field not in user:
+            log(f"❌ FAIL: Missing field '{field}' in response")
+            return False
+    
+    log(f"✅ Returns user with full details and stats")
+    
+    # Test 2.3: Non-existent user -> 404
+    log("\n--- Test 2.3: Non-existent user (expect 404) ---")
+    resp = requests.get(f"{BASE_URL}/admin/users/nonexistent-id-12345", headers=headers)
+    if resp.status_code != 404:
+        log(f"❌ FAIL: Expected 404, got {resp.status_code}")
+        return False
+    log(f"✅ Non-existent user returns 404")
+    
+    log(f"\n✅ TEST 2 PASSED")
+    return True
+
+def test_3_update_user(admin_token: str):
+    """Test 3: PUT /api/admin/users/{user_id} - Update user"""
+    test_header("TEST 3: PUT /api/admin/users/{user_id} (update user)")
+    
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    
+    # Create test users
+    user1_id, user1_email, _ = create_test_user("customer", verify=True)
+    user2_id, user2_email, _ = create_test_user("customer", verify=True)
+    
+    if not user1_id or not user2_id:
+        log(f"❌ FAIL: Could not create test users")
+        return False
+    
+    # Test 3.1: Without auth -> 401
+    log("\n--- Test 3.1: Without auth (expect 401) ---")
+    resp = requests.put(f"{BASE_URL}/admin/users/{user1_id}", json={"name": "Updated"})
+    if resp.status_code != 401:
+        log(f"❌ FAIL: Expected 401, got {resp.status_code}")
+        return False
+    log(f"✅ Without auth returns 401")
+    
+    # Test 3.2: Update name, email, phone
+    log("\n--- Test 3.2: Update name, email, phone ---")
+    new_email = f"updated-{user1_email}"
+    resp = requests.put(f"{BASE_URL}/admin/users/{user1_id}", json={
+        "name": "Updated Name",
+        "email": new_email,
+        "phone": "+211987654321"
+    }, headers=headers)
+    
+    if resp.status_code != 200:
+        log(f"❌ FAIL: Expected 200, got {resp.status_code} - {resp.text}")
+        return False
+    
+    user = resp.json()
+    if user.get("name") != "Updated Name":
+        log(f"❌ FAIL: Name not updated")
+        return False
+    if user.get("email") != new_email.lower():
+        log(f"❌ FAIL: Email not updated")
+        return False
+    if user.get("phone") != "+211987654321":
+        log(f"❌ FAIL: Phone not updated")
+        return False
+    
+    log(f"✅ Name, email, phone updated successfully")
+    
+    # Test 3.3: Update role
+    log("\n--- Test 3.3: Update role ---")
+    resp = requests.put(f"{BASE_URL}/admin/users/{user1_id}", json={
+        "role": "seller"
+    }, headers=headers)
+    
+    if resp.status_code != 200:
+        log(f"❌ FAIL: Expected 200, got {resp.status_code}")
+        return False
+    
+    user = resp.json()
+    if user.get("role") != "seller":
+        log(f"❌ FAIL: Role not updated")
+        return False
+    
+    log(f"✅ Role updated successfully")
+    
+    # Test 3.4: Email uniqueness (duplicate email should return 400)
+    log("\n--- Test 3.4: Duplicate email (expect 400) ---")
+    resp = requests.put(f"{BASE_URL}/admin/users/{user1_id}", json={
+        "email": user2_email
+    }, headers=headers)
+    
+    if resp.status_code != 400:
+        log(f"❌ FAIL: Expected 400, got {resp.status_code}")
+        return False
+    
+    log(f"✅ Duplicate email returns 400")
+    
+    # Test 3.5: Admin changing own role (should return 400)
+    log("\n--- Test 3.5: Admin changing own role (expect 400) ---")
+    # Get admin user_id
+    resp = requests.get(f"{BASE_URL}/admin/users?search={ADMIN_EMAIL}", headers=headers)
+    admin_users = resp.json()
+    admin_user_id = None
+    for u in admin_users:
+        if u.get("email") == ADMIN_EMAIL:
+            admin_user_id = u.get("id")
+            break
+    
+    if admin_user_id:
+        resp = requests.put(f"{BASE_URL}/admin/users/{admin_user_id}", json={
+            "role": "customer"
+        }, headers=headers)
+        
+        if resp.status_code != 400:
+            log(f"❌ FAIL: Expected 400, got {resp.status_code}")
+            return False
+        
+        log(f"✅ Admin changing own role returns 400")
+    else:
+        log(f"⚠️ Could not find admin user, skipping self-role-change test")
+    
+    log(f"\n✅ TEST 3 PASSED")
+    return True
+
+def test_4_reset_password(admin_token: str):
+    """Test 4: POST /api/admin/users/{user_id}/reset-password - Direct password reset"""
+    test_header("TEST 4: POST /api/admin/users/{user_id}/reset-password (direct reset)")
+    
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    
+    # Create test user
+    user_id, email, old_password = create_test_user("customer", verify=True)
+    if not user_id:
+        log(f"❌ FAIL: Could not create test user")
+        return False
+    
+    # Test 4.1: Without auth -> 401
+    log("\n--- Test 4.1: Without auth (expect 401) ---")
+    resp = requests.post(f"{BASE_URL}/admin/users/{user_id}/reset-password", json={
+        "new_password": "newpass123"
+    })
+    if resp.status_code != 401:
+        log(f"❌ FAIL: Expected 401, got {resp.status_code}")
+        return False
+    log(f"✅ Without auth returns 401")
+    
+    # Test 4.2: Valid password reset (min 6 chars)
+    log("\n--- Test 4.2: Valid password reset ---")
+    new_password = "newpass123"
+    resp = requests.post(f"{BASE_URL}/admin/users/{user_id}/reset-password", json={
+        "new_password": new_password
+    }, headers=headers)
+    
+    if resp.status_code != 200:
+        log(f"❌ FAIL: Expected 200, got {resp.status_code} - {resp.text}")
+        return False
+    
+    result = resp.json()
+    if not result.get("ok"):
+        log(f"❌ FAIL: Response ok is not true")
+        return False
+    
+    log(f"✅ Password reset successful")
+    
+    # Test 4.3: Verify password is updated and must_change_password = false
+    log("\n--- Test 4.3: Verify new password works and must_change_password=false ---")
+    # Try login with new password
+    login_resp = requests.post(f"{BASE_URL}/auth/login", json={
+        "email": email,
+        "password": new_password
+    })
+    
+    if login_resp.status_code != 200:
+        log(f"❌ FAIL: Login with new password failed: {login_resp.status_code}")
+        return False
+    
+    log(f"✅ New password works")
+    
+    # Check must_change_password field
+    resp = requests.get(f"{BASE_URL}/admin/users/{user_id}", headers=headers)
+    user = resp.json()
+    if user.get("must_change_password") != False:
+        log(f"❌ FAIL: must_change_password should be false, got {user.get('must_change_password')}")
+        return False
+    
+    log(f"✅ must_change_password is false")
+    
+    log(f"\n✅ TEST 4 PASSED")
+    return True
+
+def test_5_send_reset_email(admin_token: str):
+    """Test 5: POST /api/admin/users/{user_id}/send-reset-email - Send email reset"""
+    test_header("TEST 5: POST /api/admin/users/{user_id}/send-reset-email (send email)")
+    
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    
+    # Create test user
+    user_id, email, password = create_test_user("customer", verify=True)
+    if not user_id:
+        log(f"❌ FAIL: Could not create test user")
+        return False
+    
+    # Test 5.1: Without auth -> 401
+    log("\n--- Test 5.1: Without auth (expect 401) ---")
+    resp = requests.post(f"{BASE_URL}/admin/users/{user_id}/send-reset-email")
+    if resp.status_code != 401:
+        log(f"❌ FAIL: Expected 401, got {resp.status_code}")
+        return False
+    log(f"✅ Without auth returns 401")
+    
+    # Test 5.2: As admin -> 200
+    log("\n--- Test 5.2: As admin (expect 200) ---")
+    resp = requests.post(f"{BASE_URL}/admin/users/{user_id}/send-reset-email", headers=headers)
+    
+    if resp.status_code != 200:
+        log(f"❌ FAIL: Expected 200, got {resp.status_code} - {resp.text}")
+        return False
+    
+    result = resp.json()
+    if not result.get("ok"):
+        log(f"❌ FAIL: Response ok is not true")
+        return False
+    
+    log(f"✅ Send reset email returns 200 with success message")
+    
+    # Test 5.3: Verify token created in password_resets collection
+    log("\n--- Test 5.3: Verify token in password_resets collection ---")
+    import os
+    from pymongo import MongoClient
+    from dotenv import load_dotenv
+    
+    # Load environment variables from backend .env
+    load_dotenv("/app/backend/.env")
+    
+    mongo_url = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
+    db_name = os.environ.get("DB_NAME", "jubasquare_db")
     
     try:
         client = MongoClient(mongo_url)
         db = client[db_name]
         
-        # Get verification token
-        verification = db.email_verifications.find_one({"email": email})
-        if verification:
-            token = verification.get("token")
-            # Verify email
-            verify_resp = requests.post(f"{BASE_URL}/auth/verify-email", json={"token": token})
-            if verify_resp.status_code == 200:
-                log(f"✅ Customer email verified")
-            else:
-                log(f"⚠️ Email verification failed: {verify_resp.status_code}")
+        reset = db.password_resets.find_one({"user_id": user_id})
+        if not reset:
+            log(f"❌ FAIL: No password reset token found in database")
+            return False
+        
+        if not reset.get("token"):
+            log(f"❌ FAIL: Token is empty")
+            return False
+        
+        log(f"✅ Token created in password_resets collection")
         
         client.close()
     except Exception as e:
-        log(f"⚠️ Could not verify customer via MongoDB: {e}")
+        log(f"❌ FAIL: Error checking database: {e}")
+        return False
     
-    # Now login as customer
+    log(f"\n✅ TEST 5 PASSED")
+    return True
+
+def test_6_generate_temp_password(admin_token: str):
+    """Test 6: POST /api/admin/users/{user_id}/generate-temp-password - Generate temp"""
+    test_header("TEST 6: POST /api/admin/users/{user_id}/generate-temp-password (generate temp)")
+    
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    
+    # Create test user
+    user_id, email, old_password = create_test_user("customer", verify=True)
+    if not user_id:
+        log(f"❌ FAIL: Could not create test user")
+        return False
+    
+    # Test 6.1: Without auth -> 401
+    log("\n--- Test 6.1: Without auth (expect 401) ---")
+    resp = requests.post(f"{BASE_URL}/admin/users/{user_id}/generate-temp-password")
+    if resp.status_code != 401:
+        log(f"❌ FAIL: Expected 401, got {resp.status_code}")
+        return False
+    log(f"✅ Without auth returns 401")
+    
+    # Test 6.2: As admin -> 200 with temp_password
+    log("\n--- Test 6.2: As admin (expect 200 with temp_password) ---")
+    resp = requests.post(f"{BASE_URL}/admin/users/{user_id}/generate-temp-password", headers=headers)
+    
+    if resp.status_code != 200:
+        log(f"❌ FAIL: Expected 200, got {resp.status_code} - {resp.text}")
+        return False
+    
+    result = resp.json()
+    if not result.get("ok"):
+        log(f"❌ FAIL: Response ok is not true")
+        return False
+    
+    temp_password = result.get("temp_password")
+    if not temp_password:
+        log(f"❌ FAIL: No temp_password in response")
+        return False
+    
+    log(f"✅ Returns temp_password: {temp_password}")
+    
+    # Test 6.3: Verify temp password is 12 characters
+    log("\n--- Test 6.3: Verify temp password is 12 characters ---")
+    if len(temp_password) != 12:
+        log(f"❌ FAIL: Temp password should be 12 chars, got {len(temp_password)}")
+        return False
+    
+    log(f"✅ Temp password is 12 characters")
+    
+    # Test 6.4: Verify must_change_password = true
+    log("\n--- Test 6.4: Verify must_change_password=true ---")
+    resp = requests.get(f"{BASE_URL}/admin/users/{user_id}", headers=headers)
+    user = resp.json()
+    if user.get("must_change_password") != True:
+        log(f"❌ FAIL: must_change_password should be true, got {user.get('must_change_password')}")
+        return False
+    
+    log(f"✅ must_change_password is true")
+    
+    log(f"\n✅ TEST 6 PASSED")
+    return True
+
+def test_7_update_status(admin_token: str):
+    """Test 7: PUT /api/admin/users/{user_id}/status - Enable/Disable"""
+    test_header("TEST 7: PUT /api/admin/users/{user_id}/status (enable/disable)")
+    
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    
+    # Create test user
+    user_id, email, password = create_test_user("customer", verify=True)
+    if not user_id:
+        log(f"❌ FAIL: Could not create test user")
+        return False
+    
+    # Test 7.1: Without auth -> 401
+    log("\n--- Test 7.1: Without auth (expect 401) ---")
+    resp = requests.put(f"{BASE_URL}/admin/users/{user_id}/status", json={"is_active": False})
+    if resp.status_code != 401:
+        log(f"❌ FAIL: Expected 401, got {resp.status_code}")
+        return False
+    log(f"✅ Without auth returns 401")
+    
+    # Test 7.2: Disable user (is_active = false)
+    log("\n--- Test 7.2: Disable user ---")
+    resp = requests.put(f"{BASE_URL}/admin/users/{user_id}/status", json={
+        "is_active": False
+    }, headers=headers)
+    
+    if resp.status_code != 200:
+        log(f"❌ FAIL: Expected 200, got {resp.status_code} - {resp.text}")
+        return False
+    
+    result = resp.json()
+    if not result.get("ok"):
+        log(f"❌ FAIL: Response ok is not true")
+        return False
+    
+    log(f"✅ User disabled successfully")
+    
+    # Verify is_active is false
+    resp = requests.get(f"{BASE_URL}/admin/users/{user_id}", headers=headers)
+    user = resp.json()
+    if user.get("is_active") != False:
+        log(f"❌ FAIL: is_active should be false")
+        return False
+    
+    log(f"✅ Verified is_active=false")
+    
+    # Test 7.3: Enable user (is_active = true)
+    log("\n--- Test 7.3: Enable user ---")
+    resp = requests.put(f"{BASE_URL}/admin/users/{user_id}/status", json={
+        "is_active": True
+    }, headers=headers)
+    
+    if resp.status_code != 200:
+        log(f"❌ FAIL: Expected 200, got {resp.status_code}")
+        return False
+    
+    log(f"✅ User enabled successfully")
+    
+    # Test 7.4: Admin disabling own account (should return 400)
+    log("\n--- Test 7.4: Admin disabling own account (expect 400) ---")
+    # Get admin user_id
+    resp = requests.get(f"{BASE_URL}/admin/users?search={ADMIN_EMAIL}", headers=headers)
+    admin_users = resp.json()
+    admin_user_id = None
+    for u in admin_users:
+        if u.get("email") == ADMIN_EMAIL:
+            admin_user_id = u.get("id")
+            break
+    
+    if admin_user_id:
+        resp = requests.put(f"{BASE_URL}/admin/users/{admin_user_id}/status", json={
+            "is_active": False
+        }, headers=headers)
+        
+        if resp.status_code != 400:
+            log(f"❌ FAIL: Expected 400, got {resp.status_code}")
+            return False
+        
+        log(f"✅ Admin disabling own account returns 400")
+    else:
+        log(f"⚠️ Could not find admin user, skipping self-disable test")
+    
+    log(f"\n✅ TEST 7 PASSED")
+    return True
+
+def test_8_delete_user(admin_token: str):
+    """Test 8: DELETE /api/admin/users/{user_id} - Delete user"""
+    test_header("TEST 8: DELETE /api/admin/users/{user_id} (delete with cascade)")
+    
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    
+    # Test 8.1: Without auth -> 401
+    log("\n--- Test 8.1: Without auth (expect 401) ---")
+    resp = requests.delete(f"{BASE_URL}/admin/users/some-id")
+    if resp.status_code != 401:
+        log(f"❌ FAIL: Expected 401, got {resp.status_code}")
+        return False
+    log(f"✅ Without auth returns 401")
+    
+    # Test 8.2: Delete customer user
+    log("\n--- Test 8.2: Delete customer user ---")
+    customer_id, customer_email, _ = create_test_user("customer", verify=True)
+    if not customer_id:
+        log(f"❌ FAIL: Could not create customer")
+        return False
+    
+    resp = requests.delete(f"{BASE_URL}/admin/users/{customer_id}", headers=headers)
+    if resp.status_code != 200:
+        log(f"❌ FAIL: Expected 200, got {resp.status_code} - {resp.text}")
+        return False
+    
+    result = resp.json()
+    if not result.get("ok"):
+        log(f"❌ FAIL: Response ok is not true")
+        return False
+    
+    log(f"✅ Customer deleted successfully")
+    
+    # Verify user is deleted
+    resp = requests.get(f"{BASE_URL}/admin/users/{customer_id}", headers=headers)
+    if resp.status_code != 404:
+        log(f"❌ FAIL: Deleted user should return 404, got {resp.status_code}")
+        return False
+    
+    log(f"✅ Verified user is deleted (404)")
+    
+    # Remove from cleanup list
+    if customer_id in created_users:
+        created_users.remove(customer_id)
+    
+    # Test 8.3: Delete seller user (verify cascade: shops, products deleted)
+    log("\n--- Test 8.3: Delete seller user with cascade ---")
+    seller_id, seller_email, seller_pass = create_test_user("seller", verify=True)
+    if not seller_id:
+        log(f"❌ FAIL: Could not create seller")
+        return False
+    
+    # Login as seller and create a shop
+    login_resp = requests.post(f"{BASE_URL}/auth/login", json={
+        "email": seller_email,
+        "password": seller_pass
+    })
+    
+    if login_resp.status_code == 200:
+        seller_token = login_resp.json().get("token")
+        seller_headers = {"Authorization": f"Bearer {seller_token}"}
+        
+        # Create a shop
+        shop_resp = requests.post(f"{BASE_URL}/shops", json={
+            "name": "Test Shop for Deletion",
+            "description": "Test shop",
+            "category": "Electronics"
+        }, headers=seller_headers)
+        
+        if shop_resp.status_code == 200:
+            shop = shop_resp.json()
+            shop_id = shop.get("id")
+            log(f"✅ Created shop: {shop_id}")
+            
+            # Create a product
+            product_resp = requests.post(f"{BASE_URL}/products", json={
+                "name": "Test Product",
+                "description": "Test",
+                "price_usd": 10.0,
+                "stock": 100,
+                "category": "Electronics",
+                "shop_id": shop_id
+            }, headers=seller_headers)
+            
+            if product_resp.status_code == 200:
+                product = product_resp.json()
+                product_id = product.get("id")
+                log(f"✅ Created product: {product_id}")
+            else:
+                log(f"⚠️ Could not create product: {product_resp.status_code}")
+        else:
+            log(f"⚠️ Could not create shop: {shop_resp.status_code}")
+    else:
+        log(f"⚠️ Seller login failed: {login_resp.status_code}")
+    
+    # Delete seller
+    resp = requests.delete(f"{BASE_URL}/admin/users/{seller_id}", headers=headers)
+    if resp.status_code != 200:
+        log(f"❌ FAIL: Expected 200, got {resp.status_code} - {resp.text}")
+        return False
+    
+    log(f"✅ Seller deleted successfully")
+    
+    # Verify shops and products are deleted
+    shops_resp = requests.get(f"{BASE_URL}/shops")
+    shops = shops_resp.json()
+    seller_shops = [s for s in shops if s.get("seller_id") == seller_id]
+    if len(seller_shops) > 0:
+        log(f"❌ FAIL: Seller shops should be deleted, found {len(seller_shops)}")
+        return False
+    
+    log(f"✅ Verified seller shops are deleted")
+    
+    # Remove from cleanup list
+    if seller_id in created_users:
+        created_users.remove(seller_id)
+    
+    # Test 8.4: Admin deleting own account (should return 400)
+    log("\n--- Test 8.4: Admin deleting own account (expect 400) ---")
+    # Get admin user_id
+    resp = requests.get(f"{BASE_URL}/admin/users?search={ADMIN_EMAIL}", headers=headers)
+    admin_users = resp.json()
+    admin_user_id = None
+    for u in admin_users:
+        if u.get("email") == ADMIN_EMAIL:
+            admin_user_id = u.get("id")
+            break
+    
+    if admin_user_id:
+        resp = requests.delete(f"{BASE_URL}/admin/users/{admin_user_id}", headers=headers)
+        
+        if resp.status_code != 400:
+            log(f"❌ FAIL: Expected 400, got {resp.status_code}")
+            return False
+        
+        log(f"✅ Admin deleting own account returns 400")
+    else:
+        log(f"⚠️ Could not find admin user, skipping self-delete test")
+    
+    log(f"\n✅ TEST 8 PASSED")
+    return True
+
+def test_9_login_flow_updates(admin_token: str):
+    """Test 9: Login flow updates - Verify new checks"""
+    test_header("TEST 9: Login flow updates (disabled, must_change_password, last_login)")
+    
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    
+    # Test 9.1: Disabled user login (expect 403)
+    log("\n--- Test 9.1: Disabled user login (expect 403) ---")
+    user_id, email, password = create_test_user("customer", verify=True)
+    if not user_id:
+        log(f"❌ FAIL: Could not create test user")
+        return False
+    
+    # Disable the user
+    resp = requests.put(f"{BASE_URL}/admin/users/{user_id}/status", json={
+        "is_active": False
+    }, headers=headers)
+    
+    if resp.status_code != 200:
+        log(f"❌ FAIL: Could not disable user")
+        return False
+    
+    # Try to login
     login_resp = requests.post(f"{BASE_URL}/auth/login", json={
         "email": email,
         "password": password
     })
     
-    if login_resp.status_code == 200:
-        customer_token = login_resp.json().get("token")
-        log(f"✅ Customer login successful")
-        return email, customer_token
-    else:
-        log(f"⚠️ Customer login failed (may be unverified): {login_resp.status_code}")
-        return email, None
-
-def cleanup_categories(admin_token: str):
-    """Delete all test categories created during testing."""
-    if not created_categories:
-        return
-    
-    test_header("CLEANUP: Deleting test categories")
-    headers = {"Authorization": f"Bearer {admin_token}"}
-    
-    for cat_id in created_categories:
-        resp = requests.delete(f"{BASE_URL}/admin/categories/{cat_id}?force=true", headers=headers)
-        if resp.status_code == 200:
-            log(f"✅ Deleted category {cat_id}")
-        else:
-            log(f"⚠️ Failed to delete category {cat_id}: {resp.status_code}")
-
-def test_1_meta_categories():
-    """Test 1: GET /api/meta/categories (public, no auth)"""
-    test_header("TEST 1: GET /api/meta/categories (public, backward-compatible)")
-    
-    resp = requests.get(f"{BASE_URL}/meta/categories")
-    
-    if resp.status_code != 200:
-        log(f"❌ FAIL: Expected 200, got {resp.status_code}")
+    if login_resp.status_code != 403:
+        log(f"❌ FAIL: Expected 403, got {login_resp.status_code}")
         return False
     
-    data = resp.json()
-    
-    # Check backward-compat keys
-    required_keys = ["retail", "wholesale", "restaurant", "food_subcategories", "groups"]
-    for key in required_keys:
-        if key not in data:
-            log(f"❌ FAIL: Missing key '{key}' in response")
-            return False
-    
-    log(f"✅ All required keys present: {required_keys}")
-    
-    # Check that retail/wholesale/restaurant/food_subcategories are arrays of strings
-    for key in ["retail", "wholesale", "restaurant", "food_subcategories"]:
-        if not isinstance(data[key], list):
-            log(f"❌ FAIL: '{key}' is not a list")
-            return False
-        if len(data[key]) == 0:
-            log(f"⚠️ WARNING: '{key}' is empty (expected seeded data)")
-    
-    log(f"✅ retail has {len(data['retail'])} categories")
-    log(f"✅ wholesale has {len(data['wholesale'])} categories")
-    log(f"✅ restaurant has {len(data['restaurant'])} categories")
-    log(f"✅ food_subcategories has {len(data['food_subcategories'])} categories")
-    
-    # Check backward compat: retail should contain seeded defaults
-    expected_retail = ["Groceries", "Clothing & Fashion", "Electronics & Accessories"]
-    for expected in expected_retail:
-        if expected not in data["retail"]:
-            log(f"❌ FAIL: Expected '{expected}' in retail categories (seed default)")
-            return False
-    
-    log(f"✅ Backward compat: retail contains expected seed defaults: {expected_retail}")
-    
-    # Check groups structure
-    if not isinstance(data["groups"], dict):
-        log(f"❌ FAIL: 'groups' is not a dict")
+    error_detail = login_resp.json().get("detail", "")
+    if "disabled" not in error_detail.lower():
+        log(f"❌ FAIL: Error message should mention 'disabled', got: {error_detail}")
         return False
     
-    for group_key in ["retail", "wholesale", "restaurant", "food"]:
-        if group_key not in data["groups"]:
-            log(f"❌ FAIL: Missing group key '{group_key}' in groups")
-            return False
-        
-        group_data = data["groups"][group_key]
-        if not isinstance(group_data, list):
-            log(f"❌ FAIL: groups['{group_key}'] is not a list")
-            return False
-        
-        # Check structure of each category in the tree
-        for cat in group_data:
-            required_cat_keys = ["id", "name", "group", "parent_id", "order", "image_url", "is_active", "children"]
-            for cat_key in required_cat_keys:
-                if cat_key not in cat:
-                    log(f"❌ FAIL: Category missing key '{cat_key}': {cat}")
-                    return False
-            
-            if not isinstance(cat["children"], list):
-                log(f"❌ FAIL: Category 'children' is not a list: {cat}")
-                return False
+    log(f"✅ Disabled user login returns 403 with 'account disabled' message")
     
-    log(f"✅ groups structure is correct with all 4 group keys")
-    log(f"✅ Each category has correct structure: id, name, group, parent_id, order, image_url, is_active, children")
-    
-    log(f"✅ TEST 1 PASSED")
-    return True
-
-def test_2_categories_flat(admin_token: str):
-    """Test 2: GET /api/categories?group=retail (public)"""
-    test_header("TEST 2: GET /api/categories?group=retail (public flat list)")
-    
-    resp = requests.get(f"{BASE_URL}/categories?group=retail")
-    
-    if resp.status_code != 200:
-        log(f"❌ FAIL: Expected 200, got {resp.status_code}")
-        return False
-    
-    data = resp.json()
-    
-    if not isinstance(data, list):
-        log(f"❌ FAIL: Response is not a list")
-        return False
-    
-    log(f"✅ Returns list with {len(data)} categories")
-    
-    # Check that all categories belong to retail group and are active
-    for cat in data:
-        if cat.get("group") != "retail":
-            log(f"❌ FAIL: Category does not belong to retail group: {cat}")
-            return False
-        if cat.get("is_active") != True:
-            log(f"❌ FAIL: Inactive category returned (should be active only): {cat}")
-            return False
-    
-    log(f"✅ All categories belong to retail group and are active")
-    log(f"✅ TEST 2 PASSED")
-    return True
-
-def test_3_categories_tree(admin_token: str):
-    """Test 3: GET /api/categories/tree?group=retail (public)"""
-    test_header("TEST 3: GET /api/categories/tree?group=retail (public tree)")
-    
-    resp = requests.get(f"{BASE_URL}/categories/tree?group=retail")
-    
-    if resp.status_code != 200:
-        log(f"❌ FAIL: Expected 200, got {resp.status_code}")
-        return False
-    
-    data = resp.json()
-    
-    if not isinstance(data, list):
-        log(f"❌ FAIL: Response is not a list")
-        return False
-    
-    log(f"✅ Returns list with {len(data)} top-level categories")
-    
-    # Check structure: each top-level should have children array
-    for cat in data:
-        if "children" not in cat:
-            log(f"❌ FAIL: Category missing 'children' key: {cat}")
-            return False
-        if not isinstance(cat["children"], list):
-            log(f"❌ FAIL: Category 'children' is not a list: {cat}")
-            return False
-        if cat.get("parent_id") is not None:
-            log(f"❌ FAIL: Top-level category has parent_id: {cat}")
-            return False
-    
-    log(f"✅ All top-level categories have children arrays and parent_id=null")
-    log(f"✅ TEST 3 PASSED")
-    return True
-
-def test_4_admin_categories(admin_token: str, customer_token: Optional[str]):
-    """Test 4: GET /api/admin/categories (auth required, admin only)"""
-    test_header("TEST 4: GET /api/admin/categories (admin only, includes inactive)")
-    
-    # Test without auth -> 401
-    resp = requests.get(f"{BASE_URL}/admin/categories")
-    if resp.status_code != 401:
-        log(f"❌ FAIL: Without auth expected 401, got {resp.status_code}")
-        return False
-    log(f"✅ Without auth returns 401")
-    
-    # Test as customer (non-admin) -> 403
-    if customer_token:
-        headers = {"Authorization": f"Bearer {customer_token}"}
-        resp = requests.get(f"{BASE_URL}/admin/categories", headers=headers)
-        if resp.status_code != 403:
-            log(f"❌ FAIL: As customer expected 403, got {resp.status_code}")
-            return False
-        log(f"✅ As customer returns 403")
-    else:
-        log(f"⚠️ Skipping customer 403 test (no customer token)")
-    
-    # Test as admin -> 200
-    headers = {"Authorization": f"Bearer {admin_token}"}
-    resp = requests.get(f"{BASE_URL}/admin/categories", headers=headers)
-    
-    if resp.status_code != 200:
-        log(f"❌ FAIL: As admin expected 200, got {resp.status_code}")
-        return False
-    
-    data = resp.json()
-    
-    if not isinstance(data, dict):
-        log(f"❌ FAIL: Response is not a dict")
-        return False
-    
-    # Check all 4 group keys
-    for group_key in ["retail", "wholesale", "restaurant", "food"]:
-        if group_key not in data:
-            log(f"❌ FAIL: Missing group key '{group_key}'")
-            return False
-        if not isinstance(data[group_key], list):
-            log(f"❌ FAIL: Group '{group_key}' is not a list")
-            return False
-    
-    log(f"✅ As admin returns 200 with all 4 group keys")
-    log(f"✅ Each group contains tree structure (top-level + children)")
-    
-    # The admin endpoint should include inactive categories (we'll verify this later when we create an inactive one)
-    
-    log(f"✅ TEST 4 PASSED")
-    return True
-
-def test_5_create_category(admin_token: str, customer_token: Optional[str]):
-    """Test 5: POST /api/admin/categories (admin only, various validations)"""
-    test_header("TEST 5: POST /api/admin/categories (create with validations)")
-    
-    headers = {"Authorization": f"Bearer {admin_token}"}
-    
-    # Test without auth -> 401
-    resp = requests.post(f"{BASE_URL}/admin/categories", json={"name": "Test", "group": "retail"})
-    if resp.status_code != 401:
-        log(f"❌ FAIL: Without auth expected 401, got {resp.status_code}")
-        return False
-    log(f"✅ Without auth returns 401")
-    
-    # Test 5.1: Create top-level retail category
-    log("\n--- Test 5.1: Create top-level retail category ---")
-    resp = requests.post(f"{BASE_URL}/admin/categories", json={
-        "name": "Test Cat ABC",
-        "group": "retail"
+    # Test 9.2: Verify last_login timestamp is updated after successful login
+    log("\n--- Test 9.2: Verify last_login timestamp updates ---")
+    # Re-enable the user
+    resp = requests.put(f"{BASE_URL}/admin/users/{user_id}/status", json={
+        "is_active": True
     }, headers=headers)
     
-    if resp.status_code != 200:
-        log(f"❌ FAIL: Expected 200, got {resp.status_code} - {resp.text}")
-        return False
+    # Get user before login
+    resp = requests.get(f"{BASE_URL}/admin/users/{user_id}", headers=headers)
+    user_before = resp.json()
+    last_login_before = user_before.get("last_login")
     
-    top_cat = resp.json()
-    if not top_cat.get("id"):
-        log(f"❌ FAIL: No id in response")
-        return False
-    if top_cat.get("parent_id") is not None:
-        log(f"❌ FAIL: Top-level category should have parent_id=null")
-        return False
-    if top_cat.get("is_active") != True:
-        log(f"❌ FAIL: Category should be active by default")
-        return False
+    # Wait a moment
+    time.sleep(1)
     
-    created_categories.append(top_cat["id"])
-    log(f"✅ Created top-level category: {top_cat['name']} (id: {top_cat['id']})")
-    
-    # Test 5.2: Create child under the top-level category
-    log("\n--- Test 5.2: Create child category ---")
-    resp = requests.post(f"{BASE_URL}/admin/categories", json={
-        "name": "Sub 1",
-        "group": "retail",
-        "parent_id": top_cat["id"]
-    }, headers=headers)
-    
-    if resp.status_code != 200:
-        log(f"❌ FAIL: Expected 200, got {resp.status_code} - {resp.text}")
-        return False
-    
-    child_cat = resp.json()
-    if child_cat.get("parent_id") != top_cat["id"]:
-        log(f"❌ FAIL: Child parent_id should be {top_cat['id']}, got {child_cat.get('parent_id')}")
-        return False
-    
-    created_categories.append(child_cat["id"])
-    log(f"✅ Created child category: {child_cat['name']} (parent_id: {child_cat['parent_id']})")
-    
-    # Test 5.3: Create with parent in different group -> 400
-    log("\n--- Test 5.3: Create with parent in different group (should fail) ---")
-    resp = requests.post(f"{BASE_URL}/admin/categories", json={
-        "name": "X",
-        "group": "wholesale",
-        "parent_id": top_cat["id"]  # retail parent
-    }, headers=headers)
-    
-    if resp.status_code != 400:
-        log(f"❌ FAIL: Expected 400, got {resp.status_code}")
-        return False
-    log(f"✅ Creating with parent in different group returns 400")
-    
-    # Test 5.4: Create with parent that already has a parent (depth>1) -> 400
-    log("\n--- Test 5.4: Create with grandparent (depth>1, should fail) ---")
-    resp = requests.post(f"{BASE_URL}/admin/categories", json={
-        "name": "Y",
-        "group": "retail",
-        "parent_id": child_cat["id"]  # child already has a parent
-    }, headers=headers)
-    
-    if resp.status_code != 400:
-        log(f"❌ FAIL: Expected 400, got {resp.status_code}")
-        return False
-    log(f"✅ Creating with depth>1 returns 400")
-    
-    # Test 5.5: Duplicate name in same (group, parent_id) -> 400
-    log("\n--- Test 5.5: Duplicate name in same group/parent (should fail) ---")
-    resp = requests.post(f"{BASE_URL}/admin/categories", json={
-        "name": "Test Cat ABC",  # same name as top_cat
-        "group": "retail",
-        "parent_id": None  # same parent (null)
-    }, headers=headers)
-    
-    if resp.status_code != 400:
-        log(f"❌ FAIL: Expected 400, got {resp.status_code}")
-        return False
-    log(f"✅ Duplicate name in same group/parent returns 400")
-    
-    # Test 5.6: Invalid group -> 400
-    log("\n--- Test 5.6: Invalid group (should fail) ---")
-    resp = requests.post(f"{BASE_URL}/admin/categories", json={
-        "name": "Test",
-        "group": "foo"
-    }, headers=headers)
-    
-    if resp.status_code != 400:
-        log(f"❌ FAIL: Expected 400, got {resp.status_code}")
-        return False
-    log(f"✅ Invalid group returns 400")
-    
-    # Test 5.7: Missing/empty name -> 400
-    log("\n--- Test 5.7: Missing/empty name (should fail) ---")
-    resp = requests.post(f"{BASE_URL}/admin/categories", json={
-        "name": "",
-        "group": "retail"
-    }, headers=headers)
-    
-    if resp.status_code != 400:
-        log(f"❌ FAIL: Expected 400, got {resp.status_code}")
-        return False
-    log(f"✅ Empty name returns 400")
-    
-    log(f"\n✅ TEST 5 PASSED")
-    return True
-
-def test_6_update_category(admin_token: str):
-    """Test 6: PUT /api/admin/categories/{id} (admin only)"""
-    test_header("TEST 6: PUT /api/admin/categories/{id} (update)")
-    
-    headers = {"Authorization": f"Bearer {admin_token}"}
-    
-    # Create a test category first
-    resp = requests.post(f"{BASE_URL}/admin/categories", json={
-        "name": "Update Test Cat",
-        "group": "retail"
-    }, headers=headers)
-    
-    if resp.status_code != 200:
-        log(f"❌ FAIL: Could not create test category: {resp.status_code}")
-        return False
-    
-    cat = resp.json()
-    cat_id = cat["id"]
-    created_categories.append(cat_id)
-    log(f"✅ Created test category: {cat['name']} (id: {cat_id})")
-    
-    # Test without auth -> 401
-    resp = requests.put(f"{BASE_URL}/admin/categories/{cat_id}", json={"name": "Updated"})
-    if resp.status_code != 401:
-        log(f"❌ FAIL: Without auth expected 401, got {resp.status_code}")
-        return False
-    log(f"✅ Without auth returns 401")
-    
-    # Test 6.1: Update name
-    log("\n--- Test 6.1: Update name ---")
-    resp = requests.put(f"{BASE_URL}/admin/categories/{cat_id}", json={
-        "name": "Updated Cat Name"
-    }, headers=headers)
-    
-    if resp.status_code != 200:
-        log(f"❌ FAIL: Expected 200, got {resp.status_code} - {resp.text}")
-        return False
-    
-    updated = resp.json()
-    if updated.get("name") != "Updated Cat Name":
-        log(f"❌ FAIL: Name not updated, got {updated.get('name')}")
-        return False
-    log(f"✅ Name updated successfully")
-    
-    # Verify via GET
-    resp = requests.get(f"{BASE_URL}/categories?group=retail")
-    data = resp.json()
-    found = any(c.get("id") == cat_id and c.get("name") == "Updated Cat Name" for c in data)
-    if not found:
-        log(f"❌ FAIL: Updated name not reflected in GET")
-        return False
-    log(f"✅ GET reflects updated name")
-    
-    # Test 6.2: Update image_url
-    log("\n--- Test 6.2: Update image_url ---")
-    resp = requests.put(f"{BASE_URL}/admin/categories/{cat_id}", json={
-        "image_url": "https://example.com/image.jpg"
-    }, headers=headers)
-    
-    if resp.status_code != 200:
-        log(f"❌ FAIL: Expected 200, got {resp.status_code}")
-        return False
-    
-    updated = resp.json()
-    if updated.get("image_url") != "https://example.com/image.jpg":
-        log(f"❌ FAIL: image_url not updated")
-        return False
-    log(f"✅ image_url updated successfully")
-    
-    # Test 6.3: Update is_active=false
-    log("\n--- Test 6.3: Update is_active=false ---")
-    resp = requests.put(f"{BASE_URL}/admin/categories/{cat_id}", json={
-        "is_active": False
-    }, headers=headers)
-    
-    if resp.status_code != 200:
-        log(f"❌ FAIL: Expected 200, got {resp.status_code}")
-        return False
-    log(f"✅ is_active updated to false")
-    
-    # Verify GET /api/categories does NOT include inactive
-    resp = requests.get(f"{BASE_URL}/categories?group=retail")
-    data = resp.json()
-    found = any(c.get("id") == cat_id for c in data)
-    if found:
-        log(f"❌ FAIL: Inactive category should not appear in public GET")
-        return False
-    log(f"✅ GET /api/categories does NOT include inactive category")
-    
-    # Verify GET /api/admin/categories DOES include inactive
-    resp = requests.get(f"{BASE_URL}/admin/categories", headers=headers)
-    data = resp.json()
-    found = False
-    for group_cats in data.values():
-        for c in group_cats:
-            if c.get("id") == cat_id:
-                found = True
-                break
-    if not found:
-        log(f"❌ FAIL: Admin GET should include inactive category")
-        return False
-    log(f"✅ GET /api/admin/categories DOES include inactive category")
-    
-    # Test 6.4: Update to duplicate name -> 400
-    log("\n--- Test 6.4: Update to duplicate name (should fail) ---")
-    # Create another category
-    resp = requests.post(f"{BASE_URL}/admin/categories", json={
-        "name": "Another Cat",
-        "group": "retail"
-    }, headers=headers)
-    another_cat = resp.json()
-    created_categories.append(another_cat["id"])
-    
-    # Try to update first cat to same name as second
-    resp = requests.put(f"{BASE_URL}/admin/categories/{cat_id}", json={
-        "name": "Another Cat"
-    }, headers=headers)
-    
-    if resp.status_code != 400:
-        log(f"❌ FAIL: Expected 400, got {resp.status_code}")
-        return False
-    log(f"✅ Updating to duplicate name returns 400")
-    
-    # Test 6.5: Unknown id -> 404
-    log("\n--- Test 6.5: Unknown id (should fail) ---")
-    resp = requests.put(f"{BASE_URL}/admin/categories/unknown-id-12345", json={
-        "name": "Test"
-    }, headers=headers)
-    
-    if resp.status_code != 404:
-        log(f"❌ FAIL: Expected 404, got {resp.status_code}")
-        return False
-    log(f"✅ Unknown id returns 404")
-    
-    log(f"\n✅ TEST 6 PASSED")
-    return True
-
-def test_7_delete_category(admin_token: str):
-    """Test 7: DELETE /api/admin/categories/{id} (admin only)"""
-    test_header("TEST 7: DELETE /api/admin/categories/{id} (with/without force)")
-    
-    headers = {"Authorization": f"Bearer {admin_token}"}
-    
-    # Test without auth -> 401
-    resp = requests.delete(f"{BASE_URL}/admin/categories/some-id")
-    if resp.status_code != 401:
-        log(f"❌ FAIL: Without auth expected 401, got {resp.status_code}")
-        return False
-    log(f"✅ Without auth returns 401")
-    
-    # Test 7.1: Delete a leaf (no children)
-    log("\n--- Test 7.1: Delete leaf category ---")
-    resp = requests.post(f"{BASE_URL}/admin/categories", json={
-        "name": "Leaf Cat",
-        "group": "retail"
-    }, headers=headers)
-    leaf_cat = resp.json()
-    leaf_id = leaf_cat["id"]
-    
-    resp = requests.delete(f"{BASE_URL}/admin/categories/{leaf_id}", headers=headers)
-    if resp.status_code != 200:
-        log(f"❌ FAIL: Expected 200, got {resp.status_code}")
-        return False
-    log(f"✅ Deleted leaf category successfully")
-    
-    # Test 7.2: Delete parent with children -> 400
-    log("\n--- Test 7.2: Delete parent with children (should fail) ---")
-    # Create parent
-    resp = requests.post(f"{BASE_URL}/admin/categories", json={
-        "name": "Parent Cat",
-        "group": "retail"
-    }, headers=headers)
-    parent_cat = resp.json()
-    parent_id = parent_cat["id"]
-    created_categories.append(parent_id)
-    
-    # Create child
-    resp = requests.post(f"{BASE_URL}/admin/categories", json={
-        "name": "Child Cat",
-        "group": "retail",
-        "parent_id": parent_id
-    }, headers=headers)
-    child_cat = resp.json()
-    child_id = child_cat["id"]
-    created_categories.append(child_id)
-    
-    # Try to delete parent without force
-    resp = requests.delete(f"{BASE_URL}/admin/categories/{parent_id}", headers=headers)
-    if resp.status_code != 400:
-        log(f"❌ FAIL: Expected 400, got {resp.status_code}")
-        return False
-    
-    # Check that error message mentions "sub-category"
-    if "sub-category" not in resp.text.lower() and "sub-categor" not in resp.text.lower():
-        log(f"⚠️ WARNING: Error message should mention 'sub-category': {resp.text}")
-    log(f"✅ Delete parent with children returns 400 with informative message")
-    
-    # Test 7.3: Delete parent with force=true
-    log("\n--- Test 7.3: Delete parent with force=true ---")
-    resp = requests.delete(f"{BASE_URL}/admin/categories/{parent_id}?force=true", headers=headers)
-    if resp.status_code != 200:
-        log(f"❌ FAIL: Expected 200, got {resp.status_code}")
-        return False
-    
-    result = resp.json()
-    if result.get("deleted_children") != 1:
-        log(f"❌ FAIL: Expected deleted_children=1, got {result.get('deleted_children')}")
-        return False
-    log(f"✅ Deleted parent with force=true, deleted_children={result.get('deleted_children')}")
-    
-    # Verify children are gone
-    resp = requests.get(f"{BASE_URL}/categories?group=retail")
-    data = resp.json()
-    found_parent = any(c.get("id") == parent_id for c in data)
-    found_child = any(c.get("id") == child_id for c in data)
-    
-    if found_parent or found_child:
-        log(f"❌ FAIL: Parent or child still exists after force delete")
-        return False
-    log(f"✅ Verified parent and children are deleted via GET")
-    
-    # Remove from cleanup list since already deleted
-    if parent_id in created_categories:
-        created_categories.remove(parent_id)
-    if child_id in created_categories:
-        created_categories.remove(child_id)
-    
-    log(f"\n✅ TEST 7 PASSED")
-    return True
-
-def test_8_reorder_categories(admin_token: str):
-    """Test 8: POST /api/admin/categories/reorder (admin only)"""
-    test_header("TEST 8: POST /api/admin/categories/reorder")
-    
-    headers = {"Authorization": f"Bearer {admin_token}"}
-    
-    # Test without auth -> 401
-    resp = requests.post(f"{BASE_URL}/admin/categories/reorder", json={
-        "group": "retail",
-        "parent_id": None,
-        "ids": []
+    # Login
+    login_resp = requests.post(f"{BASE_URL}/auth/login", json={
+        "email": email,
+        "password": password
     })
-    if resp.status_code != 401:
-        log(f"❌ FAIL: Without auth expected 401, got {resp.status_code}")
+    
+    if login_resp.status_code != 200:
+        log(f"❌ FAIL: Login failed: {login_resp.status_code}")
         return False
-    log(f"✅ Without auth returns 401")
     
-    # Create two top-level retail categories
-    log("\n--- Creating two test categories A and B ---")
-    resp_a = requests.post(f"{BASE_URL}/admin/categories", json={
-        "name": "Reorder Cat A",
-        "group": "retail"
-    }, headers=headers)
-    cat_a = resp_a.json()
-    cat_a_id = cat_a["id"]
-    created_categories.append(cat_a_id)
+    # Get user after login
+    resp = requests.get(f"{BASE_URL}/admin/users/{user_id}", headers=headers)
+    user_after = resp.json()
+    last_login_after = user_after.get("last_login")
     
-    resp_b = requests.post(f"{BASE_URL}/admin/categories", json={
-        "name": "Reorder Cat B",
-        "group": "retail"
-    }, headers=headers)
-    cat_b = resp_b.json()
-    cat_b_id = cat_b["id"]
-    created_categories.append(cat_b_id)
+    if last_login_after == last_login_before:
+        log(f"❌ FAIL: last_login timestamp should be updated")
+        return False
     
-    log(f"✅ Created Cat A (id: {cat_a_id}, order: {cat_a.get('order')})")
-    log(f"✅ Created Cat B (id: {cat_b_id}, order: {cat_b.get('order')})")
+    log(f"✅ last_login timestamp updated after successful login")
     
-    # Test 8.1: Reorder B before A
-    log("\n--- Test 8.1: Reorder B before A ---")
-    resp = requests.post(f"{BASE_URL}/admin/categories/reorder", json={
-        "group": "retail",
-        "parent_id": None,
-        "ids": [cat_b_id, cat_a_id]  # B first, then A
-    }, headers=headers)
+    # Test 9.3: User with must_change_password=true cannot login (expect 403)
+    log("\n--- Test 9.3: User with must_change_password=true (expect 403) ---")
+    user2_id, email2, password2 = create_test_user("customer", verify=True)
+    if not user2_id:
+        log(f"❌ FAIL: Could not create test user")
+        return False
     
+    # Generate temp password (sets must_change_password=true)
+    resp = requests.post(f"{BASE_URL}/admin/users/{user2_id}/generate-temp-password", headers=headers)
     if resp.status_code != 200:
-        log(f"❌ FAIL: Expected 200, got {resp.status_code} - {resp.text}")
-        return False
-    log(f"✅ Reorder successful")
-    
-    # Verify order via GET
-    resp = requests.get(f"{BASE_URL}/categories?group=retail")
-    data = resp.json()
-    
-    cat_a_data = next((c for c in data if c.get("id") == cat_a_id), None)
-    cat_b_data = next((c for c in data if c.get("id") == cat_b_id), None)
-    
-    if not cat_a_data or not cat_b_data:
-        log(f"❌ FAIL: Could not find categories in GET response")
+        log(f"❌ FAIL: Could not generate temp password")
         return False
     
-    if cat_b_data.get("order") >= cat_a_data.get("order"):
-        log(f"❌ FAIL: Order not swapped correctly. B order: {cat_b_data.get('order')}, A order: {cat_a_data.get('order')}")
+    temp_password = resp.json().get("temp_password")
+    
+    # Try to login with temp password
+    login_resp = requests.post(f"{BASE_URL}/auth/login", json={
+        "email": email2,
+        "password": temp_password
+    })
+    
+    if login_resp.status_code != 403:
+        log(f"❌ FAIL: Expected 403, got {login_resp.status_code}")
         return False
     
-    log(f"✅ Verified order swapped: B order={cat_b_data.get('order')}, A order={cat_a_data.get('order')}")
-    
-    # Test 8.2: Reorder with ids that don't belong to (group, parent_id) -> 400
-    log("\n--- Test 8.2: Reorder with mismatched ids (should fail) ---")
-    # Create a wholesale category
-    resp = requests.post(f"{BASE_URL}/admin/categories", json={
-        "name": "Wholesale Cat",
-        "group": "wholesale"
-    }, headers=headers)
-    wholesale_cat = resp.json()
-    wholesale_id = wholesale_cat["id"]
-    created_categories.append(wholesale_id)
-    
-    # Try to reorder retail with a wholesale id
-    resp = requests.post(f"{BASE_URL}/admin/categories/reorder", json={
-        "group": "retail",
-        "parent_id": None,
-        "ids": [cat_a_id, wholesale_id]  # wholesale_id doesn't belong to retail
-    }, headers=headers)
-    
-    if resp.status_code != 400:
-        log(f"❌ FAIL: Expected 400, got {resp.status_code}")
+    error_detail = login_resp.json().get("detail", "")
+    if "change your password" not in error_detail.lower():
+        log(f"❌ FAIL: Error message should mention 'change your password', got: {error_detail}")
         return False
-    log(f"✅ Reorder with mismatched ids returns 400")
     
-    log(f"\n✅ TEST 8 PASSED")
+    log(f"✅ User with must_change_password=true cannot login (403)")
+    
+    log(f"\n✅ TEST 9 PASSED")
     return True
 
 def main():
     print("\n" + "="*80)
-    print("  ROUND 7 BACKEND TESTING: Admin-managed categories")
+    print("  ADMIN USER MANAGEMENT BACKEND TESTING")
     print("="*80)
     
     # Login as admin
     admin_token = admin_login()
     
-    # Create customer account for non-admin testing
-    customer_email, customer_token = create_customer_account()
-    
     results = []
     
     # Run all tests
-    results.append(("Test 1: GET /api/meta/categories", test_1_meta_categories()))
-    results.append(("Test 2: GET /api/categories?group=retail", test_2_categories_flat(admin_token)))
-    results.append(("Test 3: GET /api/categories/tree?group=retail", test_3_categories_tree(admin_token)))
-    results.append(("Test 4: GET /api/admin/categories", test_4_admin_categories(admin_token, customer_token)))
-    results.append(("Test 5: POST /api/admin/categories", test_5_create_category(admin_token, customer_token)))
-    results.append(("Test 6: PUT /api/admin/categories/{id}", test_6_update_category(admin_token)))
-    results.append(("Test 7: DELETE /api/admin/categories/{id}", test_7_delete_category(admin_token)))
-    results.append(("Test 8: POST /api/admin/categories/reorder", test_8_reorder_categories(admin_token)))
+    results.append(("Test 1: GET /api/admin/users (list with filters)", test_1_list_users(admin_token)))
+    results.append(("Test 2: GET /api/admin/users/{user_id}", test_2_get_user(admin_token)))
+    results.append(("Test 3: PUT /api/admin/users/{user_id}", test_3_update_user(admin_token)))
+    results.append(("Test 4: POST /api/admin/users/{user_id}/reset-password", test_4_reset_password(admin_token)))
+    results.append(("Test 5: POST /api/admin/users/{user_id}/send-reset-email", test_5_send_reset_email(admin_token)))
+    results.append(("Test 6: POST /api/admin/users/{user_id}/generate-temp-password", test_6_generate_temp_password(admin_token)))
+    results.append(("Test 7: PUT /api/admin/users/{user_id}/status", test_7_update_status(admin_token)))
+    results.append(("Test 8: DELETE /api/admin/users/{user_id}", test_8_delete_user(admin_token)))
+    results.append(("Test 9: Login flow updates", test_9_login_flow_updates(admin_token)))
     
     # Cleanup
-    cleanup_categories(admin_token)
+    cleanup_users(admin_token)
     
     # Summary
     test_header("TEST SUMMARY")
