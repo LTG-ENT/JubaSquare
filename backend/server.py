@@ -1257,10 +1257,15 @@ async def list_shops(
     limit: Optional[int] = None,
     skip: Optional[int] = None,
 ):
-    # Public marketplace listing — exclude shops that the seller has hidden (is_public=False).
-    # Legacy shops without the flag default to visible.
+    # Public marketplace listing — exclude shops that the seller has hidden (is_public=False)
+    # and shops that are soft-deleted. Legacy shops without these flags default to visible.
     lim, off = clamp_pagination(limit, skip)
-    q: dict = {"$or": [{"is_public": {"$ne": False}}, {"is_public": {"$exists": False}}]}
+    q: dict = {
+        "$and": [
+            {"$or": [{"is_public": {"$ne": False}}, {"is_public": {"$exists": False}}]},
+            {"is_deleted": {"$ne": True}},
+        ]
+    }
     if category:
         q["category"] = category
     if area:
@@ -1287,10 +1292,18 @@ async def my_shops(
 
 
 @api.get("/shops/{shop_id}")
-async def get_shop(shop_id: str):
+async def get_shop(shop_id: str, request: Request):
     shop = await db.shops.find_one({"id": shop_id}, {"_id": 0})
     if not shop:
         raise HTTPException(404, "Shop not found")
+    # Soft-deleted shops are only visible to the owner or admin so they can restore.
+    if shop.get("is_deleted"):
+        try:
+            u = await get_current_user(request)
+        except HTTPException:
+            raise HTTPException(404, "Shop not found")
+        if u.get("role") != "admin" and u.get("id") != shop.get("seller_id"):
+            raise HTTPException(404, "Shop not found")
     return shop
 
 
@@ -1317,7 +1330,15 @@ async def update_shop(shop_id: str, body: ShopIn, user: dict = Depends(require_r
         raise HTTPException(404, "Shop not found")
     if user["role"] != "admin" and shop["seller_id"] != user["id"]:
         raise HTTPException(403, "Forbidden")
-    await db.shops.update_one({"id": shop_id}, {"$set": body.model_dump()})
+    updates = body.model_dump()
+    # Updating a soft-deleted shop restores it and re-activates its products.
+    was_deleted = bool(shop.get("is_deleted"))
+    if was_deleted:
+        updates["is_deleted"] = False
+        updates["deleted_at"] = None
+    await db.shops.update_one({"id": shop_id}, {"$set": updates})
+    if was_deleted:
+        await db.products.update_many({"shop_id": shop_id}, {"$set": {"is_active": True}})
     return await db.shops.find_one({"id": shop_id}, {"_id": 0})
 
 
@@ -1343,8 +1364,16 @@ async def delete_shop(shop_id: str, user: dict = Depends(require_role("seller", 
         raise HTTPException(404, "Shop not found")
     if user["role"] != "admin" and shop["seller_id"] != user["id"]:
         raise HTTPException(403, "Forbidden")
-    await db.shops.delete_one({"id": shop_id})
-    await db.products.delete_many({"shop_id": shop_id})
+    # Soft delete — keep the shop + its products so the seller can restore them
+    # later by editing/updating the shop. Hidden from all public listings while deleted.
+    await db.shops.update_one(
+        {"id": shop_id},
+        {"$set": {"is_deleted": True, "is_public": False, "deleted_at": now_iso()}},
+    )
+    await db.products.update_many(
+        {"shop_id": shop_id},
+        {"$set": {"is_active": False}},
+    )
     return {"ok": True}
 
 
@@ -1455,6 +1484,10 @@ async def list_products(category: Optional[str] = None, area: Optional[str] = No
         q["shop_id"] = shop_id
     if is_wholesale is not None:
         q["is_wholesale"] = is_wholesale
+    # Hide deactivated products from public listings (still queryable when caller
+    # explicitly targets a single shop_id so the owner can manage them).
+    if not shop_id:
+        q["$or"] = [{"is_active": {"$ne": False}}, {"is_active": {"$exists": False}}]
     # Internal cap: post-filtering reduces the count, so we fetch a wider window
     # than the caller's page so pagination after filtering still has data.
     INTERNAL_CAP = 1000
@@ -1469,11 +1502,12 @@ async def list_products(category: Optional[str] = None, area: Optional[str] = No
         shop_ids = {s["id"] for s in await db.shops.find(shop_q, {"_id": 0, "id": 1}).to_list(INTERNAL_CAP)}
         products = [p for p in products if p["shop_id"] in shop_ids]
 
-    # Hide products from shops that are not public (sellers can hide their shop without deleting).
+    # Hide products from shops that are not public, or soft-deleted.
     # Skip when caller is targeting a specific shop_id (so the owner's preview / private shop page still works).
     if not shop_id:
         hidden_shops = {s["id"] for s in await db.shops.find(
-            {"is_public": False}, {"_id": 0, "id": 1}).to_list(INTERNAL_CAP)}
+            {"$or": [{"is_public": False}, {"is_deleted": True}]},
+            {"_id": 0, "id": 1}).to_list(INTERNAL_CAP)}
         if hidden_shops:
             products = [p for p in products if p["shop_id"] not in hidden_shops]
 

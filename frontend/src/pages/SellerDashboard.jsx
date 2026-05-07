@@ -247,10 +247,12 @@ function ShopsTab() {
     setShowForm(true);
   };
   const onDelete = async (s, kind) => {
-    const what = kind === "restaurant" ? "restaurant and its menu" : "shop and its products";
+    const what = kind === "restaurant"
+      ? "restaurant and its menu"
+      : "shop? Its products will be deactivated. You can restore everything later by editing the shop";
     if (!window.confirm(`Delete this ${what}?`)) return;
     if (kind === "restaurant") toast.error("Restaurant deletion is disabled. Please contact support.");
-    else { await api.delete(`/shops/${s.id}`); toast.success("Shop deleted"); load(); }
+    else { await api.delete(`/shops/${s.id}`); toast.success("Shop deleted — products deactivated. Edit the shop to restore."); load(); }
   };
 
   const combined = [
@@ -321,7 +323,12 @@ function ShopsTab() {
               <span className="absolute top-3 left-3 text-[10px] font-bold px-2 py-1 rounded-full" style={{ background: s._kind === "restaurant" ? "#2D6A4F" : "#C84B31", color: "white" }}>
                 {s._kind === "restaurant" ? "🍔 RESTAURANT" : "🛍️ SHOP"}
               </span>
-              {s._kind !== "restaurant" && s.is_public === false && (
+              {s._kind !== "restaurant" && s.is_deleted && (
+                <span data-testid={`shop-deleted-badge-${s.id}`} className="absolute bottom-3 left-3 text-[10px] font-bold px-2 py-1 rounded-full bg-[#D90429] text-white inline-flex items-center gap-1">
+                  ● DELETED
+                </span>
+              )}
+              {s._kind !== "restaurant" && !s.is_deleted && s.is_public === false && (
                 <span data-testid={`shop-hidden-badge-${s.id}`} className="absolute bottom-3 left-3 text-[10px] font-bold px-2 py-1 rounded-full bg-[#1A1A1A] text-white inline-flex items-center gap-1">
                   ● HIDDEN
                 </span>
@@ -334,27 +341,33 @@ function ShopsTab() {
               {s._kind !== "restaurant" && (
                 <div className="mt-3 flex items-center justify-between gap-2 bg-[var(--js-subtle)] border border-[var(--js-border)] rounded-2xl px-3 py-2">
                   <div className="min-w-0">
-                    <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">Public visibility</p>
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">{s.is_deleted ? "Status" : "Public visibility"}</p>
                     <p className="text-xs text-[var(--js-text)] truncate">
-                      {s.is_public === false ? "Hidden — not listed in marketplace" : "Live — visible to customers"}
+                      {s.is_deleted
+                        ? "Deleted — products deactivated. Edit shop to restore."
+                        : s.is_public === false
+                          ? "Hidden — not listed in marketplace"
+                          : "Live — visible to customers"}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={s.is_public !== false}
-                    onClick={() => togglePublic(s, s.is_public === false)}
-                    data-testid={`toggle-shop-public-${s.id}`}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition shrink-0 ${
-                      s.is_public !== false ? "bg-[#2D6A4F]" : "bg-[#A3A39E]"
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
-                        s.is_public !== false ? "translate-x-6" : "translate-x-1"
+                  {!s.is_deleted && (
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={s.is_public !== false}
+                      onClick={() => togglePublic(s, s.is_public === false)}
+                      data-testid={`toggle-shop-public-${s.id}`}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition shrink-0 ${
+                        s.is_public !== false ? "bg-[#2D6A4F]" : "bg-[#A3A39E]"
                       }`}
-                    />
-                  </button>
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                          s.is_public !== false ? "translate-x-6" : "translate-x-1"
+                        }`}
+                      />
+                    </button>
+                  )}
                 </div>
               )}
               <div className="mt-3 flex gap-2">

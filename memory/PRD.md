@@ -58,6 +58,7 @@ Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode fo
 ### Iter 6.1 (Feb 2026) — Bug fix
 - **SellerDashboard Modal** — fixed scroll issue when many delivery areas added in shop create/edit form. Modal now uses `flex flex-col` with sticky header and a dedicated `flex-1 min-h-0 overflow-y-auto` body so long forms scroll reliably on mobile + desktop.
 - **Area dropdown** — replaced native `<select>` with custom `AreaSelectField` component. Now scrollable (max-h-72 with overflow), searchable, dark-mode aware, fetches areas dynamically from `/api/meta/areas` (so admin-added areas show up). Used in `SellerShopEdit.jsx` (Storefront identity Area + Per-area delivery rows) and `SellerDashboard.jsx` (New business modal Area + Per-area delivery rows).
+- **Shop soft-delete** — `DELETE /api/shops/{id}` no longer hard-deletes. Sets `is_deleted=True`, `is_public=False`, and deactivates all of the shop's products (`is_active=False`). Public `/shops` and `/products` listings now exclude deleted shops + their products. Seller's `/shops/mine` still includes them so the seller can restore. `PUT /api/shops/{id}` auto-restores a deleted shop (sets `is_deleted=False`) and re-activates its products. Frontend shows a red "DELETED" badge on the shop card and explains the restore flow in the visibility section.
 
 ## Backlog (P1 / P2)
 - **P1** Unread message badge polling / realtime updates on Messages tab
