@@ -19,12 +19,33 @@ export default function Shops() {
     api.get("/products?limit=200").then((r) => setProducts(r.data));
   }, []);
 
-  const cats = useMemo(() => ["All", ...new Set(shops.map((s) => s.category).filter(Boolean))], [shops]);
+  // Get unique categories from products (not shops)
+  const cats = useMemo(() => {
+    const allCategories = products.map(p => {
+      // Extract parent category from "Parent > Sub" format
+      if (p.category && p.category.includes(" > ")) {
+        return p.category.split(" > ")[0];
+      }
+      return p.category;
+    }).filter(Boolean);
+    return ["All", ...new Set(allCategories)];
+  }, [products]);
 
   const productsByShop = (shopId) => products.filter((p) => p.shop_id === shopId).slice(0, 4);
 
+  // Filter shops based on products' categories
   const filtered = shops.filter((s) => {
-    if (activeCat !== "All" && s.category !== activeCat) return false;
+    // If a category is selected, only show shops that have products in that category
+    if (activeCat !== "All") {
+      const shopProducts = products.filter(p => p.shop_id === s.id);
+      const hasCategory = shopProducts.some(p => {
+        if (p.category && p.category.includes(" > ")) {
+          return p.category.split(" > ")[0] === activeCat;
+        }
+        return p.category === activeCat;
+      });
+      if (!hasCategory) return false;
+    }
     if (search && !s.name.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
