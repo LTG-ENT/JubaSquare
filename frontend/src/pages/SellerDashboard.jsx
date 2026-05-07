@@ -462,6 +462,8 @@ function ProductsTab() {
   const [mode, setMode] = useState("marketplace");
   const [form, setForm] = useState(defaultForm());
   const [restaurantCategoriesMap, setRestaurantCategoriesMap] = useState({});
+  const [retailCategoriesMap, setRetailCategoriesMap] = useState({});
+  const [wholesaleCategoriesMap, setWholesaleCategoriesMap] = useState({});
 
   // Filter / search state
   const initialFilter = searchParams.get("filter");
@@ -533,31 +535,43 @@ function ProductsTab() {
     }
     setMenuItems(allMenu);
 
-    // Fetch restaurant categories with sub-categories from database
-    try {
-      const categoriesRes = await api.get("/categories?group=restaurant");
-      const flatCategories = categoriesRes.data || [];
-      
-      // Build map of parent category name -> array of child category names
-      const catMap = {};
-      
-      // First, get all parent categories (those with parent_id = null)
-      const parents = flatCategories.filter(cat => cat.parent_id === null);
-      
-      // For each parent, find its children and map by name
-      parents.forEach(parent => {
-        const children = flatCategories
-          .filter(cat => cat.parent_id === parent.id && cat.is_active !== false)
-          .map(child => child.name);
-        catMap[parent.name] = children;
-      });
-      
-      setRestaurantCategoriesMap(catMap);
-    } catch (err) {
-      console.error("Failed to load restaurant categories:", err);
-      // Fallback to hardcoded if API fails
-      setRestaurantCategoriesMap(FOOD_SUBCATEGORIES_MAP);
-    }
+    // Fetch all category groups with sub-categories from database
+    const fetchCategoriesForGroup = async (group) => {
+      try {
+        const categoriesRes = await api.get(`/categories?group=${group}`);
+        const flatCategories = categoriesRes.data || [];
+        
+        // Build map of parent category name -> array of child category names
+        const catMap = {};
+        
+        // First, get all parent categories (those with parent_id = null)
+        const parents = flatCategories.filter(cat => cat.parent_id === null);
+        
+        // For each parent, find its children and map by name
+        parents.forEach(parent => {
+          const children = flatCategories
+            .filter(cat => cat.parent_id === parent.id && cat.is_active !== false)
+            .map(child => child.name);
+          catMap[parent.name] = children;
+        });
+        
+        return catMap;
+      } catch (err) {
+        console.error(`Failed to load ${group} categories:`, err);
+        return {};
+      }
+    };
+
+    // Fetch all category groups in parallel
+    const [restaurantCats, retailCats, wholesaleCats] = await Promise.all([
+      fetchCategoriesForGroup("restaurant"),
+      fetchCategoriesForGroup("retail"),
+      fetchCategoriesForGroup("wholesale"),
+    ]);
+
+    setRestaurantCategoriesMap(restaurantCats);
+    setRetailCategoriesMap(retailCats);
+    setWholesaleCategoriesMap(wholesaleCats);
   };
   useEffect(() => { loadAll(); }, [user?.id]); // eslint-disable-line
 
@@ -570,7 +584,10 @@ function ProductsTab() {
     // Default to first shop, if any
     if (shops.length > 0) {
       next.shop_id = shops[0].id;
-      next.category = RETAIL_CATEGORIES[0];
+      // Use first retail category with first sub-category from database
+      const firstParent = Object.keys(retailCategoriesMap)[0] || "Groceries";
+      const firstSubcat = retailCategoriesMap[firstParent]?.[0] || "";
+      next.category = firstSubcat ? `${firstParent} > ${firstSubcat}` : firstParent;
       setMode("marketplace");
     } else if (restaurants.length > 0) {
       next.restaurant_id = restaurants[0].id;
@@ -795,8 +812,20 @@ function ProductsTab() {
                     const subcategories = restaurantCategoriesMap[restaurantCategory] || [];
                     setForm({ ...form, restaurant_id: id, food_category: subcategories[0] || "" });
                   } else {
-                    setMode(form.is_wholesale_toggle ? "wholesale" : "marketplace");
-                    setForm({ ...form, shop_id: id, category: form.category || RETAIL_CATEGORIES[0] });
+                    // Shop selected - set retail category with sub-category
+                    const shop = shops.find(s => s.id === id);
+                    const isWholesale = shop?.kind === "wholesale";
+                    setMode(isWholesale ? "wholesale" : "marketplace");
+                    
+                    const categoriesMap = isWholesale ? wholesaleCategoriesMap : retailCategoriesMap;
+                    const firstParent = Object.keys(categoriesMap)[0] || (isWholesale ? "Wholesale Food Supply" : "Groceries");
+                    const firstSubcat = categoriesMap[firstParent]?.[0] || "";
+                    
+                    setForm({ 
+                      ...form, 
+                      shop_id: id, 
+                      category: firstSubcat ? `${firstParent} > ${firstSubcat}` : firstParent 
+                    });
                   }
                 }}
                 disabled={!!editing}
@@ -850,7 +879,60 @@ function ProductsTab() {
             ) : (
               <>
                 <Input label="Name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required testId="product-name-input" />
-                <Select label="Category" value={form.category} onChange={(v) => setForm({ ...form, category: v })} options={RETAIL_CATEGORIES} testId="product-cat-select" />
+                
+                {/* Dynamic category with sub-categories */}
+                {(() => {
+                  // Determine which categories map to use based on mode
+                  const isWholesale = mode === "wholesale";
+                  const categoriesMap = isWholesale ? wholesaleCategoriesMap : retailCategoriesMap;
+                  
+                  // Parse the category to get parent and sub-category
+                  const [parentCat, subCat] = (form.category || "").includes(" > ") 
+                    ? form.category.split(" > ") 
+                    : [form.category, ""];
+                  
+                  // Get available parent categories
+                  const parentCategories = Object.keys(categoriesMap);
+                  
+                  // Get sub-categories for selected parent
+                  const subcategories = categoriesMap[parentCat] || [];
+                  
+                  if (subcategories.length === 0 && parentCat) {
+                    return (
+                      <div className="block">
+                        <span className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Category</span>
+                        <div className="js-input text-[#A3A39E] italic">
+                          No Categories! :C
+                        </div>
+                      </div>
+                    );
+                  }
+                  
+                  return (
+                    <>
+                      <Select 
+                        label="Category" 
+                        value={parentCat} 
+                        onChange={(v) => {
+                          const newSubcats = categoriesMap[v] || [];
+                          setForm({ ...form, category: newSubcats.length > 0 ? `${v} > ${newSubcats[0]}` : v });
+                        }} 
+                        options={parentCategories} 
+                        testId="product-cat-select" 
+                      />
+                      {subcategories.length > 0 && (
+                        <Select 
+                          label="Sub-category" 
+                          value={subCat || subcategories[0]} 
+                          onChange={(v) => setForm({ ...form, category: `${parentCat} > ${v}` })} 
+                          options={subcategories} 
+                          testId="product-subcat-select" 
+                        />
+                      )}
+                    </>
+                  );
+                })()}
+                
                 <div className="grid grid-cols-2 gap-3">
                   <Input label="Price (USD)" type="number" step="0.01" value={form.price_usd} onChange={(v) => setForm({ ...form, price_usd: v })} required testId="product-price-input" />
                   <Input label="Stock" type="number" value={form.stock} onChange={(v) => setForm({ ...form, stock: v })} testId="product-stock-input" />
