@@ -539,7 +539,8 @@ function ProductsTab() {
       setMode("marketplace");
     } else if (restaurants.length > 0) {
       next.restaurant_id = restaurants[0].id;
-      next.food_category = FOOD_SUBCATEGORIES[0];
+      // Use the first restaurant's category as the food category
+      next.food_category = restaurants[0].category || "Fast Food";
       setMode("restaurant");
     }
     setForm(next);
@@ -565,12 +566,14 @@ function ProductsTab() {
   const openEditMenu = (m) => {
     setMode("restaurant");
     setEditing({ kind: "menu", ...m });
+    // Get the restaurant's category instead of using stored food_category
+    const restaurant = restaurants.find(r => r.id === m.restaurant_id);
     setForm({
       ...defaultForm(),
       restaurant_id: m.restaurant_id, name: m.name,
       price_usd: m.price_usd,
       description: m.description || "", image_url: m.image_url || "",
-      food_category: m.food_category || FOOD_SUBCATEGORIES[0],
+      food_category: restaurant?.category || m.food_category || "Fast Food",
       side_items: m.side_items || [],
     });
     setShowForm(true);
@@ -747,7 +750,9 @@ function ProductsTab() {
                   const [kind, id] = e.target.value.split(":");
                   if (kind === "r") {
                     setMode("restaurant");
-                    setForm({ ...form, restaurant_id: id, food_category: form.food_category || FOOD_SUBCATEGORIES[0] });
+                    // Find the restaurant and use its category
+                    const restaurant = restaurants.find(r => r.id === id);
+                    setForm({ ...form, restaurant_id: id, food_category: restaurant?.category || "Fast Food" });
                   } else {
                     setMode(form.is_wholesale_toggle ? "wholesale" : "marketplace");
                     setForm({ ...form, shop_id: id, category: form.category || RETAIL_CATEGORIES[0] });
@@ -769,7 +774,6 @@ function ProductsTab() {
             {mode === "restaurant" ? (
               <>
                 <Input label="Food name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required testId="product-name-input" />
-                <Select label="Food category" value={form.food_category} onChange={(v) => setForm({ ...form, food_category: v })} options={FOOD_SUBCATEGORIES} testId="food-category-select" />
                 <Input label="Price (USD)" type="number" step="0.01" value={form.price_usd} onChange={(v) => setForm({ ...form, price_usd: v })} required testId="product-price-input" />
                 <ImageUpload label="Food photo" value={form.image_url} onChange={(v) => setForm({ ...form, image_url: v })} testId="product-image-upload" />
                 <Textarea label="Description" value={form.description} onChange={(v) => setForm({ ...form, description: v })} testId="product-desc-input" />
