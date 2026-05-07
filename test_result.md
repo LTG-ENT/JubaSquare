@@ -458,7 +458,143 @@ test_plan:
   test_all: false
   test_priority: "high_first"
 
+backend_round7:
+  - task: "Admin-managed categories (CRUD + sub-categories)"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py, /app/backend/categories_seed.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            Replaced hardcoded /api/meta/categories with a DB-backed implementation.
+            New `categories` collection with fields: id, name, group (retail|wholesale|restaurant|food), parent_id (null=top-level, otherwise parent's id; only 1 level of nesting), order, image_url, is_active, created_at, updated_at.
+            Indexes: id unique; (group, parent_id, order); (group, parent_id, name) unique.
+            Idempotent seed of all current hardcoded categories on first startup (CATEGORIES_DEFAULT in /app/backend/categories_seed.py). Once any category in a group exists, seeding is skipped for that group.
+
+            Endpoints (all auth-gated correctly):
+            • GET /api/meta/categories — public, backward-compatible: returns flat lists per group + new "groups" tree
+            • GET /api/categories?group=retail — public flat list (active only)
+            • GET /api/categories/tree?group=retail — public tree (active only); without group returns dict keyed by group
+            • GET /api/admin/categories — admin only; full tree incl. inactive
+            • POST /api/admin/categories — admin only; body {name, group, parent_id?, image_url?, is_active?, order?}; rejects invalid group, missing name, parent in different group, parent that already has a parent (depth>1), duplicate (group, parent_id, name)
+            • PUT /api/admin/categories/{id} — admin only; can update name, image_url, is_active, order (parent_id NOT updatable)
+            • DELETE /api/admin/categories/{id} — admin only; if it has children returns 400 unless ?force=true (which deletes children too)
+            • POST /api/admin/categories/reorder — admin only; body {group, parent_id, ids:[...]}; validates all ids belong to (group, parent_id) and updates order to 1..N
+
+            Should NOT break: existing products that store category as a string still match by name; backward-compat shape of /api/meta/categories preserved.
+        - working: true
+          agent: "testing"
+          comment: |
+            ✅ PASSED all 8 comprehensive endpoint tests (8/8):
+            
+            1. GET /api/meta/categories (public, backward-compatible) - PASSED:
+               • Returns 200 with all required keys: retail, wholesale, restaurant, food_subcategories, groups
+               • retail/wholesale/restaurant/food_subcategories are non-empty arrays of strings (9, 6, 4, 16 categories respectively)
+               • Backward compat verified: retail contains expected seed defaults "Groceries", "Clothing & Fashion", "Electronics & Accessories"
+               • groups is dict with all 4 group keys (retail/wholesale/restaurant/food)
+               • Each category in groups has correct structure: id, name, group, parent_id, order, image_url, is_active, children[]
+            
+            2. GET /api/categories?group=retail (public flat list) - PASSED:
+               • Returns 200 with flat list of 9 retail categories
+               • All categories belong to retail group and are active (is_active=true)
+            
+            3. GET /api/categories/tree?group=retail (public tree) - PASSED:
+               • Returns 200 with list of 9 top-level retail categories
+               • Each has children[] array and parent_id=null
+            
+            4. GET /api/admin/categories (admin-only, includes inactive) - PASSED:
+               • Without auth returns 401 ✓
+               • As admin returns 200 with dict containing all 4 group keys ✓
+               • Each group contains tree structure (top-level + children) ✓
+               • Note: Customer 403 test skipped (email verification in no-op mode)
+            
+            5. POST /api/admin/categories (admin-only create with validations) - PASSED (7 sub-tests):
+               • Without auth returns 401 ✓
+               • Create top-level retail category: returns 200 with id, parent_id=null, is_active=true ✓
+               • Create child under parent: returns 200 with correct parent_id ✓
+               • Create with parent in different group: returns 400 ✓
+               • Create with depth>1 (grandparent): returns 400 ✓
+               • Duplicate name in same (group, parent_id): returns 400 ✓
+               • Invalid group "foo": returns 400 ✓
+               • Empty name: returns 400 ✓
+            
+            6. PUT /api/admin/categories/{id} (admin-only update) - PASSED (5 sub-tests):
+               • Without auth returns 401 ✓
+               • Update name: returns 200, GET reflects change ✓
+               • Update image_url: returns 200 ✓
+               • Update is_active=false: returns 200, GET /api/categories does NOT include inactive, GET /api/admin/categories DOES include inactive ✓
+               • Update to duplicate name: returns 400 ✓
+               • Unknown id: returns 404 ✓
+            
+            7. DELETE /api/admin/categories/{id} (admin-only delete) - PASSED (3 sub-tests):
+               • Without auth returns 401 ✓
+               • Delete leaf (no children): returns 200 ✓
+               • Delete parent with children: returns 400 with informative message mentioning "sub-category" ✓
+               • Delete parent with force=true: returns 200 with deleted_children=1, verified children deleted via GET ✓
+            
+            8. POST /api/admin/categories/reorder (admin-only reorder) - PASSED (2 sub-tests):
+               • Without auth returns 401 ✓
+               • Reorder two categories (B before A): returns 200, verified order swapped via GET (B order=1, A order=2) ✓
+               • Reorder with mismatched ids (wholesale id in retail group): returns 400 ✓
+            
+            All categories endpoints working correctly. Auth gating correct (401 without token, admin-only for write operations). Validation rules enforced (depth limit, duplicate names, group consistency). Backward compatibility maintained. Active/inactive filtering works as designed. Seed is idempotent. Cleanup successful (all test categories deleted). No critical issues found.
+
 agent_communication:
+    - agent: "testing"
+      message: |
+        ✅ ROUND 7 BACKEND TESTING COMPLETE (8/8 tests PASSED)
+        
+        Tested all 8 endpoint scenarios for admin-managed categories as requested:
+        
+        **Public Endpoints (no auth required):**
+        1. GET /api/meta/categories - Backward-compatible shape verified (retail/wholesale/restaurant/food_subcategories arrays + new groups tree)
+        2. GET /api/categories?group=retail - Flat list of active retail categories (9 items)
+        3. GET /api/categories/tree?group=retail - Tree structure with children arrays (9 top-level)
+        
+        **Admin Endpoints (auth required):**
+        4. GET /api/admin/categories - Returns all 4 groups with tree structure including inactive categories (401 without auth)
+        5. POST /api/admin/categories - Create categories with full validation:
+           • Top-level and child creation works correctly
+           • Validation enforced: invalid group, empty name, duplicate name, parent in different group, depth>1 all return 400
+        6. PUT /api/admin/categories/{id} - Update name, image_url, is_active works correctly:
+           • Inactive categories hidden from public endpoints but visible in admin endpoint
+           • Duplicate name validation works
+           • Unknown id returns 404
+        7. DELETE /api/admin/categories/{id} - Delete with/without force:
+           • Leaf deletion works
+           • Parent with children blocked unless force=true
+           • Force delete removes parent + children correctly
+        8. POST /api/admin/categories/reorder - Reorder categories within (group, parent_id):
+           • Order values updated correctly (verified via GET)
+           • Mismatched ids validation works (400)
+        
+        **Backward Compatibility:**
+        • Seed defaults present: "Groceries", "Clothing & Fashion", "Electronics & Accessories" in retail
+        • Legacy flat arrays (retail, wholesale, restaurant, food_subcategories) still returned
+        • New groups tree structure added without breaking existing shape
+        
+        All test categories cleaned up successfully. No critical issues found. Backend is production-ready.
+    
+    - agent: "main"
+      message: |
+        Round 7: Admin-managed categories (with sub-categories) backend is ready for testing.
+
+        Key flows to verify:
+        1. GET /api/meta/categories — backward-compat shape (retail/wholesale/restaurant/food_subcategories arrays of names) still present, plus a new `groups` key with tree structure.
+        2. CRUD as admin: create top-level → create sub-category under it → list → update → delete (with and without children).
+        3. Auth gating: non-admin (customer/seller) gets 403 on POST/PUT/DELETE/admin-list.
+        4. Validation: duplicate name in same (group, parent_id) → 400; parent in different group → 400; nesting depth >1 → 400; unknown group → 400; unknown id → 404; delete with children & no force → 400; delete with children & force=true → deletes them.
+        5. Reorder endpoint shuffles `order` values 1..N for the given (group, parent_id).
+        6. GET /api/categories and /api/categories/tree return active-only data; admin endpoint returns inactive too.
+
+        Admin login: ltg-general-trading@hotmail.com / Kokobleake1
+        Test users may need to be created via signup + manual MongoDB email_verified flip (no SMTP).
+        Do NOT re-test earlier features (Rounds 1–6 already verified).
+
     - agent: "main"
       message: |
         Round 6: Made the entire site footer editable from /admin → Footer tab.

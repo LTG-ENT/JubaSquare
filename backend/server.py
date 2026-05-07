@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field, EmailStr
 import email_service
 from pages_seed import PAGES_DEFAULT, PAGE_SLUGS
 from footer_seed import FOOTER_DEFAULT
+from categories_seed import CATEGORIES_DEFAULT, CATEGORY_GROUPS
 
 
 # ----------------------------------------------------------------------------
@@ -896,48 +897,254 @@ async def update_footer(body: FooterIn, user: dict = Depends(require_role("admin
     return _footer_doc(saved)
 
 
+# ----------------------------------------------------------------------------
+# Categories (admin-managed, hierarchical: 1 level of sub-categories)
+# ----------------------------------------------------------------------------
+ALLOWED_CATEGORY_GROUPS = {"retail", "wholesale", "restaurant", "food"}
+
+
+def _category_doc(c: dict) -> dict:
+    """Strip Mongo internals & enforce shape."""
+    if not c:
+        return c
+    return {
+        "id": c.get("id"),
+        "name": c.get("name", ""),
+        "group": c.get("group", "retail"),
+        "parent_id": c.get("parent_id"),
+        "order": c.get("order", 0),
+        "image_url": c.get("image_url") or "",
+        "is_active": bool(c.get("is_active", True)),
+        "created_at": c.get("created_at"),
+        "updated_at": c.get("updated_at"),
+    }
+
+
+async def _categories_query(group: Optional[str], active_only: bool) -> list:
+    q: dict = {}
+    if group:
+        if group not in ALLOWED_CATEGORY_GROUPS:
+            raise HTTPException(status_code=400, detail=f"Unknown group. Must be one of: {sorted(ALLOWED_CATEGORY_GROUPS)}")
+        q["group"] = group
+    if active_only:
+        q["$or"] = [{"is_active": {"$ne": False}}, {"is_active": {"$exists": False}}]
+    cursor = db.categories.find(q, {"_id": 0}).sort([("group", 1), ("parent_id", 1), ("order", 1), ("name", 1)])
+    return [_category_doc(c) async for c in cursor]
+
+
+def _build_tree(flat: list) -> list:
+    """Group sub-categories under parents. 1-level deep only."""
+    by_parent = {}
+    for c in flat:
+        by_parent.setdefault(c.get("parent_id"), []).append(c)
+    tops = by_parent.get(None, [])
+    out = []
+    for top in tops:
+        children = by_parent.get(top["id"], [])
+        out.append({**top, "children": children})
+    return out
+
+
 @api.get("/meta/categories")
 async def get_categories():
+    """Backward-compatible flat lists per group, plus structured tree."""
+    flat = await _categories_query(None, active_only=True)
+    by_group: dict = {g: [] for g in ALLOWED_CATEGORY_GROUPS}
+    for c in flat:
+        by_group.setdefault(c["group"], []).append(c)
+
+    def _names(group_key: str) -> list:
+        # Top-level names only (mirrors the old shape)
+        return [c["name"] for c in by_group.get(group_key, []) if not c.get("parent_id")]
+
+    # Aggregate all children across all groups for the legacy flat
+    # "food_subcategories" array — anything that has a parent is treated as a sub.
+    all_subs = [c["name"] for c in flat if c.get("parent_id")]
+    food_top_subs = [c["name"] for c in flat if c.get("group") == "food" and not c.get("parent_id")]
+
+    # Tree per group (each top-level with its children)
+    trees = {g: _build_tree([c for c in flat if c["group"] == g]) for g in ALLOWED_CATEGORY_GROUPS}
+
     return {
-        "retail": [
-            "Groceries",
-            "Clothing & Fashion",
-            "Shoes & Bags",
-            "Beauty & Cosmetics",
-            "Electronics & Accessories",
-            "Home Essentials",
-            "Health & Pharmacy",
-            "Building & Materials",
-            "Automotive",
-        ],
-        "wholesale": [
-            "Wholesale Food Supply",
-            "Wholesale Electronics",
-            "Wholesale Clothing",
-            "Restaurant Supplies",
-            "Construction Materials",
-            "General Bulk Goods",
-        ],
-        "restaurant": ["Fast Food", "Local Food", "Drinks", "Bakery"],
-        "food_subcategories": [
-            "Fried Chicken",
-            "Burgers",
-            "Shawarma",
-            "Fries",
-            "Sandwiches",
-            "Kisra & Stews",
-            "Asida",
-            "Goat Meat Dishes",
-            "Fish Dishes",
-            "Pizza & Pasta",
-            "Rice Meals",
-            "Drinks & Cafés",
-            "Cakes & Desserts",
-            "Grills & BBQ",
-            "Asian Food",
-            "Healthy Food",
-        ],
+        # legacy flat lists (still used by older UI code)
+        "retail": _names("retail"),
+        "wholesale": _names("wholesale"),
+        "restaurant": _names("restaurant"),
+        "food_subcategories": food_top_subs or all_subs,
+        # new structured tree, keyed by group
+        "groups": trees,
     }
+
+
+@api.get("/categories")
+async def list_categories(group: Optional[str] = None):
+    """Public flat list of active categories."""
+    return await _categories_query(group, active_only=True)
+
+
+@api.get("/categories/tree")
+async def categories_tree(group: Optional[str] = None):
+    """Public tree (parent → children). Active only."""
+    flat = await _categories_query(group, active_only=True)
+    if group:
+        return _build_tree(flat)
+    return {g: _build_tree([c for c in flat if c["group"] == g]) for g in ALLOWED_CATEGORY_GROUPS}
+
+
+@api.get("/admin/categories")
+async def admin_list_categories(group: Optional[str] = None, user: dict = Depends(require_role("admin"))):
+    """Admin: full list including inactive."""
+    flat = await _categories_query(group, active_only=False)
+    if group:
+        return _build_tree(flat)
+    return {g: _build_tree([c for c in flat if c["group"] == g]) for g in ALLOWED_CATEGORY_GROUPS}
+
+
+class CategoryCreateIn(BaseModel):
+    name: str
+    group: str
+    parent_id: Optional[str] = None
+    image_url: Optional[str] = ""
+    is_active: Optional[bool] = True
+    order: Optional[int] = None
+
+
+class CategoryUpdateIn(BaseModel):
+    name: Optional[str] = None
+    image_url: Optional[str] = None
+    is_active: Optional[bool] = None
+    order: Optional[int] = None
+    # parent_id intentionally NOT updatable in MVP — keeps tree integrity simple.
+
+
+class CategoryReorderIn(BaseModel):
+    group: str
+    parent_id: Optional[str] = None
+    ids: List[str]
+
+
+async def _next_order(group: str, parent_id: Optional[str]) -> int:
+    last = await db.categories.find_one(
+        {"group": group, "parent_id": parent_id},
+        sort=[("order", -1)],
+    )
+    return (last.get("order", 0) + 1) if last else 1
+
+
+@api.post("/admin/categories")
+async def admin_create_category(body: CategoryCreateIn, user: dict = Depends(require_role("admin"))):
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    if body.group not in ALLOWED_CATEGORY_GROUPS:
+        raise HTTPException(status_code=400, detail=f"Unknown group. Must be one of: {sorted(ALLOWED_CATEGORY_GROUPS)}")
+
+    parent = None
+    if body.parent_id:
+        parent = await db.categories.find_one({"id": body.parent_id})
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent category not found")
+        if parent.get("group") != body.group:
+            raise HTTPException(status_code=400, detail="Parent must be in the same group")
+        if parent.get("parent_id"):
+            raise HTTPException(status_code=400, detail="Sub-categories cannot have sub-categories (1 level only)")
+
+    # Uniqueness within (group, parent_id)
+    dup = await db.categories.find_one({
+        "group": body.group, "parent_id": body.parent_id, "name": name
+    })
+    if dup:
+        raise HTTPException(status_code=400, detail="A category with this name already exists in this group/parent")
+
+    order_val = body.order if body.order is not None else await _next_order(body.group, body.parent_id)
+    doc = {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "group": body.group,
+        "parent_id": body.parent_id,
+        "order": order_val,
+        "image_url": (body.image_url or "").strip(),
+        "is_active": True if body.is_active is None else bool(body.is_active),
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    await db.categories.insert_one(doc)
+    return _category_doc(doc)
+
+
+@api.put("/admin/categories/{cat_id}")
+async def admin_update_category(cat_id: str, body: CategoryUpdateIn, user: dict = Depends(require_role("admin"))):
+    existing = await db.categories.find_one({"id": cat_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    updates: dict = {"updated_at": now_iso()}
+    if body.name is not None:
+        new_name = body.name.strip()
+        if not new_name:
+            raise HTTPException(status_code=400, detail="Name cannot be empty")
+        # Uniqueness check (within same group/parent)
+        dup = await db.categories.find_one({
+            "group": existing.get("group"),
+            "parent_id": existing.get("parent_id"),
+            "name": new_name,
+            "id": {"$ne": cat_id},
+        })
+        if dup:
+            raise HTTPException(status_code=400, detail="A category with this name already exists")
+        updates["name"] = new_name
+    if body.image_url is not None:
+        updates["image_url"] = body.image_url.strip()
+    if body.is_active is not None:
+        updates["is_active"] = bool(body.is_active)
+    if body.order is not None:
+        updates["order"] = int(body.order)
+
+    await db.categories.update_one({"id": cat_id}, {"$set": updates})
+    saved = await db.categories.find_one({"id": cat_id}, {"_id": 0})
+    return _category_doc(saved)
+
+
+@api.delete("/admin/categories/{cat_id}")
+async def admin_delete_category(cat_id: str, force: bool = False, user: dict = Depends(require_role("admin"))):
+    existing = await db.categories.find_one({"id": cat_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    # Block delete if it has children (unless force=true → also delete the children)
+    child_count = await db.categories.count_documents({"parent_id": cat_id})
+    if child_count > 0 and not force:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot delete: this category has {child_count} sub-category(ies). Pass ?force=true to delete them all.",
+        )
+
+    if child_count > 0 and force:
+        await db.categories.delete_many({"parent_id": cat_id})
+    await db.categories.delete_one({"id": cat_id})
+    return {"ok": True, "deleted_children": child_count if force else 0}
+
+
+@api.post("/admin/categories/reorder")
+async def admin_reorder_categories(body: CategoryReorderIn, user: dict = Depends(require_role("admin"))):
+    if body.group not in ALLOWED_CATEGORY_GROUPS:
+        raise HTTPException(status_code=400, detail="Unknown group")
+    # Validate every id belongs to (group, parent_id)
+    docs = await db.categories.find(
+        {"id": {"$in": body.ids}, "group": body.group, "parent_id": body.parent_id},
+        {"_id": 0, "id": 1},
+    ).to_list(length=10000)
+    found_ids = {d["id"] for d in docs}
+    missing = [i for i in body.ids if i not in found_ids]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Some ids do not belong to this group/parent: {missing}")
+
+    for idx, cid in enumerate(body.ids, start=1):
+        await db.categories.update_one(
+            {"id": cid},
+            {"$set": {"order": idx, "updated_at": now_iso()}},
+        )
+    return {"ok": True, "reordered": len(body.ids)}
 
 
 # ----------------------------------------------------------------------------
@@ -2201,6 +2408,45 @@ async def seed_production():
     if not existing_footer:
         await db.site_config.insert_one({**FOOTER_DEFAULT, "last_updated": now_iso()})
         log.info("🦶 Seeded default footer config")
+
+    # Categories — seed defaults the first time only (idempotent).
+    await db.categories.create_index("id", unique=True)
+    await db.categories.create_index([("group", 1), ("parent_id", 1), ("order", 1)])
+    await db.categories.create_index([("group", 1), ("parent_id", 1), ("name", 1)], unique=True)
+    for group_key in CATEGORY_GROUPS:
+        existing_in_group = await db.categories.count_documents({"group": group_key})
+        if existing_in_group > 0:
+            continue  # never overwrite once any category in the group exists
+        order_counter = 0
+        for top in CATEGORIES_DEFAULT.get(group_key, []):
+            order_counter += 1
+            top_id = str(uuid.uuid4())
+            await db.categories.insert_one({
+                "id": top_id,
+                "name": top["name"],
+                "group": group_key,
+                "parent_id": None,
+                "order": order_counter,
+                "image_url": top.get("image_url") or "",
+                "is_active": True,
+                "created_at": now_iso(),
+                "updated_at": now_iso(),
+            })
+            child_counter = 0
+            for child in top.get("children", []) or []:
+                child_counter += 1
+                await db.categories.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "name": child["name"],
+                    "group": group_key,
+                    "parent_id": top_id,
+                    "order": child_counter,
+                    "image_url": child.get("image_url") or "",
+                    "is_active": True,
+                    "created_at": now_iso(),
+                    "updated_at": now_iso(),
+                })
+        log.info(f"📁 Seeded default categories for group: {group_key}")
 
     # Admin account (from env)
     admin_email = (os.environ.get("ADMIN_EMAIL") or "").strip().lower()
