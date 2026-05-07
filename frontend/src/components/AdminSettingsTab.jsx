@@ -535,6 +535,19 @@ function UserManagement() {
 
 function UserRow({ user, selected, onToggleSelect, onToggleStatus, onDelete, onEdit, onPassword }) {
   const [showMenu, setShowMenu] = useState(false);
+  const buttonRef = useState(null);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
+  
+  const handleMenuToggle = (e) => {
+    if (!showMenu) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      setMenuPosition({
+        top: rect.bottom + window.scrollY + 4,
+        left: rect.right + window.scrollX - 192, // 192px = 12rem (menu width)
+      });
+    }
+    setShowMenu(!showMenu);
+  };
   
   const formatDate = (iso) => {
     if (!iso) return "Never";
@@ -616,7 +629,7 @@ function UserRow({ user, selected, onToggleSelect, onToggleStatus, onDelete, onE
       </td>
       <td className="p-3 text-right relative">
         <button
-          onClick={() => setShowMenu(!showMenu)}
+          onClick={handleMenuToggle}
           className="p-1.5 rounded-lg hover:bg-[var(--js-bg)]"
         >
           <MoreVertical className="w-4 h-4" />
@@ -624,8 +637,14 @@ function UserRow({ user, selected, onToggleSelect, onToggleStatus, onDelete, onE
         
         {showMenu && (
           <>
-            <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
-            <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-[var(--js-border)] rounded-xl shadow-lg z-20 py-1">
+            <div className="fixed inset-0 z-[100]" onClick={() => setShowMenu(false)} />
+            <div 
+              className="fixed bg-white border border-[var(--js-border)] rounded-xl shadow-lg z-[101] py-1 w-48"
+              style={{
+                top: `${menuPosition.top}px`,
+                left: `${menuPosition.left}px`,
+              }}
+            >
               <button onClick={() => { onEdit(); setShowMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--js-bg)] flex items-center gap-2">
                 <Edit className="w-4 h-4" /> Edit details
               </button>
