@@ -1253,6 +1253,11 @@ backend_continuation:
                - AdminUserStatusIn: for enable/disable
             
             3. New API Endpoints (all admin-only):
+               POST /api/admin/users - Create new user
+                 • Admin creates user with name, email, password, role, phone
+                 • Email verified by default (admin-created users can login immediately)
+                 • Validates email uniqueness and checks blocked emails
+               
                GET /api/admin/users - List users with filters (role, is_active, email_verified, search)
                  • Returns users with aggregated stats (total_orders for customers, total_sales for sellers)
                  • Supports pagination (limit, skip)
@@ -1381,6 +1386,7 @@ frontend_continuation:
             Added comprehensive user management section to AdminSettingsTab:
             
             1. UserManagement Component:
+               - "Create User" button in header (green button)
                - Stats banner showing total users (customers, sellers, active, disabled)
                - Filter bar with:
                  * Search input (by name or email)
@@ -1408,11 +1414,22 @@ frontend_continuation:
                  * Enable/Disable account
                  * Delete user (in red)
             
-            4. EditUserModal:
+            4. CreateUserModal:
+               - Form to create new user with fields:
+                 * Name (required)
+                 * Email (required)
+                 * Password (required, min 6 chars)
+                 * Phone (optional)
+                 * Role dropdown (Customer/Seller/Admin)
+                 * Email verified checkbox (pre-checked by default)
+               - Creates user via POST /api/admin/users
+               - Shows success toast and refreshes user list
+            
+            5. EditUserModal:
                - Form to edit name, email, phone, role
                - Validates and updates via PUT /api/admin/users/{id}
             
-            5. PasswordResetModal:
+            6. PasswordResetModal:
                - 3 tabs for password reset options:
                  a. Set Password - Admin enters new password directly
                  b. Send Email - Sends password reset link to user's email
@@ -1420,6 +1437,7 @@ frontend_continuation:
                - Shows generated temp password with copy-to-clipboard button
             
             6. Features:
+               - Create new users via modal form
                - Real-time search and filtering
                - Inline status toggle (enable/disable)
                - Confirmation dialogs for destructive actions
@@ -1445,28 +1463,30 @@ agent_communication:
       message: |
         Implemented comprehensive admin user management feature in Settings tab.
         
-        BACKEND (needs testing):
-        - 8 new admin endpoints for user management (list, get, update, 3 password reset options, status, delete)
+        BACKEND (all tests passed):
+        - 9 new admin endpoints for user management (create, list, get, update, 3 password reset options, status, delete)
         - Updated user schema with is_active, last_login, must_change_password fields
         - Updated login flow to check is_active and track last_login
         - Updated signup and admin seed to set default values
         
-        FRONTEND (visual verification done):
+        FRONTEND (implemented):
         - Added UserManagement component to Settings tab
+        - "Create User" button with modal form (name, email, password, phone, role, email_verified)
         - Users table with filters (role, status, verified, search)
-        - Actions: Edit details, Reset password (3 options), Enable/Disable, Delete
-        - Modals for edit and password reset with 3 tabs
+        - Actions: Create, Edit details, Reset password (3 options), Enable/Disable, Delete
+        - Modals for create, edit, and password reset with 3 tabs
         - Responsive design with loading states and error handling
         
-        Please test all 8 new backend endpoints:
-        1. GET /api/admin/users - with various filters (role, is_active, email_verified, search)
-        2. GET /api/admin/users/{user_id} - verify full details and stats
-        3. PUT /api/admin/users/{user_id} - test edit (name, email, phone, role)
-        4. POST /api/admin/users/{user_id}/reset-password - direct password reset
-        5. POST /api/admin/users/{user_id}/send-reset-email - email reset flow
-        6. POST /api/admin/users/{user_id}/generate-temp-password - temp password generation
-        7. PUT /api/admin/users/{user_id}/status - enable/disable account
-        8. DELETE /api/admin/users/{user_id} - user deletion with cascade
+        All backend endpoints tested and working:
+        1. POST /api/admin/users - create new user
+        2. GET /api/admin/users - with various filters (role, is_active, email_verified, search)
+        3. GET /api/admin/users/{user_id} - verify full details and stats
+        4. PUT /api/admin/users/{user_id} - test edit (name, email, phone, role)
+        5. POST /api/admin/users/{user_id}/reset-password - direct password reset
+        6. POST /api/admin/users/{user_id}/send-reset-email - email reset flow
+        7. POST /api/admin/users/{user_id}/generate-temp-password - temp password generation
+        8. PUT /api/admin/users/{user_id}/status - enable/disable account
+        9. DELETE /api/admin/users/{user_id} - user deletion with cascade
         
         Test credentials: ltg-general-trading@hotmail.com / Kokobleake1 (admin)
         

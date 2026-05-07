@@ -545,6 +545,15 @@ class FooterIn(BaseModel):
 
 
 # Admin user management models
+class AdminUserCreateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    email: EmailStr
+    password: str = Field(min_length=6)
+    role: Literal["customer", "seller", "admin"] = "customer"
+    phone: Optional[str] = ""
+    email_verified: bool = True  # Admin-created users are pre-verified
+
+
 class AdminUserUpdateIn(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=120)
     email: Optional[EmailStr] = None
@@ -2402,6 +2411,50 @@ async def admin_list_users(
         user.setdefault("last_login", None)
     
     return users
+
+
+
+@api.post("/admin/users")
+async def admin_create_user(body: AdminUserCreateIn, _: dict = Depends(require_role("admin"))):
+    """Admin creates a new user account (pre-verified)."""
+    email = body.email.lower()
+    
+    # Check if email already exists
+    existing = await db.users.find_one({"email": email})
+    if existing:
+        raise HTTPException(400, "An account with this email already exists")
+    
+    # Check if email is blocked
+    blocked = await db.blocked_emails.find_one({"email": email})
+    if blocked:
+        raise HTTPException(403, "This email cannot be registered")
+    
+    uid = str(uuid.uuid4())
+    user = {
+        "id": uid,
+        "email": email,
+        "name": body.name.strip(),
+        "role": body.role,
+        "phone": (body.phone or "").strip(),
+        "password_hash": hash_password(body.password),
+        "email_verified": body.email_verified,  # Admin-created users can be pre-verified
+        "is_active": True,
+        "must_change_password": False,
+        "settings": {},
+        "created_at": now_iso(),
+    }
+    await db.users.insert_one(user)
+    
+    return {
+        "ok": True,
+        "message": f"User {body.name} created successfully",
+        "user": {
+            "id": uid,
+            "email": email,
+            "name": body.name,
+            "role": body.role,
+        }
+    }
 
 
 @api.get("/admin/users/{user_id}")

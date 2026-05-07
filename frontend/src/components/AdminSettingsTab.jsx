@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import api, { formatDetail } from "@/lib/api";
-import { Percent, Save, RotateCcw, Info, Store, ArrowRight, Users, Search, Filter, MoreVertical, Edit, Key, Mail, Power, Trash2, Eye, X, CheckCircle, XCircle, ShoppingBag, DollarSign } from "lucide-react";
+import { Percent, Save, RotateCcw, Info, Store, ArrowRight, Users, Search, Filter, MoreVertical, Edit, Key, Mail, Power, Trash2, Eye, X, CheckCircle, XCircle, ShoppingBag, DollarSign, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 /**
@@ -262,6 +262,7 @@ function UserManagement() {
   const [selectedUser, setSelectedUser] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   const loadUsers = async () => {
     setLoading(true);
@@ -329,11 +330,21 @@ function UserManagement() {
           <Users className="w-5 h-5" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">Platform</p>
-          <h2 className="font-display font-bold text-lg text-[var(--js-text)] mt-0.5">User Management</h2>
-          <p className="text-xs text-[var(--js-text-secondary)] mt-1">
-            View and manage all user accounts. {counts.total} total users ({counts.customers} customers, {counts.sellers} sellers)
-          </p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">Platform</p>
+              <h2 className="font-display font-bold text-lg text-[var(--js-text)] mt-0.5">User Management</h2>
+              <p className="text-xs text-[var(--js-text-secondary)] mt-1">
+                View and manage all user accounts. {counts.total} total users ({counts.customers} customers, {counts.sellers} sellers)
+              </p>
+            </div>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#2D6A4F] hover:bg-[#1B4332] text-white text-sm font-bold rounded-xl transition flex-shrink-0"
+            >
+              <Plus className="w-4 h-4" /> Create User
+            </button>
+          </div>
         </div>
       </div>
 
@@ -438,6 +449,13 @@ function UserManagement() {
           user={selectedUser}
           onClose={() => { setShowPasswordModal(false); setSelectedUser(null); }}
           onSuccess={() => { setShowPasswordModal(false); setSelectedUser(null); }}
+        />
+      )}
+
+      {showCreateModal && (
+        <CreateUserModal
+          onClose={() => setShowCreateModal(false)}
+          onSuccess={() => { setShowCreateModal(false); loadUsers(); }}
         />
       )}
     </div>
@@ -549,6 +567,141 @@ function UserRow({ user, onToggleStatus, onDelete, onEdit, onPassword }) {
     </tr>
   );
 }
+
+
+function CreateUserModal({ onClose, onSuccess }) {
+  const [formData, setFormData] = useState({
+    name: "",
+    email: "",
+    password: "",
+    phone: "",
+    role: "customer",
+    email_verified: true,
+  });
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (formData.password.length < 6) {
+      toast.error("Password must be at least 6 characters");
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.post("/admin/users", formData);
+      toast.success("User created successfully");
+      onSuccess();
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail) || "Failed to create user");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-display font-bold text-xl">Create New User</h3>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-[var(--js-bg)]">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-semibold mb-1">Name *</label>
+            <input
+              type="text"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              className="w-full px-3 py-2 border border-[var(--js-border)] rounded-xl focus:outline-none focus:border-[#C84B31]"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold mb-1">Email *</label>
+            <input
+              type="email"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              className="w-full px-3 py-2 border border-[var(--js-border)] rounded-xl focus:outline-none focus:border-[#C84B31]"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold mb-1">Password *</label>
+            <input
+              type="password"
+              value={formData.password}
+              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              placeholder="Minimum 6 characters"
+              className="w-full px-3 py-2 border border-[var(--js-border)] rounded-xl focus:outline-none focus:border-[#C84B31]"
+              required
+            />
+            <p className="text-xs text-[var(--js-text-secondary)] mt-1">User will be able to login with this password</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold mb-1">Phone</label>
+            <input
+              type="text"
+              value={formData.phone}
+              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              className="w-full px-3 py-2 border border-[var(--js-border)] rounded-xl focus:outline-none focus:border-[#C84B31]"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold mb-1">Role *</label>
+            <select
+              value={formData.role}
+              onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+              className="w-full px-3 py-2 border border-[var(--js-border)] rounded-xl focus:outline-none focus:border-[#C84B31]"
+            >
+              <option value="customer">Customer</option>
+              <option value="seller">Seller</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="email_verified"
+              checked={formData.email_verified}
+              onChange={(e) => setFormData({ ...formData, email_verified: e.target.checked })}
+              className="w-4 h-4 rounded border-[var(--js-border)] text-[#C84B31] focus:ring-[#C84B31]"
+            />
+            <label htmlFor="email_verified" className="text-sm text-[var(--js-text)]">
+              Email verified (user can login immediately)
+            </label>
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2 border border-[var(--js-border)] rounded-xl font-semibold hover:bg-[var(--js-bg)]"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex-1 px-4 py-2 bg-[#2D6A4F] text-white rounded-xl font-semibold hover:bg-[#1B4332] disabled:bg-[#A3A39E]"
+            >
+              {saving ? "Creating..." : "Create User"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 
 function EditUserModal({ user, onClose, onSuccess }) {
   const [formData, setFormData] = useState({
