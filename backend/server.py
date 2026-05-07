@@ -1338,7 +1338,9 @@ async def my_shops(
     skip: Optional[int] = None,
 ):
     lim, off = clamp_pagination(limit, skip)
-    return await db.shops.find({"seller_id": user["id"]}, {"_id": 0}).skip(off).to_list(lim)
+    # Filter out soft-deleted shops for sellers
+    query = {"seller_id": user["id"], "is_deleted": {"$ne": True}}
+    return await db.shops.find(query, {"_id": 0}).skip(off).to_list(lim)
 
 
 
