@@ -9,6 +9,7 @@ import {
 import { useState } from "react";
 import { Logo } from "@/components/Logo";
 import NotificationBell from "@/components/NotificationBell";
+import CategoriesNavMenu from "@/components/CategoriesNavMenu";
 
 const Brand = () => (
   <Link to="/" className="flex items-center gap-2.5" data-testid="brand-logo">
@@ -86,7 +87,12 @@ export default function Header() {
 
           <nav className="hidden lg:flex items-center gap-1">
             {navLink("/", "Home", HomeIcon)}
-            {settings.module_marketplace && navLink("/marketplace", "Categories", LayoutGrid)}
+            {settings.module_marketplace && (
+              <CategoriesNavMenu
+                active={location.pathname === "/marketplace"}
+                onNavigate={() => setMobileOpen(false)}
+              />
+            )}
             {navLink("/shops", "Shops", Store)}
             {settings.module_restaurants && navLink("/restaurants", "Restaurants", UtensilsCrossed)}
             {user?.role === "customer" && navLink("/orders", "Orders", ClipboardList)}
