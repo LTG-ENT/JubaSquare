@@ -7,7 +7,7 @@ import ProductCard from "@/components/ProductCard";
 import WholesaleCard from "@/components/WholesaleCard";
 import AreaSelector from "@/components/AreaSelector";
 import { useCart } from "@/context/CartContext";
-import { Search, X, Package } from "lucide-react";
+import { Search, X, Package, ChevronRight, ChevronDown } from "lucide-react";
 
 const FILTERS = [
   { id: "all", label: "All" },
@@ -18,6 +18,8 @@ const FILTERS = [
 export default function Marketplace() {
   const [products, setProducts] = useState([]);
   const [shops, setShops] = useState([]);
+  const [categoryTree, setCategoryTree] = useState([]); // [{id,name,children:[...]}]
+  const [expandedCats, setExpandedCats] = useState({});
   const [search, setSearch] = useState("");
   const [searchParams, setSearchParams] = useSearchParams();
   const [typeFilter, setTypeFilter] = useState(searchParams.get("view") || "all");
@@ -29,6 +31,11 @@ export default function Marketplace() {
 
   useEffect(() => {
     api.get("/shops").then((r) => setShops(r.data));
+    // Pull retail tree (with sub-categories) for the sidebar.
+    api
+      .get("/categories/tree?group=retail")
+      .then((r) => setCategoryTree(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setCategoryTree([]));
   }, []);
 
   useEffect(() => {
@@ -44,6 +51,25 @@ export default function Marketplace() {
     () => [...new Set(products.map((p) => p.category))].filter(Boolean),
     [products],
   );
+
+  // Merge categories from products with the admin-managed tree:
+  //   - Use the tree as the primary source (so admin order + sub-categories are respected)
+  //   - Also include any product categories that exist but aren't yet in the tree (legacy/unknown)
+  const sidebarCats = useMemo(() => {
+    const treeNames = new Set();
+    categoryTree.forEach((c) => {
+      treeNames.add(c.name);
+      (c.children || []).forEach((s) => treeNames.add(s.name));
+    });
+    const orphans = categories.filter((c) => c && !treeNames.has(c));
+    return [
+      ...categoryTree.map((c) => ({ ...c, _kind: "tree" })),
+      ...orphans.map((name) => ({ id: `orphan-${name}`, name, children: [], _kind: "orphan" })),
+    ];
+  }, [categoryTree, categories]);
+
+  const toggleCatExpanded = (id) =>
+    setExpandedCats((e) => ({ ...e, [id]: !e[id] }));
 
   const filtered = products.filter((p) => {
     if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false;
@@ -150,16 +176,55 @@ export default function Marketplace() {
                     !selectedCategory ? "bg-[#1A1A1A] text-white" : "text-[var(--js-text)] hover:bg-[var(--js-subtle)]"
                   }`}
                 >All categories</button>
-                {categories.map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => setCategory(c)}
-                    data-testid={`category-filter-${c.replace(/\s+/g, "-").toLowerCase()}`}
-                    className={`text-left px-3 py-2 rounded-xl text-sm font-medium transition ${
-                      selectedCategory === c ? "bg-[#1A1A1A] text-white" : "text-[var(--js-text)] hover:bg-[var(--js-subtle)]"
-                    }`}
-                  >{c}</button>
-                ))}
+                {sidebarCats.map((c) => {
+                  const slug = c.name.replace(/\s+/g, "-").toLowerCase();
+                  const hasKids = (c.children || []).length > 0;
+                  const isOpen = !!expandedCats[c.id] || c.children?.some((k) => k.name === selectedCategory);
+                  const isSelected = selectedCategory === c.name;
+                  return (
+                    <div key={c.id}>
+                      <div className="flex items-center">
+                        <button
+                          onClick={() => setCategory(c.name)}
+                          data-testid={`category-filter-${slug}`}
+                          className={`flex-1 text-left px-3 py-2 rounded-xl text-sm font-medium transition ${
+                            isSelected ? "bg-[#1A1A1A] text-white" : "text-[var(--js-text)] hover:bg-[var(--js-subtle)]"
+                          }`}
+                        >{c.name}</button>
+                        {hasKids && (
+                          <button
+                            onClick={() => toggleCatExpanded(c.id)}
+                            data-testid={`category-expand-${slug}`}
+                            className="ml-1 w-7 h-7 rounded-lg hover:bg-[var(--js-subtle)] flex items-center justify-center text-[var(--js-text-secondary)]"
+                            aria-label="Toggle sub-categories"
+                          >
+                            {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                          </button>
+                        )}
+                      </div>
+                      {hasKids && isOpen && (
+                        <div className="mt-1 ml-3 pl-3 border-l border-[var(--js-border)] flex flex-col gap-1">
+                          {c.children.map((sub) => {
+                            const subSlug = sub.name.replace(/\s+/g, "-").toLowerCase();
+                            const subSelected = selectedCategory === sub.name;
+                            return (
+                              <button
+                                key={sub.id}
+                                onClick={() => setCategory(sub.name)}
+                                data-testid={`subcategory-filter-${subSlug}`}
+                                className={`text-left px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                                  subSelected
+                                    ? "bg-[#C84B31] text-white"
+                                    : "text-[var(--js-text-secondary)] hover:bg-[var(--js-subtle)] hover:text-[var(--js-text)]"
+                                }`}
+                              >{sub.name}</button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
 

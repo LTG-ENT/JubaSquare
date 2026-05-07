@@ -45,6 +45,7 @@ export default function Home() {
   const [restaurants, setRestaurants] = useState([]);
   const [wholesaleProducts, setWholesaleProducts] = useState([]);
   const [allProducts, setAllProducts] = useState([]);
+  const [retailCats, setRetailCats] = useState([]); // [{id,name,image_url,children:[]}]
   const [slideIdx, setSlideIdx] = useState(0);
   const { area, setArea } = useCart();
 
@@ -53,6 +54,10 @@ export default function Home() {
     api.get("/restaurants").then((r) => setRestaurants(r.data));
     api.get("/products?is_wholesale=true").then((r) => setWholesaleProducts(r.data));
     api.get("/products").then((r) => setAllProducts(r.data));
+    api
+      .get("/categories/tree?group=retail")
+      .then((r) => setRetailCats(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setRetailCats([]));
   }, []);
 
   // Cycle hero background every 3.5s
@@ -63,7 +68,13 @@ export default function Home() {
     return () => clearInterval(id);
   }, []);
 
-  const categories = [...new Set(shops.map((s) => s.category))];
+  // Prefer admin-managed retail categories. Fall back to shop-derived list if
+  // the DB happens to be empty.
+  const shopCategories = [...new Set(shops.map((s) => s.category))].filter(Boolean);
+  const categories =
+    retailCats.length > 0
+      ? retailCats.map((c) => ({ name: c.name, image_url: c.image_url || CATEGORY_ICONS[c.name] || "" }))
+      : shopCategories.map((name) => ({ name, image_url: CATEGORY_ICONS[name] || "" }));
   const productsByShop = (shopId) => allProducts.filter((p) => p.shop_id === shopId).slice(0, 4);
 
   return (
@@ -169,20 +180,29 @@ export default function Home() {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
           {categories.map((cat) => (
             <Link
-              key={cat}
-              to={`/marketplace?category=${encodeURIComponent(cat)}`}
-              data-testid={`category-card-${cat.replace(/\s+/g, "-").toLowerCase()}`}
+              key={cat.name}
+              to={`/marketplace?category=${encodeURIComponent(cat.name)}`}
+              data-testid={`category-card-${cat.name.replace(/\s+/g, "-").toLowerCase()}`}
               className="js-card overflow-hidden flex flex-col hover:-translate-y-1 hover:shadow-xl transition-all duration-300"
             >
               <div className="aspect-square overflow-hidden bg-[#F2EBE5]">
-                <img
-                  src={CATEGORY_ICONS[cat] || ""}
-                  alt={cat}
-                  className="w-full h-full object-cover hover:scale-110 transition-transform duration-500"
-                />
+                {cat.image_url ? (
+                  <img
+                    src={cat.image_url}
+                    alt={cat.name}
+                    className="w-full h-full object-cover hover:scale-110 transition-transform duration-500"
+                    onError={(e) => {
+                      e.target.style.display = "none";
+                    }}
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-3xl font-display text-[#5C5C5C]/50">
+                    {cat.name.charAt(0)}
+                  </div>
+                )}
               </div>
               <div className="p-3 text-center">
-                <p className="font-display font-semibold text-sm text-[#1A1A1A]">{cat}</p>
+                <p className="font-display font-semibold text-sm text-[#1A1A1A]">{cat.name}</p>
               </div>
             </Link>
           ))}

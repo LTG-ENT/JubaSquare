@@ -7,12 +7,14 @@ import AdminIntegrations from "@/components/AdminIntegrations";
 import AdminPagesTab from "@/components/AdminPagesTab";
 import AdminSettingsTab from "@/components/AdminSettingsTab";
 import AdminFooterTab from "@/components/AdminFooterTab";
-import { Store, Mail, ShoppingBag, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Percent, Eye, X, BarChart3, Settings as SettingsIcon, BookOpen, Sliders, PanelBottom } from "lucide-react";
+import AdminCategoriesTab from "@/components/AdminCategoriesTab";
+import { Store, Mail, ShoppingBag, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Percent, Eye, X, BarChart3, Settings as SettingsIcon, BookOpen, Sliders, PanelBottom, FolderTree } from "lucide-react";
 import { toast } from "sonner";
 
 const TABS = [
   { id: "analytics", label: "Analytics", icon: BarChart3 },
   { id: "shops", label: "Shops", icon: Store },
+  { id: "categories", label: "Categories", icon: FolderTree },
   { id: "invoices", label: "Invoices", icon: FileText },
   { id: "emails", label: "Blocked Emails", icon: Mail },
   { id: "orders", label: "All Orders", icon: ShoppingBag },
@@ -53,6 +55,7 @@ export default function AdminDashboard() {
         <div className="mt-8">
           {tab === "analytics" && <AdminAnalytics />}
           {tab === "shops" && <AdminShopsTab />}
+          {tab === "categories" && <AdminCategoriesTab />}
           {tab === "invoices" && <AdminInvoicesTab />}
           {tab === "emails" && <AdminEmailsTab />}
           {tab === "orders" && <AdminOrdersTab />}

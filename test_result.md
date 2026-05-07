@@ -597,6 +597,14 @@ agent_communication:
 
     - agent: "main"
       message: |
+        Round 7 frontend complete (verified visually, no automated test requested by user):
+        - New /admin → Categories tab with tree editor, group selector pills (Retail/Wholesale/Restaurants/Food), per-row move up/down, add sub-category, hide/show, edit, delete (with force-delete confirmation when children exist), and a modal editor for name + image upload + active toggle.
+        - Marketplace public sidebar now reads /api/categories/tree?group=retail; sub-categories show indented with an inline expand chevron and an orange selected state.
+        - Home page category grid uses admin-managed retail tree and prefers DB image_url over the legacy hardcoded icon map.
+        - Verified end-to-end: admin created "Fresh Produce" sub of Groceries → toast → expand → public marketplace sidebar shows it under Groceries. Test data cleaned up.
+
+    - agent: "main"
+      message: |
         Round 6: Made the entire site footer editable from /admin → Footer tab.
 
         BACKEND (new endpoints, please test):
