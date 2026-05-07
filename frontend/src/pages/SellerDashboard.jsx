@@ -4,6 +4,7 @@ import api, { formatUSD, formatDetail } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ImageUpload from "@/components/ImageUpload";
+import AreaSelectField from "@/components/AreaSelectField";
 import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle, ExternalLink, MessageCircle, Mail, Phone } from "lucide-react";
 import { useSearchParams, Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -26,7 +27,6 @@ const CATEGORIES = [
   "Wholesale Food Supply", "Wholesale Electronics", "Wholesale Clothing",
   "Restaurant Supplies", "Construction Materials", "General Bulk Goods",
 ];
-const AREAS = ["Munuki", "Jebel", "Gudele", "Konyo Konyo", "Hai Cinema", "Nyakuron", "Atlabara"];
 
 export default function SellerDashboard() {
   const { user } = useAuth();
@@ -296,7 +296,10 @@ function ShopsTab() {
               </div>
             </div>
             <Input label="Name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required testId="shop-name-input" />
-            <Select label="Area" value={form.area} onChange={(v) => setForm({ ...form, area: v })} options={AREAS} testId="shop-area-select" />
+            <label className="block">
+              <span className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Area</span>
+              <AreaSelectField value={form.area} onChange={(v) => setForm({ ...form, area: v })} testId="shop-area-select" />
+            </label>
             <ImageUpload label="Shop photo" value={form.image_url} onChange={(v) => setForm({ ...form, image_url: v })} testId="shop-image-upload" />
             <Textarea label="Description" value={form.description} onChange={(v) => setForm({ ...form, description: v })} testId="shop-desc-input" />
 
@@ -1118,15 +1121,14 @@ function DeliveryEditor({ form, setForm }) {
           <p className="text-xs text-[var(--js-text-secondary)]">Set a different delivery fee for each area you serve.</p>
           {(form.delivery_per_area || []).map((entry, idx) => (
             <div key={idx} className="flex gap-2 items-center" data-testid={`delivery-area-row-${idx}`}>
-              <select
-                value={entry.area}
-                onChange={(e) => updateAreaFee(idx, "area", e.target.value)}
-                data-testid={`delivery-area-select-${idx}`}
-                className="js-input flex-1"
-              >
-                <option value="">Select area</option>
-                {AREAS.map((a) => <option key={a} value={a}>{a}</option>)}
-              </select>
+              <div className="flex-1">
+                <AreaSelectField
+                  value={entry.area}
+                  onChange={(v) => updateAreaFee(idx, "area", v)}
+                  testId={`delivery-area-select-${idx}`}
+                  placeholder="Select area"
+                />
+              </div>
               <div className="relative w-32">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-[var(--js-text-secondary)]">USD</span>
                 <input

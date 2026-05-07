@@ -57,6 +57,7 @@ Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode fo
 
 ### Iter 6.1 (Feb 2026) — Bug fix
 - **SellerDashboard Modal** — fixed scroll issue when many delivery areas added in shop create/edit form. Modal now uses `flex flex-col` with sticky header and a dedicated `flex-1 min-h-0 overflow-y-auto` body so long forms scroll reliably on mobile + desktop.
+- **Area dropdown** — replaced native `<select>` with custom `AreaSelectField` component. Now scrollable (max-h-72 with overflow), searchable, dark-mode aware, fetches areas dynamically from `/api/meta/areas` (so admin-added areas show up). Used in `SellerShopEdit.jsx` (Storefront identity Area + Per-area delivery rows) and `SellerDashboard.jsx` (New business modal Area + Per-area delivery rows).
 
 ## Backlog (P1 / P2)
 - **P1** Unread message badge polling / realtime updates on Messages tab

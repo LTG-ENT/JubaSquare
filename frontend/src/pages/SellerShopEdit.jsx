@@ -5,10 +5,9 @@ import { useAuth } from "@/context/AuthContext";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ImageUpload from "@/components/ImageUpload";
+import AreaSelectField from "@/components/AreaSelectField";
 import { ArrowLeft, ExternalLink, Save, Trash2, Plus, AlertCircle, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
-
-const AREAS = ["Munuki", "Jebel", "Gudele", "Konyo Konyo", "Hai Cinema", "Nyakuron", "Atlabara"];
 
 export default function SellerShopEdit() {
   const { shop_id } = useParams();
@@ -181,14 +180,11 @@ export default function SellerShopEdit() {
             </Field>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Area">
-                <select
+                <AreaSelectField
                   value={form.area}
-                  onChange={(e) => setForm({ ...form, area: e.target.value })}
-                  data-testid="shop-edit-area"
-                  className="js-input"
-                >
-                  {AREAS.map((a) => <option key={a} value={a}>{a}</option>)}
-                </select>
+                  onChange={(v) => setForm({ ...form, area: v })}
+                  testId="shop-edit-area"
+                />
               </Field>
               <Field label="Opening hours" hint="e.g. Mon–Sat · 9:00 AM – 8:00 PM">
                 <input
@@ -376,15 +372,14 @@ function DeliveryEditor({ form, setForm }) {
           <p className="text-xs text-[var(--js-text-secondary)]">Set a different delivery fee per area you serve.</p>
           {(form.delivery_per_area || []).map((entry, idx) => (
             <div key={idx} className="flex gap-2 items-center" data-testid={`shop-edit-area-row-${idx}`}>
-              <select
-                value={entry.area}
-                onChange={(e) => updateAreaFee(idx, "area", e.target.value)}
-                data-testid={`shop-edit-area-select-${idx}`}
-                className="js-input flex-1"
-              >
-                <option value="">Select area</option>
-                {AREAS.map((a) => <option key={a} value={a}>{a}</option>)}
-              </select>
+              <div className="flex-1">
+                <AreaSelectField
+                  value={entry.area}
+                  onChange={(v) => updateAreaFee(idx, "area", v)}
+                  testId={`shop-edit-area-select-${idx}`}
+                  placeholder="Select area"
+                />
+              </div>
               <div className="relative w-32">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-[var(--js-text-secondary)]">USD</span>
                 <input
