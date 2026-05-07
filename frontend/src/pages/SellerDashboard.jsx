@@ -423,12 +423,8 @@ function ShopsTab() {
   );
 }
 
-const FOOD_SUBCATEGORIES = [
-  "Fried Chicken", "Burgers", "Shawarma", "Fries", "Sandwiches", "Kisra & Stews",
-  "Asida", "Goat Meat Dishes", "Fish Dishes", "Pizza & Pasta", "Rice Meals",
-  "Drinks & Cafés", "Cakes & Desserts", "Grills & BBQ", "Asian Food", "Healthy Food",
-];
 const RESTAURANT_CATEGORIES = ["Fast Food", "Local Food", "Drinks", "Bakery"];
+const FOOD_SUBCATEGORIES = RESTAURANT_CATEGORIES; // Use restaurant categories as food categories
 const RETAIL_CATEGORIES = [
   "Groceries", "Clothing & Fashion", "Shoes & Bags", "Beauty & Cosmetics",
   "Electronics & Accessories", "Home Essentials", "Health & Pharmacy",
