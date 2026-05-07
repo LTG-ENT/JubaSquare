@@ -2,9 +2,9 @@
 # (idempotent — never overwrites existing categories in the DB).
 #
 # Structure: { group: [ {name, image_url, children:[{name, image_url}]} ] }
-# Groups: retail | wholesale | restaurant | food
+# Groups: retail | wholesale | restaurant
 
-CATEGORY_GROUPS = ["retail", "wholesale", "restaurant", "food"]
+CATEGORY_GROUPS = ["retail", "wholesale", "restaurant"]
 
 CATEGORIES_DEFAULT = {
     "retail": [
@@ -63,27 +63,51 @@ CATEGORIES_DEFAULT = {
         {"name": "General Bulk Goods", "image_url": "", "children": []},
     ],
     "restaurant": [
-        {"name": "Fast Food", "image_url": "", "children": []},
-        {"name": "Local Food", "image_url": "", "children": []},
-        {"name": "Drinks", "image_url": "", "children": []},
-        {"name": "Bakery", "image_url": "", "children": []},
-    ],
-    "food": [
-        {"name": "Fried Chicken", "image_url": "", "children": []},
-        {"name": "Burgers", "image_url": "", "children": []},
-        {"name": "Shawarma", "image_url": "", "children": []},
-        {"name": "Fries", "image_url": "", "children": []},
-        {"name": "Sandwiches", "image_url": "", "children": []},
-        {"name": "Kisra & Stews", "image_url": "", "children": []},
-        {"name": "Asida", "image_url": "", "children": []},
-        {"name": "Goat Meat Dishes", "image_url": "", "children": []},
-        {"name": "Fish Dishes", "image_url": "", "children": []},
-        {"name": "Pizza & Pasta", "image_url": "", "children": []},
-        {"name": "Rice Meals", "image_url": "", "children": []},
-        {"name": "Drinks & Cafés", "image_url": "", "children": []},
-        {"name": "Cakes & Desserts", "image_url": "", "children": []},
-        {"name": "Grills & BBQ", "image_url": "", "children": []},
-        {"name": "Asian Food", "image_url": "", "children": []},
-        {"name": "Healthy Food", "image_url": "", "children": []},
+        {
+            "name": "Fast Food",
+            "image_url": "",
+            "children": [
+                {"name": "Burgers", "image_url": ""},
+                {"name": "Fried Chicken", "image_url": ""},
+                {"name": "Fries", "image_url": ""},
+                {"name": "Shawarma", "image_url": ""},
+                {"name": "Sandwiches", "image_url": ""},
+                {"name": "Pizza", "image_url": ""},
+            ],
+        },
+        {
+            "name": "Local Food",
+            "image_url": "",
+            "children": [
+                {"name": "Kisra & Stews", "image_url": ""},
+                {"name": "Asida", "image_url": ""},
+                {"name": "Goat Meat Dishes", "image_url": ""},
+                {"name": "Fish Dishes", "image_url": ""},
+                {"name": "Rice Meals", "image_url": ""},
+                {"name": "Grills & BBQ", "image_url": ""},
+            ],
+        },
+        {
+            "name": "Drinks",
+            "image_url": "",
+            "children": [
+                {"name": "Coffee", "image_url": ""},
+                {"name": "Tea", "image_url": ""},
+                {"name": "Juice", "image_url": ""},
+                {"name": "Smoothies", "image_url": ""},
+                {"name": "Soft Drinks", "image_url": ""},
+            ],
+        },
+        {
+            "name": "Bakery",
+            "image_url": "",
+            "children": [
+                {"name": "Cakes", "image_url": ""},
+                {"name": "Bread", "image_url": ""},
+                {"name": "Pastries", "image_url": ""},
+                {"name": "Desserts", "image_url": ""},
+                {"name": "Cookies", "image_url": ""},
+            ],
+        },
     ],
 }
