@@ -108,10 +108,11 @@ export default function CategoriesNavMenu({ active, onNavigate, trigger }) {
         </Link>
       )}
 
-      {/* Mega-menu panel */}
+      {/* Mega-menu panel — fixed and centered to viewport so it appears in the
+          middle of the page just below the header (which is h-20 = 80px). */}
       {open && totalCount > 0 && (
         <div
-          className="absolute left-1/2 -translate-x-1/2 top-full pt-3 z-50"
+          className="fixed left-1/2 -translate-x-1/2 top-20 pt-3 z-50"
           onMouseEnter={openNow}
           onMouseLeave={scheduleClose}
           data-testid="nav-categories-menu"

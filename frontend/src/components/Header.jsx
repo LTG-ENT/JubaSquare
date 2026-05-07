@@ -12,10 +12,10 @@ import NotificationBell from "@/components/NotificationBell";
 import CategoriesNavMenu from "@/components/CategoriesNavMenu";
 
 const Brand = () => (
-  <Link to="/" className="flex items-center gap-2.5" data-testid="brand-logo">
-    <Logo size={40} />
+  <Link to="/" className="flex items-center gap-3" data-testid="brand-logo">
+    <Logo size={64} />
     <div className="flex flex-col leading-tight">
-      <span className="font-display font-bold text-[17px] text-white">JubaSquare</span>
+      <span className="font-display font-bold text-xl text-white">JubaSquare</span>
       <span className="text-[10px] uppercase tracking-[0.18em] text-white/60 -mt-0.5">by L.T.G Enterprise</span>
     </div>
   </Link>
@@ -82,7 +82,7 @@ export default function Header() {
         </div>
       )}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="h-16 flex items-center justify-between gap-4">
+        <div className="h-20 flex items-center justify-between gap-4">
           <Brand />
 
           <nav className="hidden lg:flex items-center gap-1">
@@ -95,12 +95,7 @@ export default function Header() {
             ) : (
               navLink("/", "Home", HomeIcon)
             )}
-            {settings.module_marketplace && (
-              <CategoriesNavMenu
-                active={location.pathname === "/marketplace"}
-                onNavigate={() => setMobileOpen(false)}
-              />
-            )}
+            {settings.module_marketplace && navLink("/marketplace", "Categories", LayoutGrid)}
             {navLink("/shops", "Shops", Store)}
             {settings.module_restaurants && navLink("/restaurants", "Restaurants", UtensilsCrossed)}
             {user?.role === "customer" && navLink("/orders", "Orders", ClipboardList)}
