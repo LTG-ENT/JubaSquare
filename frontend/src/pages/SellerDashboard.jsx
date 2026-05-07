@@ -424,7 +424,15 @@ function ShopsTab() {
 }
 
 const RESTAURANT_CATEGORIES = ["Fast Food", "Local Food", "Drinks", "Bakery"];
-const FOOD_SUBCATEGORIES = RESTAURANT_CATEGORIES; // Use restaurant categories as food categories
+
+// Sub-categories for each restaurant category
+const FOOD_SUBCATEGORIES_MAP = {
+  "Fast Food": ["Burgers", "Fried Chicken", "Fries", "Shawarma", "Sandwiches", "Pizza"],
+  "Local Food": ["Kisra & Stews", "Asida", "Goat Meat Dishes", "Fish Dishes", "Rice Meals", "Grills & BBQ"],
+  "Drinks": ["Coffee", "Tea", "Juice", "Smoothies", "Soft Drinks"],
+  "Bakery": ["Cakes", "Bread", "Pastries", "Desserts", "Cookies"],
+};
+
 const RETAIL_CATEGORIES = [
   "Groceries", "Clothing & Fashion", "Shoes & Bags", "Beauty & Cosmetics",
   "Electronics & Accessories", "Home Essentials", "Health & Pharmacy",
@@ -539,8 +547,10 @@ function ProductsTab() {
       setMode("marketplace");
     } else if (restaurants.length > 0) {
       next.restaurant_id = restaurants[0].id;
-      // Use the first restaurant's category as the food category
-      next.food_category = restaurants[0].category || "Fast Food";
+      // Use the first restaurant's first sub-category
+      const restaurantCategory = restaurants[0].category || "Fast Food";
+      const subcategories = FOOD_SUBCATEGORIES_MAP[restaurantCategory] || [];
+      next.food_category = subcategories[0] || "Burgers";
       setMode("restaurant");
     }
     setForm(next);
@@ -566,14 +576,16 @@ function ProductsTab() {
   const openEditMenu = (m) => {
     setMode("restaurant");
     setEditing({ kind: "menu", ...m });
-    // Get the restaurant's category instead of using stored food_category
+    // Keep the existing food_category when editing (it's already a sub-category)
     const restaurant = restaurants.find(r => r.id === m.restaurant_id);
+    const restaurantCategory = restaurant?.category || "Fast Food";
+    const subcategories = FOOD_SUBCATEGORIES_MAP[restaurantCategory] || [];
     setForm({
       ...defaultForm(),
       restaurant_id: m.restaurant_id, name: m.name,
       price_usd: m.price_usd,
       description: m.description || "", image_url: m.image_url || "",
-      food_category: restaurant?.category || m.food_category || "Fast Food",
+      food_category: m.food_category || subcategories[0] || "Burgers",
       side_items: m.side_items || [],
     });
     setShowForm(true);
@@ -750,9 +762,11 @@ function ProductsTab() {
                   const [kind, id] = e.target.value.split(":");
                   if (kind === "r") {
                     setMode("restaurant");
-                    // Find the restaurant and use its category
+                    // Find the restaurant and use its first sub-category
                     const restaurant = restaurants.find(r => r.id === id);
-                    setForm({ ...form, restaurant_id: id, food_category: restaurant?.category || "Fast Food" });
+                    const restaurantCategory = restaurant?.category || "Fast Food";
+                    const subcategories = FOOD_SUBCATEGORIES_MAP[restaurantCategory] || [];
+                    setForm({ ...form, restaurant_id: id, food_category: subcategories[0] || "Burgers" });
                   } else {
                     setMode(form.is_wholesale_toggle ? "wholesale" : "marketplace");
                     setForm({ ...form, shop_id: id, category: form.category || RETAIL_CATEGORIES[0] });
@@ -774,6 +788,21 @@ function ProductsTab() {
             {mode === "restaurant" ? (
               <>
                 <Input label="Food name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required testId="product-name-input" />
+                {(() => {
+                  // Get the selected restaurant's category to show relevant sub-categories
+                  const restaurant = restaurants.find(r => r.id === form.restaurant_id);
+                  const restaurantCategory = restaurant?.category || "Fast Food";
+                  const subcategories = FOOD_SUBCATEGORIES_MAP[restaurantCategory] || [];
+                  return (
+                    <Select 
+                      label="Food category" 
+                      value={form.food_category} 
+                      onChange={(v) => setForm({ ...form, food_category: v })} 
+                      options={subcategories} 
+                      testId="food-category-select" 
+                    />
+                  );
+                })()}
                 <Input label="Price (USD)" type="number" step="0.01" value={form.price_usd} onChange={(v) => setForm({ ...form, price_usd: v })} required testId="product-price-input" />
                 <ImageUpload label="Food photo" value={form.image_url} onChange={(v) => setForm({ ...form, image_url: v })} testId="product-image-upload" />
                 <Textarea label="Description" value={form.description} onChange={(v) => setForm({ ...form, description: v })} testId="product-desc-input" />

@@ -1035,7 +1035,7 @@ async def update_footer(body: FooterIn, user: dict = Depends(require_role("admin
 # ----------------------------------------------------------------------------
 # Categories (admin-managed, hierarchical: 1 level of sub-categories)
 # ----------------------------------------------------------------------------
-ALLOWED_CATEGORY_GROUPS = {"retail", "wholesale", "restaurant", "food"}
+ALLOWED_CATEGORY_GROUPS = {"retail", "wholesale", "restaurant"}
 
 
 def _category_doc(c: dict) -> dict:

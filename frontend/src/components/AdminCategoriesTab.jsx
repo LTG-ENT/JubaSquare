@@ -23,7 +23,6 @@ const GROUPS = [
   { id: "retail", label: "Retail" },
   { id: "wholesale", label: "Wholesale" },
   { id: "restaurant", label: "Restaurants" },
-  { id: "food", label: "Food" },
 ];
 
 export default function AdminCategoriesTab() {
