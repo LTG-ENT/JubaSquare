@@ -10,12 +10,19 @@ import { useCart } from "@/context/CartContext";
 export default function Restaurants() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [restaurants, setRestaurants] = useState([]);
+  const [menuItems, setMenuItems] = useState([]);
   const [activeCat, setActiveCat] = useState(searchParams.get("category") || "All");
   const [sortBy, setSortBy] = useState("recommended");
   const { area, setArea } = useCart();
 
   useEffect(() => {
     api.get("/restaurants?limit=200").then((r) => setRestaurants(r.data));
+    // Fetch all menu items to determine restaurant categories
+    api.get("/products?limit=1000").then((r) => {
+      // Filter only restaurant menu items (food_category field exists)
+      const menuData = r.data.filter(p => p.food_category);
+      setMenuItems(menuData);
+    });
   }, []);
 
   // Update activeCat when URL params change
@@ -24,8 +31,25 @@ export default function Restaurants() {
     if (cat) setActiveCat(cat);
   }, [searchParams]);
 
-  const cats = useMemo(() => ["All", ...new Set(restaurants.map((r) => r.category))], [restaurants]);
-  const filtered = activeCat === "All" ? restaurants : restaurants.filter((r) => r.category === activeCat);
+  // Get categories from menu items' food_category (not restaurant.category)
+  const cats = useMemo(() => {
+    const foodCategories = new Set(menuItems.map(m => m.food_category).filter(Boolean));
+    return ["All", ...Array.from(foodCategories)];
+  }, [menuItems]);
+
+  // Filter restaurants by checking if they have menu items in the selected category
+  const filtered = useMemo(() => {
+    if (activeCat === "All") return restaurants;
+    
+    // Get restaurant IDs that have menu items in this category
+    const restaurantIds = new Set(
+      menuItems
+        .filter(m => m.food_category === activeCat)
+        .map(m => m.restaurant_id)
+    );
+    
+    return restaurants.filter(r => restaurantIds.has(r.id));
+  }, [activeCat, restaurants, menuItems]);
 
   // Backend already sorts verified-first. Apply client sort options.
   const sorted = useMemo(() => {

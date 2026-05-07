@@ -6,8 +6,7 @@ import { LayoutGrid, ChevronDown } from "lucide-react";
 const GROUPS = [
   { id: "retail", label: "Retail", linkBase: "/marketplace?category=" },
   { id: "wholesale", label: "Wholesale", linkBase: "/marketplace?view=wholesale&category=" },
-  { id: "restaurant", label: "Restaurants", linkBase: "/restaurants" },
-  { id: "food", label: "Food", linkBase: "/restaurants" },
+  { id: "restaurant", label: "Restaurants", linkBase: "/restaurants?category=" },
 ];
 
 /**
@@ -23,7 +22,7 @@ const GROUPS = [
  */
 export default function CategoriesNavMenu({ active, onNavigate, trigger }) {
   const [open, setOpen] = useState(false);
-  const [data, setData] = useState({ retail: [], wholesale: [], restaurant: [], food: [] });
+  const [data, setData] = useState({ retail: [], wholesale: [], restaurant: [] });
   const [activeGroup, setActiveGroup] = useState("retail");
   const closeTimer = useRef(null);
   const location = useLocation();
@@ -61,10 +60,6 @@ export default function CategoriesNavMenu({ active, onNavigate, trigger }) {
   const buildHref = (groupId, name) => {
     const g = GROUPS.find((x) => x.id === groupId);
     if (!g) return "/marketplace";
-    if (groupId === "restaurant" || groupId === "food") {
-      // Restaurants page doesn't currently filter by query string — just link to the page.
-      return g.linkBase;
-    }
     return `${g.linkBase}${encodeURIComponent(name)}`;
   };
 
