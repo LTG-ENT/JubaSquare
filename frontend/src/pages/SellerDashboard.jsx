@@ -252,11 +252,18 @@ function ShopsTab() {
   };
   const onDelete = async (s, kind) => {
     const what = kind === "restaurant"
-      ? "restaurant and its menu"
+      ? "restaurant and its menu items"
       : "shop? Its products will be deactivated. You can restore everything later by editing the shop";
     if (!window.confirm(`Delete this ${what}?`)) return;
-    if (kind === "restaurant") toast.error("Restaurant deletion is disabled. Please contact support.");
-    else { await api.delete(`/shops/${s.id}`); toast.success("Shop deleted — products deactivated. Edit the shop to restore."); load(); }
+    
+    if (kind === "restaurant") {
+      await api.delete(`/restaurants/${s.id}`);
+      toast.success("Restaurant deleted — menu items deactivated.");
+    } else {
+      await api.delete(`/shops/${s.id}`);
+      toast.success("Shop deleted — products deactivated. Edit the shop to restore.");
+    }
+    load();
   };
 
   const combined = [

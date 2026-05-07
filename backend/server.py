@@ -1657,7 +1657,7 @@ async def delete_product(product_id: str, user: dict = Depends(require_role("sel
 async def list_restaurants(area: Optional[str] = None, category: Optional[str] = None,
                            limit: Optional[int] = None, skip: Optional[int] = None):
     lim, off = clamp_pagination(limit, skip)
-    q: dict = {}
+    q: dict = {"is_deleted": {"$ne": True}}  # Filter out soft-deleted restaurants
     if area:
         q["area"] = area
     if category:
@@ -1732,6 +1732,31 @@ async def update_restaurant(restaurant_id: str, body: RestaurantIn, user: dict =
     }
     await db.restaurants.update_one({"id": restaurant_id}, {"$set": update_data})
     return await db.restaurants.find_one({"id": restaurant_id}, {"_id": 0})
+
+
+
+@api.delete("/restaurants/{restaurant_id}")
+async def delete_restaurant(restaurant_id: str, user: dict = Depends(require_role("seller", "admin"))):
+    """Soft delete a restaurant - marks it as deleted and deactivates its menu items"""
+    r = await db.restaurants.find_one({"id": restaurant_id})
+    if not r:
+        raise HTTPException(404, "Restaurant not found")
+    if user["role"] != "admin" and r["seller_id"] != user["id"]:
+        raise HTTPException(403, "Forbidden")
+    
+    # Soft delete - similar to shops
+    await db.restaurants.update_one(
+        {"id": restaurant_id},
+        {"$set": {"is_deleted": True, "is_open": False, "deleted_at": now_iso()}},
+    )
+    
+    # Deactivate all menu items
+    await db.menu_items.update_many(
+        {"restaurant_id": restaurant_id},
+        {"$set": {"is_active": False}},
+    )
+    
+    return {"ok": True, "message": "Restaurant deleted - menu items deactivated"}
 
 
 @api.post("/menu-items")
