@@ -826,7 +826,7 @@ function ProductsTab() {
                       <div className="block">
                         <span className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Food category</span>
                         <div className="js-input text-[#A3A39E] italic">
-                          No Categories! Admin needs to add sub-categories for {restaurantCategory}
+                          No Categories! :C
                         </div>
                       </div>
                     );
