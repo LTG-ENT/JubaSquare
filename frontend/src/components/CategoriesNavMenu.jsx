@@ -14,8 +14,14 @@ const GROUPS = [
  * Categories nav button with a hover-triggered mega-menu dropdown.
  * Shows all 4 groups (Retail / Wholesale / Restaurants / Food) in tabs,
  * each tab listing top-level categories with their sub-categories.
+ *
+ * Props:
+ *   - active: bool — applies active styling to the default "Categories" trigger
+ *   - onNavigate: () => void — called when a link in the menu is clicked
+ *   - trigger: ReactNode (optional) — custom trigger element. When omitted, a
+ *     default "Categories" pill button (links to /marketplace) is rendered.
  */
-export default function CategoriesNavMenu({ active, onNavigate }) {
+export default function CategoriesNavMenu({ active, onNavigate, trigger }) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState({ retail: [], wholesale: [], restaurant: [], food: [] });
   const [activeGroup, setActiveGroup] = useState("retail");
@@ -77,24 +83,30 @@ export default function CategoriesNavMenu({ active, onNavigate }) {
       onMouseLeave={scheduleClose}
       data-testid="nav-categories-wrap"
     >
-      <Link
-        to="/marketplace"
-        onFocus={openNow}
-        onClick={() => {
-          setOpen(false);
-          onNavigate?.();
-        }}
-        data-testid="nav-categories"
-        className={`flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium transition-all ${
-          active ? "bg-[#E9C46A] text-[#0E1A2B]" : "text-white/85 hover:bg-white/10 hover:text-white"
-        }`}
-        aria-haspopup="true"
-        aria-expanded={open}
-      >
-        <LayoutGrid className="w-4 h-4" />
-        <span>Categories</span>
-        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
-      </Link>
+      {trigger ? (
+        <span onFocus={openNow} className="contents">
+          {trigger}
+        </span>
+      ) : (
+        <Link
+          to="/marketplace"
+          onFocus={openNow}
+          onClick={() => {
+            setOpen(false);
+            onNavigate?.();
+          }}
+          data-testid="nav-categories"
+          className={`flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium transition-all ${
+            active ? "bg-[#E9C46A] text-[#0E1A2B]" : "text-white/85 hover:bg-white/10 hover:text-white"
+          }`}
+          aria-haspopup="true"
+          aria-expanded={open}
+        >
+          <LayoutGrid className="w-4 h-4" />
+          <span>Categories</span>
+          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
+        </Link>
+      )}
 
       {/* Mega-menu panel */}
       {open && totalCount > 0 && (

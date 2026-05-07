@@ -1,4 +1,4 @@
-export const LOGO_URL = "https://customer-assets.emergentagent.com/job_juba-vendors/artifacts/rr4cyen5_image.png";
+export const LOGO_URL = "/branding/jubasquare-logo.png";
 
 export const Logo = ({ size = 40, className = "" }) => (
   <img
@@ -6,7 +6,7 @@ export const Logo = ({ size = 40, className = "" }) => (
     alt="JubaSquare"
     width={size}
     height={size}
-    className={`rounded-xl object-cover shrink-0 ${className}`}
+    className={`object-contain shrink-0 ${className}`}
     loading="eager"
   />
 );
