@@ -197,10 +197,11 @@ function ShopsTab() {
     e.preventDefault();
     try {
       if (form.type === "restaurant") {
-        // Restaurants use category field (from demo list) — default to "Fast Food" if not set
+        // Restaurants no longer have a top-level category — they're classified
+        // purely by their menu items' food_category.
         const payload = {
           name: form.name, description: form.description, area: form.area,
-          image_url: form.image_url, category: form.category || "Fast Food", is_open: true,
+          image_url: form.image_url, is_open: true,
         };
         if (editing?._kind === "restaurant") {
           await api.put(`/restaurants/${editing.id}`, payload);
@@ -243,7 +244,6 @@ function ShopsTab() {
       description: s.description || "",
       area: s.area,
       image_url: s.image_url,
-      category: s.category,
       delivery_mode: s.delivery_mode || "free",
       delivery_fee_usd: s.delivery_fee_usd || 0,
       delivery_per_area: s.delivery_per_area || [],
@@ -313,23 +313,7 @@ function ShopsTab() {
               <span className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Area</span>
               <AreaSelectField value={form.area} onChange={(v) => setForm({ ...form, area: v })} testId="shop-area-select" />
             </label>
-            
-            {form.type === "restaurant" && (
-              <label className="block">
-                <span className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Food Category</span>
-                <select
-                  value={form.category || RESTAURANT_CATEGORIES[0]}
-                  onChange={(e) => setForm({ ...form, category: e.target.value })}
-                  className="w-full border border-[var(--js-border)] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#C84B31]"
-                  data-testid="restaurant-category-select"
-                >
-                  {RESTAURANT_CATEGORIES.map((cat) => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
-              </label>
-            )}
-            
+
             <ImageUpload label="Shop photo" value={form.image_url} onChange={(v) => setForm({ ...form, image_url: v })} testId="shop-image-upload" />
             <Textarea label="Description" value={form.description} onChange={(v) => setForm({ ...form, description: v })} testId="shop-desc-input" />
 

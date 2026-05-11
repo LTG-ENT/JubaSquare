@@ -406,7 +406,7 @@ class SideItem(BaseModel):
 
 class RestaurantIn(BaseModel):
     name: str
-    category: str
+    category: Optional[str] = ""
     description: Optional[str] = ""
     image_url: Optional[str] = ""
     area: str

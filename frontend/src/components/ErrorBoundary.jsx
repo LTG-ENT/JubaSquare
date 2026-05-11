@@ -1,5 +1,4 @@
 import React from "react";
-import { Link } from "react-router-dom";
 import { AlertTriangle } from "lucide-react";
 
 export default class ErrorBoundary extends React.Component {
@@ -29,10 +28,13 @@ export default class ErrorBoundary extends React.Component {
             className="bg-[#C84B31] hover:bg-[#A83A23] text-white font-semibold px-5 py-2.5 rounded-xl text-sm">
             Refresh page
           </button>
-          <Link to="/" onClick={this.reset}
+          {/* Plain <a> instead of <Link>: ErrorBoundary is rendered OUTSIDE
+              <BrowserRouter>, so a router-aware <Link> would itself crash
+              with "Cannot destructure property 'basename' of useContext(...)". */}
+          <a href="/" onClick={this.reset}
             className="bg-white border border-[var(--js-border)] hover:bg-[var(--js-subtle)] text-[var(--js-text)] font-semibold px-5 py-2.5 rounded-xl text-sm">
             Go home
-          </Link>
+          </a>
         </div>
       </div>
     );

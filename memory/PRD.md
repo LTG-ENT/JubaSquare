@@ -60,6 +60,12 @@ Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode fo
 - **Area dropdown** — replaced native `<select>` with custom `AreaSelectField` component. Now scrollable (max-h-72 with overflow), searchable, dark-mode aware, fetches areas dynamically from `/api/meta/areas` (so admin-added areas show up). Used in `SellerShopEdit.jsx` (Storefront identity Area + Per-area delivery rows) and `SellerDashboard.jsx` (New business modal Area + Per-area delivery rows).
 - **Shop soft-delete** — `DELETE /api/shops/{id}` no longer hard-deletes. Sets `is_deleted=True`, `is_public=False`, and deactivates all of the shop's products (`is_active=False`). Public `/shops` and `/products` listings now exclude deleted shops + their products. Seller's `/shops/mine` still includes them so the seller can restore. `PUT /api/shops/{id}` auto-restores a deleted shop (sets `is_deleted=False`) and re-activates its products. Frontend shows a red "DELETED" badge on the shop card and explains the restore flow in the visibility section.
 
+### Iter 6.2 (Feb 2026) — Restaurant category removed + Router crash fix
+- **Removed the "Restaurant category" concept entirely**. Restaurants are now classified purely by their menu items' `food_category`. The Restaurants page filter chips are built dynamically from menu items.
+- **Backend**: `RestaurantIn.category` is now optional (`Optional[str] = ""`). Existing restaurants with a category are unaffected (field still stored but unused in UI).
+- **Frontend**: removed Food Category select from the Seller "New business" modal; `RestaurantCard` no longer shows the category badge nor links to category-filtered pages; `onEdit` no longer carries the `category` field.
+- **Root-cause fix for "Cannot destructure property 'basename' of useContext(...) as it is null" crash**: the Seller Dashboard modal referenced `RESTAURANT_CATEGORIES` which was never declared, throwing a `ReferenceError`. That error bubbled up to `ErrorBoundary` (rendered above `<BrowserRouter>`), whose fallback used a `<Link>` — requiring Router context that didn't exist. `ErrorBoundary` now uses a plain `<a href="/">` so any future unhandled error degrades gracefully instead of cascading into a Router error. Smoke-tested: opening the modal and clicking "Restaurant" no longer crashes.
+
 ## Backlog (P1 / P2)
 - **P1** Unread message badge polling / realtime updates on Messages tab
 - **P1** COD-only checkout enforcement on `/shop/:shop_id` order flow (currently only banner)
