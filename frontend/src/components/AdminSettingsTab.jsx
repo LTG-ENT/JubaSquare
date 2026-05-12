@@ -1148,4 +1148,3 @@ function GlobalInvoiceFrequency() {
   );
 }
 
-export default AdminSettingsTab;
