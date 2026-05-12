@@ -81,7 +81,7 @@ export default function Signup() {
       <div className="w-full max-w-md fade-up">
         <div className="flex flex-col items-center mb-8">
           <Link to="/"><Logo size={160} className="drop-shadow-2xl sm:w-48 sm:h-48 md:w-56 md:h-56 lg:w-64 lg:h-64 xl:w-72 xl:h-72" /></Link>
-          <h1 className="font-display font-bold text-2xl text-[var(--js-text)] mt-4">Create your account</h1>
+          <h1 className="font-display font-bold text-2xl text-[var(--js-text)] mt-2">Create your account</h1>
           <p className="text-sm text-[var(--js-text-secondary)] mt-2">Join JubaSquare — it's free.</p>
         </div>
 

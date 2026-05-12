@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import api, { formatUSD, formatDetail } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -123,16 +123,19 @@ function AdminShopsTab() {
     }
   };
 
-  const filteredShops = shops.filter(s => 
-    s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    s.area.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredShops = useMemo(() => 
+    shops.filter(s => 
+      s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      s.area.toLowerCase().includes(searchQuery.toLowerCase())
+    ),
+    [shops, searchQuery]
   );
 
-  const counts = {
+  const counts = useMemo(() => ({
     Verified: shops.filter((s) => s.verification === "Verified").length,
     Pending: shops.filter((s) => s.verification === "Pending").length,
     Rejected: shops.filter((s) => s.verification === "Rejected").length,
-  };
+  }), [shops]);
 
   const frequencyOptions = [
     { value: "daily", label: "Daily" },

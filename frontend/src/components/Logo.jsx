@@ -9,5 +9,6 @@ export const Logo = ({ size = 40, className = "" }) => (
     className={`object-contain shrink-0 ${className}`}
     style={{ mixBlendMode: 'normal', background: 'transparent' }}
     loading="eager"
+    decoding="async"
   />
 );

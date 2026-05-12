@@ -36,7 +36,7 @@ export default function Login() {
       <div className="w-full max-w-md fade-up">
         <div className="flex flex-col items-center mb-10">
           <Link to="/"><Logo size={176} className="drop-shadow-2xl sm:w-56 sm:h-56 md:w-64 md:h-64 lg:w-72 lg:h-72 xl:w-80 xl:h-80" /></Link>
-          <h1 className="font-display font-bold text-3xl text-[var(--js-text)] mt-5">JubaSquare</h1>
+          <h1 className="font-display font-bold text-3xl text-[var(--js-text)] mt-2">JubaSquare</h1>
           <p className="text-[10px] uppercase tracking-[0.25em] text-[var(--js-text-secondary)] font-bold mt-1">by L.T.G Enterprise</p>
           <p className="text-sm text-[var(--js-text-secondary)] mt-4 text-center">Sign in to your JubaSquare account</p>
         </div>
