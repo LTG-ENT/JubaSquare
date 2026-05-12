@@ -21,6 +21,7 @@ export default function Restaurants() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [restaurants, setRestaurants] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
+  const [loading, setLoading] = useState(false);
   // Admin-managed restaurant categories — full objects so we can map id ↔ name.
   const [dbCategories, setDbCategories] = useState([]);
   // `activeCatId === "all"` means show every restaurant. Otherwise it is the
@@ -32,12 +33,24 @@ export default function Restaurants() {
   // Fetch all data on mount OR when activeCatId changes.
   // NEW: Use backend filtering with category_id for better performance.
   useEffect(() => {
+    // CRITICAL: Clear old data immediately to prevent showing unfiltered results
+    setRestaurants([]);
+    setLoading(true);
+    
     // Fetch restaurants with category_id filter (if not "all")
     const restaurantsUrl = activeCatId && activeCatId !== "all"
       ? `/restaurants?limit=200&category_id=${activeCatId}`
       : "/restaurants?limit=200";
     
-    api.get(restaurantsUrl).then((r) => setRestaurants(r.data));
+    api.get(restaurantsUrl)
+      .then((r) => {
+        setRestaurants(r.data);
+        setLoading(false);
+      })
+      .catch(() => {
+        setRestaurants([]);
+        setLoading(false);
+      });
     
     // Menu items are only used for empty state detection now (not for filtering)
     // But we still need them to detect if a category has ANY menu items
@@ -47,7 +60,7 @@ export default function Restaurants() {
     
     api.get(menuUrl).then((r) => {
       setMenuItems(Array.isArray(r.data) ? r.data : []);
-    });
+    }).catch(() => setMenuItems([]));
   }, [activeCatId]); // Re-fetch when category changes
 
   // Fetch categories once on mount
@@ -175,7 +188,12 @@ export default function Restaurants() {
           </div>
         </div>
 
-        {sorted.length === 0 ? (
+        {loading ? (
+          <div className="text-center py-20" data-testid="restaurants-loading">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-[#C84B31]"></div>
+            <p className="text-[#5C5C5C] mt-4">Loading restaurants...</p>
+          </div>
+        ) : sorted.length === 0 ? (
           <div className="text-center py-20 text-[#5C5C5C]" data-testid="restaurants-empty">
             No restaurants in this category.
           </div>

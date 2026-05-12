@@ -1824,18 +1824,29 @@ async def list_restaurants(area: Optional[str] = None, category_id: Optional[str
     """
     lim, off = clamp_pagination(limit, skip)
     
+    # DEBUG: Log the filter being used
+    import logging
+    logger = logging.getLogger("uvicorn.error")
+    logger.info(f"[RESTAURANTS FILTER] category_id={category_id}, category={category}, area={area}")
+    
     # PRIMARY: Filter by category_id through menu_items (database-driven)
     if category_id:
+        logger.info(f"[RESTAURANTS FILTER] Using category_id filter: {category_id}")
         # Get all menu items with this category_id
         menu_items = await db.menu_items.find(
             {"category_id": category_id}, 
             {"_id": 0, "restaurant_id": 1}
         ).to_list(MAX_PAGE_LIMIT)
         
+        logger.info(f"[RESTAURANTS FILTER] Found {len(menu_items)} menu items with category_id={category_id}")
+        
         restaurant_ids = list({m["restaurant_id"] for m in menu_items})
         
         if not restaurant_ids:
+            logger.info(f"[RESTAURANTS FILTER] No restaurants have menu items in category_id={category_id}")
             return []  # No restaurants have items in this category
+        
+        logger.info(f"[RESTAURANTS FILTER] Found {len(restaurant_ids)} unique restaurant IDs: {restaurant_ids}")
         
         # Fetch restaurants that have menu items in this category
         q: dict = {
@@ -1846,7 +1857,9 @@ async def list_restaurants(area: Optional[str] = None, category_id: Optional[str
             q["area"] = area
             
         rests = await db.restaurants.find(q, {"_id": 0}).to_list(MAX_PAGE_LIMIT + off + lim)
+        logger.info(f"[RESTAURANTS FILTER] Returning {len(rests)} restaurants after filtering")
     else:
+        logger.info(f"[RESTAURANTS FILTER] No category_id filter - returning all restaurants")
         # No category filter or legacy category filter
         q: dict = {"is_deleted": {"$ne": True}}
         if area:
