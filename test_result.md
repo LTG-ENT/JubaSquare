@@ -1712,3 +1712,82 @@ agent_communication:
         - Created test restaurant, menu items, orders, and review for comprehensive testing
         
         No critical issues found. Backend is production-ready for this feature.
+
+#====================================================================================================
+# Iter 6.11 — Ratings everywhere + logo refresh
+#====================================================================================================
+
+iter_6_11:
+  - task: "Shop average_rating/review_count rolled up from product reviews"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            New helper _recompute_shop_rating(shop_id) aggregates all reviews across the shop's
+            products and writes {average_rating, review_count} on the shop doc. Triggered from
+            POST /api/products/{id}/reviews and DELETE /api/products/{id}/reviews/{rid}. Startup
+            backfill iterates shops missing the fields and recomputes them once (idempotent).
+            Shops with no reviews get average_rating=None, review_count=0 so the UI can show
+            "No reviews yet".
+
+  - task: "Restaurant + Shop card always render rating (with fallback)"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/components/RestaurantCard.jsx, /app/frontend/src/components/ShopCard.jsx"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+
+  - task: "Restaurant detail modal clickable rating → reviews panel"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/components/RestaurantCard.jsx"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            Rating chip under restaurant name in the menu modal opens an inline Customer Reviews
+            panel that fetches /api/reviews?restaurant_id={id}&limit=20 lazily on first open.
+
+  - task: "Trending rank badge moved into card image bottom-right"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/components/RestaurantCard.jsx, /app/frontend/src/components/TrendingRestaurants.jsx"
+    stuck_count: 0
+    priority: "low"
+    needs_retesting: false
+
+  - task: "Logo refresh + larger header brand"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/public/branding/jubasquare-logo.png, /app/frontend/src/components/Header.jsx"
+    stuck_count: 0
+    priority: "low"
+    needs_retesting: false
+
+agent_communication:
+    - agent: "main"
+      message: |
+        Iter 6.11 backend test focus: shop rating rollup. Validate only these flows.
+        1. Pick any shop that has at least one product. As a customer:
+           - POST /api/products/{product_id}/reviews with rating=4 → 200.
+           - GET /api/shops/{shop_id} (or whichever endpoint returns the shop doc) → shop now has
+             average_rating ≈ 4 and review_count=1.
+           - Add a second review of rating=2 on the same product (different customer) → shop now
+             has average_rating ≈ 3.0 and review_count=2.
+           - DELETE one of the reviews → shop average_rating/review_count update.
+           - Delete the last review → average_rating becomes null and review_count=0.
+        2. Startup backfill: shops that already exist without the fields should have them after
+           backend restart (logs already show "Backfilled shop ratings for N shops").
+        3. Restaurants regression: rating endpoints unchanged — quick smoke that POST /api/reviews
+           still works for restaurant + GET /api/reviews?restaurant_id=... returns the list.
+        Use creds in /app/memory/test_credentials.md.

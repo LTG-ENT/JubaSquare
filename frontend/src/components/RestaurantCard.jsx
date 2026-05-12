@@ -31,12 +31,15 @@ function MiniCurrencyToggle() {
   );
 }
 
-export default function RestaurantCard({ restaurant, initialOpen = false }) {
+export default function RestaurantCard({ restaurant, initialOpen = false, rank = null, trendingScore = null }) {
   const [open, setOpen] = useState(initialOpen);
   const [menu, setMenu] = useState([]);
   const [search, setSearch] = useState("");
   const [isFavorite, setIsFavorite] = useState(false);
   const [favoriteId, setFavoriteId] = useState(null);
+  const [reviewsOpen, setReviewsOpen] = useState(false);
+  const [reviews, setReviews] = useState([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
   const { addItem, exchangeRate, currency } = useCart();
   const { user } = useAuth();
 
@@ -138,6 +141,18 @@ export default function RestaurantCard({ restaurant, initialOpen = false }) {
               }`}
             />
           </button>
+          {/* Trending rank badge — positioned at the bottom-right of the image */}
+          {rank != null && (
+            <div
+              data-testid={`trending-rank-${restaurant.id}`}
+              className="absolute bottom-3 right-3 z-10 inline-flex items-center gap-1 bg-[#1A1A1A]/90 backdrop-blur text-white text-[11px] font-bold px-2.5 py-1 rounded-full shadow-md"
+            >
+              #{rank}
+              {trendingScore != null && (
+                <span className="ml-1 text-[#E9C46A]">★ {trendingScore}</span>
+              )}
+            </div>
+          )}
         </div>
         <div className="p-4">
           <h3 className="font-display font-semibold text-lg text-[var(--js-text)]">{restaurant.name}</h3>
@@ -146,11 +161,16 @@ export default function RestaurantCard({ restaurant, initialOpen = false }) {
             <div className="flex items-center gap-1">
               <MapPin className="w-3 h-3" /> {restaurant.area}
             </div>
-            {restaurant.average_rating && (
-              <div className="flex items-center gap-1">
+            {restaurant.average_rating ? (
+              <div className="flex items-center gap-1" data-testid={`restaurant-rating-${restaurant.id}`}>
                 <Star className="w-3.5 h-3.5 fill-[#E9C46A] text-[#E9C46A]" />
                 <span className="font-semibold text-[var(--js-text)]">{restaurant.average_rating}</span>
                 <span className="text-[var(--js-text-secondary)]">({restaurant.review_count || 0})</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1 text-[var(--js-text-secondary)]" data-testid={`restaurant-no-reviews-${restaurant.id}`}>
+                <Star className="w-3.5 h-3.5 text-[var(--js-text-secondary)]" />
+                <span className="italic">No reviews yet</span>
               </div>
             )}
           </div>
@@ -168,14 +188,84 @@ export default function RestaurantCard({ restaurant, initialOpen = false }) {
             </div>
             <div className="p-6">
               <div className="flex items-start justify-between gap-4">
-                <div>
+                <div className="min-w-0">
                   <h2 className="font-display font-bold text-2xl text-[var(--js-text)]">{restaurant.name}</h2>
                   <p className="text-sm text-[var(--js-text-secondary)] mt-1">📍 {restaurant.area}</p>
+                  {/* Clickable rating chip */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !reviewsOpen;
+                      setReviewsOpen(next);
+                      if (next && reviews.length === 0 && !reviewsLoading) {
+                        setReviewsLoading(true);
+                        api.get(`/reviews?restaurant_id=${restaurant.id}&limit=20`)
+                          .then((r) => setReviews(Array.isArray(r.data) ? r.data : []))
+                          .catch(() => setReviews([]))
+                          .finally(() => setReviewsLoading(false));
+                      }
+                    }}
+                    data-testid={`open-restaurant-reviews-${restaurant.id}`}
+                    className="mt-2 inline-flex items-center gap-2 text-sm font-semibold text-[var(--js-text)] hover:text-[#C84B31] transition"
+                  >
+                    {restaurant.average_rating ? (
+                      <>
+                        <Star className="w-4 h-4 fill-[#E9C46A] text-[#E9C46A]" />
+                        <span>{restaurant.average_rating}</span>
+                        <span className="text-[var(--js-text-secondary)]">({restaurant.review_count || 0} {restaurant.review_count === 1 ? "review" : "reviews"})</span>
+                      </>
+                    ) : (
+                      <>
+                        <Star className="w-4 h-4 text-[var(--js-text-secondary)]" />
+                        <span className="italic text-[var(--js-text-secondary)] font-normal">No reviews yet</span>
+                      </>
+                    )}
+                    <span className="text-[11px] text-[#C84B31] underline-offset-2 hover:underline">
+                      {reviewsOpen ? "Hide" : (restaurant.review_count ? "View" : "")}
+                    </span>
+                  </button>
                 </div>
-                <span className={`text-xs font-bold px-3 py-1 rounded-full ${restaurant.is_open ? "bg-[#2D6A4F] text-white" : "bg-[#A3A39E] text-white"}`}>
+                <span className={`text-xs font-bold px-3 py-1 rounded-full shrink-0 ${restaurant.is_open ? "bg-[#2D6A4F] text-white" : "bg-[#A3A39E] text-white"}`}>
                   {restaurant.is_open ? "Open" : "Closed"}
                 </span>
               </div>
+
+              {/* Reviews panel — appears below the header when the rating chip is clicked */}
+              {reviewsOpen && (
+                <div data-testid={`restaurant-reviews-panel-${restaurant.id}`} className="mt-4 border border-[var(--js-border)] rounded-2xl p-4 bg-[var(--js-subtle)]">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--js-text-secondary)] font-bold">Customer reviews</p>
+                    {restaurant.average_rating && (
+                      <div className="flex items-center gap-1 text-xs font-bold">
+                        <Star className="w-3.5 h-3.5 fill-[#E9C46A] text-[#E9C46A]" />
+                        {restaurant.average_rating} · {restaurant.review_count || 0}
+                      </div>
+                    )}
+                  </div>
+                  {reviewsLoading ? (
+                    <p className="text-sm text-[var(--js-text-secondary)] py-2">Loading reviews...</p>
+                  ) : reviews.length === 0 ? (
+                    <p className="text-sm text-[var(--js-text-secondary)] py-2 italic">No reviews yet. Be the first to review after your order arrives!</p>
+                  ) : (
+                    <ul className="space-y-3 max-h-72 overflow-y-auto pr-1">
+                      {reviews.map((rv) => (
+                        <li key={rv.id} className="bg-white border border-[var(--js-border)] rounded-xl p-3" data-testid={`review-${rv.id}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-semibold text-[var(--js-text)] truncate">{rv.user_name || "Customer"}</span>
+                            <span className="inline-flex items-center gap-0.5 text-xs font-bold text-[#1A1A1A] bg-[#E9C46A]/30 px-2 py-0.5 rounded-full">
+                              <Star className="w-3 h-3 fill-[#E9C46A] text-[#E9C46A]" /> {rv.rating}
+                            </span>
+                          </div>
+                          {rv.comment && <p className="text-sm text-[var(--js-text-secondary)] mt-1 whitespace-pre-wrap">{rv.comment}</p>}
+                          {rv.created_at && (
+                            <p className="text-[11px] text-[var(--js-text-secondary)] mt-1.5">{new Date(rv.created_at).toLocaleDateString()}</p>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
 
               <div className="mt-5 relative">
                 <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-[var(--js-text-secondary)]" />

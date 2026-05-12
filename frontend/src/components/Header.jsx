@@ -14,9 +14,9 @@ import GlobalSearch from "@/components/GlobalSearch";
 
 const Brand = () => (
   <Link to="/" className="flex items-center gap-3 shrink-0" data-testid="brand-logo">
-    <Logo size={48} className="sm:w-14 sm:h-14" />
+    <Logo size={56} className="sm:w-16 sm:h-16 lg:w-[72px] lg:h-[72px]" />
     <div className="flex flex-col leading-tight min-w-0">
-      <span className="font-display font-bold text-lg sm:text-xl text-white whitespace-nowrap">JubaSquare</span>
+      <span className="font-display font-bold text-xl sm:text-2xl text-white whitespace-nowrap">JubaSquare</span>
       <span className="hidden sm:inline text-[10px] uppercase tracking-[0.18em] text-white/60 -mt-0.5 whitespace-nowrap">by L.T.G Enterprise</span>
     </div>
   </Link>
@@ -168,7 +168,7 @@ export default function Header() {
         </div>
       )}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="h-20 flex items-center justify-between gap-4">
+        <div className="h-20 lg:h-24 flex items-center justify-between gap-4">
           <Brand />
 
           <nav className="hidden lg:flex items-center gap-1">

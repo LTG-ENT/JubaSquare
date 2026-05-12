@@ -1,446 +1,350 @@
 #!/usr/bin/env python3
 """
-Backend test for Iter 6.9: GET /api/restaurant-orders has_review enrichment
+Backend test for Iter 6.11 - Shop rating rollup from product reviews
 """
 import requests
 import json
-import time
-from pymongo import MongoClient
-import os
+import sys
+from typing import Optional
 
-# Configuration
+# Backend URL
 BASE_URL = "https://order-updates-hub.preview.emergentagent.com/api"
-MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
 
-# Test credentials
+# Test credentials from /app/memory/test_credentials.md
+CUSTOMER_EMAIL = "test_customer_1778609646@example.com"
+CUSTOMER_PASSWORD = "TestPass123!"
+SELLER_EMAIL = "test_seller_1778609646@example.com"
+SELLER_PASSWORD = "TestPass123!"
 ADMIN_EMAIL = "admin@ltg.com"
 ADMIN_PASSWORD = "Kokobleake1"
 
-# Test user credentials (will be created)
-CUSTOMER_EMAIL = f"test_customer_{int(time.time())}@example.com"
-CUSTOMER_PASSWORD = "TestPass123!"
-CUSTOMER_NAME = "Test Customer"
+# Test state
+customer_token = None
+customer2_token = None
+seller_token = None
+admin_token = None
+shop_id = None
+product_id = None
+review1_id = None
+review2_id = None
+customer2_email = None
 
-SELLER_EMAIL = f"test_seller_{int(time.time())}@example.com"
-SELLER_PASSWORD = "TestPass123!"
-SELLER_NAME = "Test Seller"
 
-# MongoDB client
-mongo_client = MongoClient(MONGO_URL)
-db = mongo_client["jubasquare_db"]
+def log(msg: str):
+    print(f"  {msg}")
 
-def print_test(msg):
-    print(f"\n{'='*80}")
-    print(f"TEST: {msg}")
-    print('='*80)
 
-def print_result(passed, msg):
-    status = "✅ PASS" if passed else "❌ FAIL"
-    print(f"{status}: {msg}")
-
-def signup_user(email, password, name, role="customer"):
-    """Sign up a new user"""
-    response = requests.post(f"{BASE_URL}/auth/signup", json={
-        "email": email,
-        "password": password,
-        "name": name,
-        "phone": "+211912345678",
-        "role": role
-    })
-    return response
-
-def verify_email_in_db(email):
-    """Manually verify email in MongoDB (since SMTP is in no-op mode)"""
-    result = db.users.update_one(
-        {"email": email},
-        {"$set": {"email_verified": True}}
-    )
-    return result.modified_count > 0
-
-def login_user(email, password):
+def login(email: str, password: str) -> Optional[str]:
     """Login and return token"""
-    response = requests.post(f"{BASE_URL}/auth/login", json={
-        "email": email,
-        "password": password
-    })
-    if response.status_code == 200:
-        return response.json()["token"]
+    resp = requests.post(f"{BASE_URL}/auth/login", json={"email": email, "password": password})
+    if resp.status_code == 200:
+        return resp.json().get("token")
     return None
 
-def create_restaurant(token, name):
-    """Create a restaurant as seller"""
-    response = requests.post(
-        f"{BASE_URL}/restaurants",
-        headers={"Authorization": f"Bearer {token}"},
+
+def test_1_login_users():
+    """Test 1: Login existing test users"""
+    global customer_token, seller_token, admin_token
+    
+    log("Logging in as customer...")
+    customer_token = login(CUSTOMER_EMAIL, CUSTOMER_PASSWORD)
+    assert customer_token, "Customer login failed"
+    log(f"✅ Customer logged in")
+    
+    log("Logging in as seller...")
+    seller_token = login(SELLER_EMAIL, SELLER_PASSWORD)
+    assert seller_token, "Seller login failed"
+    log(f"✅ Seller logged in")
+    
+    log("Logging in as admin...")
+    admin_token = login(ADMIN_EMAIL, ADMIN_PASSWORD)
+    assert admin_token, "Admin login failed"
+    log(f"✅ Admin logged in")
+
+
+def test_2_create_shop_and_product():
+    """Test 2: Create a shop and product as seller"""
+    global shop_id, product_id
+    
+    log("Creating shop as seller...")
+    resp = requests.post(
+        f"{BASE_URL}/shops",
+        headers={"Authorization": f"Bearer {seller_token}"},
         json={
-            "name": name,
-            "description": "Test restaurant for review testing",
-            "category": "International",
-            "area": "Juba",
-            "image_url": "https://via.placeholder.com/400x300",
-            "is_open": True,
-            "delivery_pricing": {
-                "type": "fixed",
-                "fixed_fee": 2.0
-            }
+            "name": "Test Shop for Rating Rollup",
+            "description": "Testing shop rating aggregation",
+            "category": "Electronics & Accessories",
+            "phone": "+211912345678",
+            "location": "Juba",
+            "delivery_mode": "free"
         }
     )
-    return response
-
-def add_menu_item(token, restaurant_id, name, price, category_id):
-    """Add a menu item to restaurant"""
-    response = requests.post(
-        f"{BASE_URL}/menu-items",
-        headers={"Authorization": f"Bearer {token}"},
+    assert resp.status_code == 200, f"Shop creation failed: {resp.status_code} {resp.text}"
+    shop_id = resp.json()["id"]
+    log(f"✅ Shop created: {shop_id}")
+    
+    log("Creating product in shop...")
+    resp = requests.post(
+        f"{BASE_URL}/products",
+        headers={"Authorization": f"Bearer {seller_token}"},
         json={
-            "restaurant_id": restaurant_id,
-            "name": name,
-            "description": "Test menu item",
-            "price_usd": price,
-            "category_id": category_id,
-            "image_url": "https://via.placeholder.com/300x200"
+            "name": "Test Product for Reviews",
+            "description": "Testing product reviews",
+            "price_usd": 50.0,
+            "category": "Electronics & Accessories",
+            "stock": 100,
+            "shop_id": shop_id,
+            "is_wholesale": False
         }
     )
-    return response
+    assert resp.status_code == 200, f"Product creation failed: {resp.status_code} {resp.text}"
+    product_id = resp.json()["id"]
+    log(f"✅ Product created: {product_id}")
 
-def place_restaurant_order(token, restaurant_id, items, customer_name, customer_phone):
-    """Place a restaurant order as customer"""
-    response = requests.post(
-        f"{BASE_URL}/restaurant-orders",
-        headers={"Authorization": f"Bearer {token}"},
+
+def test_3_verify_shop_initial_state():
+    """Test 3: Verify shop has no ratings initially (or null/0 from backfill)"""
+    log(f"Getting shop {shop_id}...")
+    resp = requests.get(f"{BASE_URL}/shops/{shop_id}")
+    assert resp.status_code == 200, f"Shop GET failed: {resp.status_code}"
+    shop = resp.json()
+    
+    # Shop should have average_rating and review_count fields (from backfill or creation)
+    # Since no reviews yet, should be null/0
+    avg = shop.get("average_rating")
+    cnt = shop.get("review_count", 0)
+    log(f"✅ Shop initial state: average_rating={avg}, review_count={cnt}")
+    assert avg is None or avg == 0, f"Expected null or 0 average_rating, got {avg}"
+    assert cnt == 0, f"Expected 0 review_count, got {cnt}"
+
+
+def test_4_post_first_review():
+    """Test 4: POST first review (rating=4) and verify shop updates"""
+    global review1_id
+    
+    log(f"Posting review (rating=4) as customer...")
+    resp = requests.post(
+        f"{BASE_URL}/products/{product_id}/reviews",
+        headers={"Authorization": f"Bearer {customer_token}"},
+        json={"rating": 4, "comment": "Good product"}
+    )
+    assert resp.status_code == 200, f"Review POST failed: {resp.status_code} {resp.text}"
+    review1_id = resp.json()["id"]
+    log(f"✅ Review created: {review1_id}")
+    
+    log(f"Getting shop {shop_id} to verify rating update...")
+    resp = requests.get(f"{BASE_URL}/shops/{shop_id}")
+    assert resp.status_code == 200, f"Shop GET failed: {resp.status_code}"
+    shop = resp.json()
+    
+    avg = shop.get("average_rating")
+    cnt = shop.get("review_count")
+    log(f"✅ Shop after 1st review: average_rating={avg}, review_count={cnt}")
+    assert avg == 4.0, f"Expected average_rating=4.0, got {avg}"
+    assert cnt == 1, f"Expected review_count=1, got {cnt}"
+
+
+def test_5_create_second_customer():
+    """Test 5: Create a second customer for additional review"""
+    global customer2_token, customer2_email
+    
+    import time
+    customer2_email = f"test_customer2_{int(time.time())}@example.com"
+    
+    log(f"Creating second customer: {customer2_email}...")
+    resp = requests.post(
+        f"{BASE_URL}/auth/signup",
         json={
-            "restaurant_id": restaurant_id,
-            "items": items,
-            "delivery_type": "delivery",
-            "customer_name": customer_name,
-            "customer_phone": customer_phone,
-            "customer_address": "456 Customer Street, Juba",
-            "payment_method": "cash",
-            "note": "Test order for review testing"
+            "email": customer2_email,
+            "password": "TestPass123!",
+            "name": "Test Customer 2",
+            "role": "customer"
         }
     )
-    return response
+    assert resp.status_code == 200, f"Signup failed: {resp.status_code} {resp.text}"
+    log(f"✅ Second customer created")
+    
+    # Manually verify email in MongoDB
+    log("Manually verifying email in MongoDB...")
+    import subprocess
+    cmd = f'mongosh jubasquare_db --quiet --eval "db.users.updateOne({{email: \\"{customer2_email}\\"}}, {{\\$set: {{email_verified: true}}}})"'
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    log(f"MongoDB update result: {result.stdout.strip()}")
+    
+    log("Logging in as second customer...")
+    customer2_token = login(customer2_email, "TestPass123!")
+    assert customer2_token, "Second customer login failed"
+    log(f"✅ Second customer logged in")
 
-def update_order_status(token, order_id, status):
-    """Update restaurant order status"""
-    response = requests.put(
-        f"{BASE_URL}/restaurant-orders/{order_id}/status",
-        headers={"Authorization": f"Bearer {token}"},
-        json={"status": status}
+
+def test_6_post_second_review():
+    """Test 6: POST second review (rating=2) and verify shop average updates"""
+    global review2_id
+    
+    log(f"Posting review (rating=2) as second customer...")
+    resp = requests.post(
+        f"{BASE_URL}/products/{product_id}/reviews",
+        headers={"Authorization": f"Bearer {customer2_token}"},
+        json={"rating": 2, "comment": "Not great"}
     )
-    return response
+    assert resp.status_code == 200, f"Review POST failed: {resp.status_code} {resp.text}"
+    review2_id = resp.json()["id"]
+    log(f"✅ Review created: {review2_id}")
+    
+    log(f"Getting shop {shop_id} to verify rating update...")
+    resp = requests.get(f"{BASE_URL}/shops/{shop_id}")
+    assert resp.status_code == 200, f"Shop GET failed: {resp.status_code}"
+    shop = resp.json()
+    
+    avg = shop.get("average_rating")
+    cnt = shop.get("review_count")
+    log(f"✅ Shop after 2nd review: average_rating={avg}, review_count={cnt}")
+    # Average of 4 and 2 is 3.0
+    assert avg == 3.0, f"Expected average_rating=3.0, got {avg}"
+    assert cnt == 2, f"Expected review_count=2, got {cnt}"
 
-def get_restaurant_orders(token):
-    """Get restaurant orders"""
-    response = requests.get(
-        f"{BASE_URL}/restaurant-orders",
-        headers={"Authorization": f"Bearer {token}"}
+
+def test_7_delete_first_review():
+    """Test 7: DELETE first review and verify shop updates"""
+    log(f"Deleting first review {review1_id} as original author...")
+    resp = requests.delete(
+        f"{BASE_URL}/products/{product_id}/reviews/{review1_id}",
+        headers={"Authorization": f"Bearer {customer_token}"}
     )
-    return response
+    assert resp.status_code == 200, f"Review DELETE failed: {resp.status_code} {resp.text}"
+    log(f"✅ Review deleted")
+    
+    log(f"Getting shop {shop_id} to verify rating update...")
+    resp = requests.get(f"{BASE_URL}/shops/{shop_id}")
+    assert resp.status_code == 200, f"Shop GET failed: {resp.status_code}"
+    shop = resp.json()
+    
+    avg = shop.get("average_rating")
+    cnt = shop.get("review_count")
+    log(f"✅ Shop after deleting 1st review: average_rating={avg}, review_count={cnt}")
+    # Only review with rating=2 remains
+    assert avg == 2.0, f"Expected average_rating=2.0, got {avg}"
+    assert cnt == 1, f"Expected review_count=1, got {cnt}"
 
-def create_review(token, restaurant_id, order_id, rating, comment):
-    """Create a review for a restaurant order"""
-    response = requests.post(
-        f"{BASE_URL}/reviews",
-        headers={"Authorization": f"Bearer {token}"},
-        json={
-            "restaurant_id": restaurant_id,
-            "order_id": order_id,
-            "rating": rating,
-            "comment": comment
-        }
+
+def test_8_delete_last_review():
+    """Test 8: DELETE last review and verify shop resets to null/0"""
+    log(f"Deleting last review {review2_id} as admin...")
+    resp = requests.delete(
+        f"{BASE_URL}/products/{product_id}/reviews/{review2_id}",
+        headers={"Authorization": f"Bearer {admin_token}"}
     )
-    return response
+    assert resp.status_code == 200, f"Review DELETE failed: {resp.status_code} {resp.text}"
+    log(f"✅ Review deleted")
+    
+    log(f"Getting shop {shop_id} to verify rating reset...")
+    resp = requests.get(f"{BASE_URL}/shops/{shop_id}")
+    assert resp.status_code == 200, f"Shop GET failed: {resp.status_code}"
+    shop = resp.json()
+    
+    avg = shop.get("average_rating")
+    cnt = shop.get("review_count")
+    log(f"✅ Shop after deleting last review: average_rating={avg}, review_count={cnt}")
+    # No reviews left, should be null and 0
+    assert avg is None, f"Expected average_rating=null, got {avg}"
+    assert cnt == 0, f"Expected review_count=0, got {cnt}"
 
-def run_tests():
-    """Run all tests"""
-    print("\n" + "="*80)
-    print("ITER 6.9 BACKEND TEST: GET /api/restaurant-orders has_review enrichment")
-    print("="*80)
+
+def test_9_restaurant_review_regression():
+    """Test 9: Verify restaurant reviews still work (no regression)"""
+    log("Testing restaurant review regression...")
     
-    # Get a restaurant category_id for menu items
-    restaurant_category = db.categories.find_one({"group": "restaurant"}, {"_id": 0, "id": 1})
-    if not restaurant_category:
-        print("ERROR: No restaurant categories found in database")
-        return
-    category_id = restaurant_category["id"]
-    print(f"Using category_id: {category_id}")
+    # Get existing restaurant from iter 6.9
+    restaurant_id = "0703d00d-1d9c-438f-bc75-7413b2dba13c"
     
-    # Test 1: Create customer account
-    print_test("Create customer account via signup")
-    response = signup_user(CUSTOMER_EMAIL, CUSTOMER_PASSWORD, CUSTOMER_NAME, "customer")
-    print_result(response.status_code == 200, f"Customer signup: {response.status_code}")
-    if response.status_code != 200:
-        print(f"Response: {response.text}")
-        return
+    log(f"Getting reviews for restaurant {restaurant_id}...")
+    resp = requests.get(f"{BASE_URL}/reviews", params={"restaurant_id": restaurant_id})
+    assert resp.status_code == 200, f"Restaurant reviews GET failed: {resp.status_code} {resp.text}"
+    reviews = resp.json()
+    log(f"✅ Restaurant reviews GET works: {len(reviews)} reviews found")
     
-    # Verify email in DB
-    verified = verify_email_in_db(CUSTOMER_EMAIL)
-    print_result(verified, f"Customer email verified in DB: {verified}")
+    # Note: We can't POST a new restaurant review without a completed order,
+    # but verifying GET works is sufficient for regression check
+
+
+def cleanup():
+    """Cleanup: Delete test shop, product, and second customer"""
+    log("\n=== CLEANUP ===")
     
-    # Login customer
-    customer_token = login_user(CUSTOMER_EMAIL, CUSTOMER_PASSWORD)
-    print_result(customer_token is not None, f"Customer login successful: {customer_token is not None}")
-    if not customer_token:
-        return
-    
-    # Test 2: Create seller account
-    print_test("Create seller account via signup")
-    response = signup_user(SELLER_EMAIL, SELLER_PASSWORD, SELLER_NAME, "seller")
-    print_result(response.status_code == 200, f"Seller signup: {response.status_code}")
-    if response.status_code != 200:
-        print(f"Response: {response.text}")
-        return
-    
-    # Verify email in DB
-    verified = verify_email_in_db(SELLER_EMAIL)
-    print_result(verified, f"Seller email verified in DB: {verified}")
-    
-    # Login seller
-    seller_token = login_user(SELLER_EMAIL, SELLER_PASSWORD)
-    print_result(seller_token is not None, f"Seller login successful: {seller_token is not None}")
-    if not seller_token:
-        return
-    
-    # Test 3: Create restaurant as seller
-    print_test("Create restaurant as seller")
-    response = create_restaurant(seller_token, "Test Restaurant for Reviews")
-    print_result(response.status_code == 200, f"Restaurant creation: {response.status_code}")
-    if response.status_code != 200:
-        print(f"Response: {response.text}")
-        return
-    
-    restaurant = response.json()
-    restaurant_id = restaurant["id"]
-    print(f"Restaurant ID: {restaurant_id}")
-    
-    # Test 4: Add menu items
-    print_test("Add menu items to restaurant")
-    response = add_menu_item(seller_token, restaurant_id, "Grilled Chicken", 15.0, category_id)
-    print_result(response.status_code == 200, f"Menu item 1 added: {response.status_code}")
-    if response.status_code != 200:
-        print(f"Response: {response.text}")
-        return
-    
-    menu_item_1 = response.json()
-    menu_item_1_id = menu_item_1["id"]
-    
-    response = add_menu_item(seller_token, restaurant_id, "Caesar Salad", 8.0, category_id)
-    print_result(response.status_code == 200, f"Menu item 2 added: {response.status_code}")
-    if response.status_code != 200:
-        print(f"Response: {response.text}")
-        return
-    
-    menu_item_2 = response.json()
-    menu_item_2_id = menu_item_2["id"]
-    
-    # Test 5: Place restaurant order as customer
-    print_test("Place restaurant order as customer")
-    order_items = [
-        {
-            "item_type": "menu_item",
-            "item_id": menu_item_1_id,
-            "name": "Grilled Chicken",
-            "price_usd": 15.0,
-            "quantity": 2,
-            "image_url": "https://via.placeholder.com/300x200"
-        },
-        {
-            "item_type": "menu_item",
-            "item_id": menu_item_2_id,
-            "name": "Caesar Salad",
-            "price_usd": 8.0,
-            "quantity": 1,
-            "image_url": "https://via.placeholder.com/300x200"
-        }
-    ]
-    response = place_restaurant_order(customer_token, restaurant_id, order_items, CUSTOMER_NAME, "+211987654321")
-    print_result(response.status_code == 200, f"Order placement: {response.status_code}")
-    if response.status_code != 200:
-        print(f"Response: {response.text}")
-        return
-    
-    order = response.json()
-    order_id = order["id"]
-    print(f"Order ID: {order_id}")
-    print(f"Order status: {order['status']}")
-    
-    # Test 6: Place a second order (to test multiple orders)
-    print_test("Place second restaurant order as customer")
-    order_items_2 = [
-        {
-            "item_type": "menu_item",
-            "item_id": menu_item_1_id,
-            "name": "Grilled Chicken",
-            "price_usd": 15.0,
-            "quantity": 1,
-            "image_url": "https://via.placeholder.com/300x200"
-        }
-    ]
-    response = place_restaurant_order(customer_token, restaurant_id, order_items_2, CUSTOMER_NAME, "+211987654321")
-    print_result(response.status_code == 200, f"Second order placement: {response.status_code}")
-    if response.status_code != 200:
-        print(f"Response: {response.text}")
-        return
-    
-    order_2 = response.json()
-    order_2_id = order_2["id"]
-    print(f"Order 2 ID: {order_2_id}")
-    
-    # Test 7: GET /api/restaurant-orders as customer (before any reviews)
-    print_test("GET /api/restaurant-orders as customer (no reviews yet)")
-    response = get_restaurant_orders(customer_token)
-    print_result(response.status_code == 200, f"GET restaurant-orders: {response.status_code}")
-    if response.status_code != 200:
-        print(f"Response: {response.text}")
-        return
-    
-    orders = response.json()
-    print(f"Number of orders returned: {len(orders)}")
-    
-    # Verify all orders have has_review=false
-    all_have_has_review = all("has_review" in o for o in orders)
-    print_result(all_have_has_review, f"All orders have 'has_review' field: {all_have_has_review}")
-    
-    all_false = all(o.get("has_review") == False for o in orders)
-    print_result(all_false, f"All orders have has_review=false: {all_false}")
-    
-    # Test 8: Try to review a non-completed order (should fail)
-    print_test("Try to POST /api/reviews for non-completed order (should fail with 400)")
-    response = create_review(customer_token, restaurant_id, order_id, 5, "Great food!")
-    print_result(response.status_code == 400, f"Review non-completed order blocked: {response.status_code} == 400")
-    if response.status_code == 400:
-        print(f"Error message: {response.json().get('detail', 'N/A')}")
-    
-    # Test 9: Update order status to completed (as seller)
-    print_test("Update order status to completed (seller flow)")
-    
-    # pending → accepted
-    response = update_order_status(seller_token, order_id, "accepted")
-    print_result(response.status_code == 200, f"Status → accepted: {response.status_code}")
-    
-    # accepted → cooking
-    response = update_order_status(seller_token, order_id, "cooking")
-    print_result(response.status_code == 200, f"Status → cooking: {response.status_code}")
-    
-    # cooking → ready
-    response = update_order_status(seller_token, order_id, "ready")
-    print_result(response.status_code == 200, f"Status → ready: {response.status_code}")
-    
-    # ready → completed
-    response = update_order_status(seller_token, order_id, "completed")
-    print_result(response.status_code == 200, f"Status → completed: {response.status_code}")
-    if response.status_code == 200:
-        print(f"Order {order_id} is now completed")
-    
-    # Test 10: POST /api/reviews for completed order
-    print_test("POST /api/reviews for completed order")
-    response = create_review(customer_token, restaurant_id, order_id, 5, "Excellent food and service!")
-    print_result(response.status_code == 200, f"Review creation: {response.status_code}")
-    if response.status_code != 200:
-        print(f"Response: {response.text}")
-        return
-    
-    review = response.json()
-    review_id = review["id"]
-    review_rating = review["rating"]
-    print(f"Review ID: {review_id}")
-    print(f"Review rating: {review_rating}")
-    
-    # Test 11: GET /api/restaurant-orders as customer (after review)
-    print_test("GET /api/restaurant-orders as customer (after review)")
-    response = get_restaurant_orders(customer_token)
-    print_result(response.status_code == 200, f"GET restaurant-orders: {response.status_code}")
-    if response.status_code != 200:
-        print(f"Response: {response.text}")
-        return
-    
-    orders = response.json()
-    print(f"Number of orders returned: {len(orders)}")
-    
-    # Find the reviewed order
-    reviewed_order = next((o for o in orders if o["id"] == order_id), None)
-    if reviewed_order:
-        has_review = reviewed_order.get("has_review")
-        has_review_id = "review_id" in reviewed_order
-        has_review_rating = "review_rating" in reviewed_order
-        
-        print_result(has_review == True, f"Reviewed order has has_review=true: {has_review}")
-        print_result(has_review_id, f"Reviewed order has review_id field: {has_review_id}")
-        print_result(has_review_rating, f"Reviewed order has review_rating field: {has_review_rating}")
-        
-        if has_review_id:
-            print(f"review_id: {reviewed_order.get('review_id')}")
-            print_result(reviewed_order.get('review_id') == review_id, f"review_id matches: {reviewed_order.get('review_id') == review_id}")
-        
-        if has_review_rating:
-            print(f"review_rating: {reviewed_order.get('review_rating')}")
-            print_result(reviewed_order.get('review_rating') == review_rating, f"review_rating matches: {reviewed_order.get('review_rating') == review_rating}")
-    else:
-        print_result(False, f"Could not find reviewed order {order_id} in response")
-    
-    # Find the non-reviewed order
-    non_reviewed_order = next((o for o in orders if o["id"] == order_2_id), None)
-    if non_reviewed_order:
-        has_review = non_reviewed_order.get("has_review")
-        print(f"Non-reviewed order data: {non_reviewed_order}")
-        print_result(has_review == False, f"Non-reviewed order has has_review=false: {has_review}")
-    else:
-        print_result(False, f"Could not find non-reviewed order {order_2_id} in response")
-    
-    # Test 12: Try to POST /api/reviews again for same order (should fail)
-    print_test("Try to POST /api/reviews again for same order (should fail with 400)")
-    response = create_review(customer_token, restaurant_id, order_id, 4, "Updated review")
-    print_result(response.status_code == 400, f"Duplicate review blocked: {response.status_code} == 400")
-    if response.status_code == 400:
-        print(f"Error message: {response.json().get('detail', 'N/A')}")
-    
-    # Test 13: Try to review someone else's order (create another customer)
-    print_test("Try to POST /api/reviews for someone else's order (should fail with 403)")
-    
-    # Create another customer
-    other_customer_email = f"other_customer_{int(time.time())}@example.com"
-    response = signup_user(other_customer_email, "TestPass123!", "Other Customer", "customer")
-    if response.status_code == 200:
-        verify_email_in_db(other_customer_email)
-        other_customer_token = login_user(other_customer_email, "TestPass123!")
-        
-        if other_customer_token:
-            response = create_review(other_customer_token, restaurant_id, order_id, 5, "Trying to review someone else's order")
-            print_result(response.status_code == 403, f"Review other's order blocked: {response.status_code} == 403")
-            if response.status_code == 403:
-                print(f"Error message: {response.json().get('detail', 'N/A')}")
+    if shop_id and seller_token:
+        log(f"Deleting shop {shop_id}...")
+        resp = requests.delete(
+            f"{BASE_URL}/shops/{shop_id}",
+            headers={"Authorization": f"Bearer {seller_token}"}
+        )
+        if resp.status_code == 200:
+            log(f"✅ Shop deleted")
         else:
-            print_result(False, "Could not login other customer")
-    else:
-        print_result(False, "Could not create other customer")
+            log(f"⚠️ Shop deletion failed: {resp.status_code}")
     
-    # Test 14: GET /api/restaurant-orders as seller (should not error)
-    print_test("GET /api/restaurant-orders as seller (seller branch sanity check)")
-    response = get_restaurant_orders(seller_token)
-    print_result(response.status_code == 200, f"Seller GET restaurant-orders: {response.status_code}")
-    if response.status_code == 200:
-        seller_orders = response.json()
-        print(f"Seller sees {len(seller_orders)} orders")
-        # Seller branch may or may not have has_review - just verify no error
-        print_result(True, "Seller branch does not error")
+    if customer2_email and admin_token:
+        log(f"Deleting second customer {customer2_email}...")
+        # Get user ID first
+        import subprocess
+        cmd = f'mongosh jubasquare_db --quiet --eval "db.users.findOne({{email: \\"{customer2_email}\\"}}).id"'
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        user_id = result.stdout.strip()
+        if user_id:
+            resp = requests.delete(
+                f"{BASE_URL}/admin/users/{user_id}",
+                headers={"Authorization": f"Bearer {admin_token}"}
+            )
+            if resp.status_code == 200:
+                log(f"✅ Second customer deleted")
+            else:
+                log(f"⚠️ Customer deletion failed: {resp.status_code}")
+
+
+def main():
+    tests = [
+        ("Login users", test_1_login_users),
+        ("Create shop and product", test_2_create_shop_and_product),
+        ("Verify shop initial state", test_3_verify_shop_initial_state),
+        ("POST first review (rating=4)", test_4_post_first_review),
+        ("Create second customer", test_5_create_second_customer),
+        ("POST second review (rating=2)", test_6_post_second_review),
+        ("DELETE first review", test_7_delete_first_review),
+        ("DELETE last review", test_8_delete_last_review),
+        ("Restaurant review regression", test_9_restaurant_review_regression),
+    ]
     
-    # Test 15: GET /api/restaurant-orders as admin (should not error)
-    print_test("GET /api/restaurant-orders as admin (admin branch sanity check)")
-    admin_token = login_user(ADMIN_EMAIL, ADMIN_PASSWORD)
-    if admin_token:
-        response = get_restaurant_orders(admin_token)
-        print_result(response.status_code == 200, f"Admin GET restaurant-orders: {response.status_code}")
-        if response.status_code == 200:
-            admin_orders = response.json()
-            print(f"Admin sees {len(admin_orders)} orders")
-            print_result(True, "Admin branch does not error")
-    else:
-        print_result(False, "Could not login admin")
+    passed = 0
+    failed = 0
     
-    print("\n" + "="*80)
-    print("ALL TESTS COMPLETED")
-    print("="*80)
+    for name, test_func in tests:
+        print(f"\n{'='*60}")
+        print(f"TEST: {name}")
+        print('='*60)
+        try:
+            test_func()
+            passed += 1
+            print(f"✅ PASSED: {name}")
+        except AssertionError as e:
+            failed += 1
+            print(f"❌ FAILED: {name}")
+            print(f"   Error: {e}")
+        except Exception as e:
+            failed += 1
+            print(f"❌ ERROR: {name}")
+            print(f"   Exception: {e}")
+    
+    # Cleanup
+    try:
+        cleanup()
+    except Exception as e:
+        print(f"⚠️ Cleanup error: {e}")
+    
+    print(f"\n{'='*60}")
+    print(f"SUMMARY: {passed} passed, {failed} failed")
+    print('='*60)
+    
+    return 0 if failed == 0 else 1
+
 
 if __name__ == "__main__":
-    run_tests()
+    sys.exit(main())

@@ -2968,6 +2968,9 @@ async def add_review(product_id: str, body: ReviewIn, user: dict = Depends(get_c
         "created_at": now_iso(),
     }
     await db.reviews.insert_one(review)
+    # Roll up product reviews into the parent shop so shop cards can show ratings.
+    if p.get("shop_id"):
+        await _recompute_shop_rating(p["shop_id"])
     review.pop("_id", None)
     return review
 
@@ -2980,7 +2983,41 @@ async def delete_review(product_id: str, review_id: str, user: dict = Depends(ge
     if user["role"] != "admin" and rv.get("user_id") != user["id"]:
         raise HTTPException(403, "Forbidden")
     await db.reviews.delete_one({"id": review_id})
+    # Keep shop roll-up in sync after deletion.
+    p = await db.products.find_one({"id": product_id}, {"_id": 0, "shop_id": 1})
+    if p and p.get("shop_id"):
+        await _recompute_shop_rating(p["shop_id"])
     return {"ok": True}
+
+
+async def _recompute_shop_rating(shop_id: str) -> None:
+    """Recompute average_rating and review_count for a shop from its product reviews.
+
+    Aggregates *all* reviews across every product of the shop, weighted equally.
+    Persists {"average_rating": float|None, "review_count": int} on the shop doc.
+    """
+    products = await db.products.find({"shop_id": shop_id}, {"_id": 0, "id": 1}).to_list(2000)
+    product_ids = [p["id"] for p in products]
+    if not product_ids:
+        await db.shops.update_one(
+            {"id": shop_id},
+            {"$set": {"average_rating": None, "review_count": 0}},
+        )
+        return
+    pipeline = [
+        {"$match": {"product_id": {"$in": product_ids}}},
+        {"$group": {"_id": None, "avg": {"$avg": "$rating"}, "count": {"$sum": 1}}},
+    ]
+    agg = await db.reviews.aggregate(pipeline).to_list(1)
+    if agg:
+        avg = round(float(agg[0].get("avg") or 0), 1)
+        cnt = int(agg[0].get("count") or 0)
+    else:
+        avg, cnt = None, 0
+    await db.shops.update_one(
+        {"id": shop_id},
+        {"$set": {"average_rating": avg if cnt > 0 else None, "review_count": cnt}},
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -4165,6 +4202,20 @@ async def seed_production():
 @app.on_event("startup")
 async def on_startup():
     await seed_production()
+    # Backfill shop ratings once on startup so existing shops without the
+    # average_rating/review_count fields show ratings rolled-up from product
+    # reviews. Cheap and idempotent — only touches shops that need it.
+    try:
+        pending = await db.shops.find(
+            {"$or": [{"average_rating": {"$exists": False}}, {"review_count": {"$exists": False}}]},
+            {"_id": 0, "id": 1},
+        ).to_list(5000)
+        for s in pending:
+            await _recompute_shop_rating(s["id"])
+        if pending:
+            log.info(f"✅ Backfilled shop ratings for {len(pending)} shops")
+    except Exception as exc:  # pragma: no cover — startup best-effort
+        log.warning(f"shop rating backfill skipped: {exc}")
 
 
 @app.on_event("shutdown")

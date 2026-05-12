@@ -1,4 +1,4 @@
-import { CheckCircle2, Clock, MapPin, ArrowRight } from "lucide-react";
+import { CheckCircle2, Clock, MapPin, ArrowRight, Star } from "lucide-react";
 import { Link } from "react-router-dom";
 
 export default function ShopCard({ shop, productsPreview = [] }) {
@@ -34,8 +34,22 @@ export default function ShopCard({ shop, productsPreview = [] }) {
         <p className="text-[10px] uppercase tracking-[0.18em] text-[#5C5C5C] font-bold">{shop.category}</p>
         <h3 className="font-display font-semibold text-xl text-[#1A1A1A] mt-1">{shop.name}</h3>
         <p className="text-sm text-[#5C5C5C] mt-1 line-clamp-2">{shop.description}</p>
-        <div className="mt-2 flex items-center gap-1 text-xs text-[#5C5C5C]">
-          <MapPin className="w-3 h-3" /> {shop.area}
+        <div className="mt-2 flex items-center gap-3 text-xs text-[#5C5C5C]">
+          <div className="flex items-center gap-1">
+            <MapPin className="w-3 h-3" /> {shop.area}
+          </div>
+          {shop.average_rating ? (
+            <div className="flex items-center gap-1" data-testid={`shop-rating-${shop.id}`}>
+              <Star className="w-3.5 h-3.5 fill-[#E9C46A] text-[#E9C46A]" />
+              <span className="font-semibold text-[#1A1A1A]">{shop.average_rating}</span>
+              <span>({shop.review_count || 0})</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1 italic" data-testid={`shop-no-reviews-${shop.id}`}>
+              <Star className="w-3.5 h-3.5" />
+              <span>No reviews yet</span>
+            </div>
+          )}
         </div>
 
         {productsPreview.length > 0 && (

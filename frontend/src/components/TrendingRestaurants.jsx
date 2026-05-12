@@ -52,16 +52,9 @@ export default function TrendingRestaurants({ limit = 6, title = "Trending now",
           <div
             key={r.id}
             data-testid={`trending-restaurant-${r.id}`}
-            className="relative shrink-0 w-[85%] sm:w-auto snap-center"
+            className="shrink-0 w-[85%] sm:w-auto snap-center"
           >
-            {/* Rank badge */}
-            <div className="absolute top-3 left-3 z-10 inline-flex items-center gap-1 bg-[#1A1A1A] text-white text-[10px] font-bold px-2 py-1 rounded-full shadow-md">
-              #{idx + 1}
-              {r.trending_score != null && (
-                <span className="ml-1 text-[#E9C46A]">★ {r.trending_score}</span>
-              )}
-            </div>
-            <RestaurantCard restaurant={r} />
+            <RestaurantCard restaurant={r} rank={idx + 1} trendingScore={r.trending_score ?? null} />
           </div>
         ))}
       </div>
