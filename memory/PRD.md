@@ -74,6 +74,23 @@ Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode fo
 - Restaurant filtering on click: `restaurants.filter(r => menuItems.some(m => m.restaurant_id === r.id && m.food_category === selected))`.
 - Auto-sync: admin `POST/PUT/DELETE /api/admin/categories` already calls `cache_invalidate("cat:")`, so any new admin category (e.g., adding "BBQ") appears on next page mount without redeploy.
 
+### Iter 6.6 (Feb 2026) — Advanced restaurant features (P1 batch)
+- **Open/Close toggle (Kitchen Dashboard)**: `restaurant-open-toggle` button in the KitchenDashboard header flips `is_open` via the existing `PUT /api/restaurants/{id}/toggle-open`. `POST /api/restaurant-orders` now returns HTTP 400 *"Restaurant is currently closed…"* when `is_open=false`, blocking customer ordering. Toast confirms the state change on the seller side.
+- **Order Cancellation with admin approval**:
+  - Extended `OrderStatusUpdate.Literal` to include `cancel_requested`, `cancel_approved`, `cancel_rejected`.
+  - New seller endpoint: `POST /api/restaurant-orders/{id}/request-cancel` (body `{reason}`). Only allowed when current status ∈ {accepted, cooking, ready}; stores `previous_status` + `cancel_reason` + `cancel_requested_at`; notifies customer **and** seller.
+  - Seller is **blocked** from setting `cancelled/cancel_approved/cancel_rejected` via the normal status update (HTTP 403) — must go through the admin flow.
+  - Admin endpoints: `GET /api/admin/cancel-requests`, `POST /api/admin/cancel-requests/{id}/approve` (→ `cancel_approved`, notifies both parties), `POST /api/admin/cancel-requests/{id}/reject` with `{admin_note}` (→ reverts to `previous_status`, notifies customer per user requirement).
+  - KitchenDashboard: `request-cancel-btn` shown when status ∈ {accepted, cooking, ready}; `cancel-pending-banner` replaces actions while awaiting admin review; stat cards now lazily render cancellation buckets only when count>0.
+  - AdminDashboard: new `cancellations` tab with `approve-cancel-{id}` / `reject-cancel-{id}` rows.
+- **Commission Invoices for completed restaurant orders** — *separate* weekly table per user choice:
+  - New collection `db.restaurant_invoices` + dedicated `_rebuild_restaurant_invoices()` that aggregates `restaurant_orders` with `status="completed"` by `(seller_id, restaurant_id, ISO-week)`. `total_sales` excludes delivery fee. `commission_rate` prefers per-restaurant override, falls back to global.
+  - Auto-triggered on `PUT /api/restaurant-orders/{id}/status` → `completed`.
+  - Endpoints: `GET/POST /api/admin/restaurant-invoices(/generate)`, `PUT /api/admin/restaurant-invoices/{id}/status` (whitelist `{Paid, Unpaid, Overdue}`), `GET /api/seller/restaurant-invoices`.
+  - AdminDashboard Invoices tab: `invoice-kind-toggle` between `Shop invoices` (existing) and `Restaurant invoices` (new pane with regenerate + mark-paid).
+  - SellerDashboard Invoices tab: matching `seller-invoice-kind-toggle`.
+- **Tests**: 20/20 new pytest in `/app/backend/tests/test_iter6_features.py` pass (107 total backend tests on file).
+
 ### Iter 6.5 (Feb 2026) — Cart isolation hardening (marketplace ⇄ restaurant)
 - **Bug fixed**: customers could mix marketplace/wholesale products and restaurant menu items in a single cart, breaking checkout. The previous `CartContext.addItem` only blocked across-restaurant mixing; marketplace items were always allowed to slip through.
 - `CartContext.jsx` rewrite of `addItem`:

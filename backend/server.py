@@ -2355,6 +2355,18 @@ async def request_order_cancel(
             ntype="order",
             meta={"order_id": order_id, "kind": "restaurant", "cancel_request": True},
         )
+    # Notify seller (acknowledgement) — useful for sellers acting via admin override too
+    seller_id = None
+    if order.get("restaurant_id"):
+        rest = await db.restaurants.find_one({"id": order["restaurant_id"]})
+        seller_id = (rest or {}).get("seller_id")
+    if seller_id:
+        await create_notification(
+            user_id=seller_id,
+            message=f"Cancellation request submitted for order #{order_id[:8]} — pending admin review.",
+            ntype="order",
+            meta={"order_id": order_id, "kind": "restaurant", "cancel_request": True},
+        )
     return {"ok": True, "status": "cancel_requested", "previous_status": current}
 
 
@@ -3900,7 +3912,7 @@ async def admin_regenerate_restaurant_invoices(_: dict = Depends(require_role("a
 @api.get("/admin/restaurant-invoices")
 async def admin_list_restaurant_invoices(status: Optional[str] = None, _: dict = Depends(require_role("admin"))):
     q: dict = {}
-    if status in {"Paid", "Unpaid"}:
+    if status in {"Paid", "Unpaid", "Overdue"}:
         q["status"] = status
     return await db.restaurant_invoices.find(q, {"_id": 0}).sort("week_start", -1).to_list(1000)
 
