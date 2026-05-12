@@ -261,20 +261,56 @@ function ShopsTab() {
     });
     setShowForm(true);
   };
+
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [shopProducts, setShopProducts] = useState([]);
+  const [moveToShop, setMoveToShop] = useState("");
+
   const onDelete = async (s, kind) => {
-    const what = kind === "restaurant"
-      ? "restaurant and its menu items"
-      : "shop? Its products will be deactivated. You can restore everything later by editing the shop";
-    if (!window.confirm(`Delete this ${what}?`)) return;
-    
     if (kind === "restaurant") {
+      if (!window.confirm("Delete this restaurant and its menu items?")) return;
       await api.delete(`/restaurants/${s.id}`);
       toast.success("Restaurant deleted — menu items deactivated.");
-    } else {
-      await api.delete(`/shops/${s.id}`);
-      toast.success("Shop deleted — products deactivated. Edit the shop to restore.");
+      load();
+      return;
     }
-    load();
+
+    // For shops, fetch products first
+    try {
+      const response = await api.get(`/products?shop_id=${s.id}&limit=200`);
+      const products = response.data || [];
+      setShopProducts(products);
+      setDeleteConfirm(s);
+      setMoveToShop("");
+    } catch (err) {
+      toast.error("Failed to load shop products");
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirm) return;
+    
+    try {
+      if (moveToShop && shopProducts.length > 0) {
+        // Move products to another shop
+        await Promise.all(
+          shopProducts.map((p) => 
+            api.put(`/products/${p.id}`, { ...p, shop_id: moveToShop })
+          )
+        );
+        toast.success(`${shopProducts.length} product(s) moved to new shop`);
+      }
+      
+      // Delete the shop
+      await api.delete(`/shops/${deleteConfirm.id}`);
+      toast.success("Shop deleted successfully");
+      setDeleteConfirm(null);
+      setShopProducts([]);
+      setMoveToShop("");
+      load();
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail) || "Failed to delete shop");
+    }
   };
 
   const combined = [
@@ -334,6 +370,84 @@ function ShopsTab() {
 
             <button type="submit" data-testid="shop-submit-btn" className="w-full bg-[#1A1A1A] text-white font-semibold py-3 rounded-full">{editing ? "Save changes" : `Create ${form.type}`}</button>
           </form>
+        </Modal>
+      )}
+
+      {deleteConfirm && (
+        <Modal 
+          onClose={() => { setDeleteConfirm(null); setShopProducts([]); setMoveToShop(""); }} 
+          title={`Delete ${deleteConfirm.name}?`}
+        >
+          <div className="space-y-4">
+            <div className="bg-[#FFF7E0] border border-[#E9C46A] rounded-2xl p-4">
+              <p className="text-sm text-[#7A5C12] font-semibold">
+                ⚠️ This shop has {shopProducts.length} product(s)
+              </p>
+            </div>
+
+            {shopProducts.length > 0 && (
+              <>
+                <div className="max-h-60 overflow-y-auto space-y-2">
+                  <p className="text-xs font-semibold text-[var(--js-text-secondary)] uppercase tracking-wider">Products in this shop:</p>
+                  {shopProducts.map((p) => (
+                    <div key={p.id} className="flex items-center gap-3 p-2 bg-[var(--js-subtle)] rounded-xl border border-[var(--js-border)]">
+                      <img src={p.image_url} alt={p.name} className="w-12 h-12 object-cover rounded-lg" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-[var(--js-text)] truncate">{p.name}</p>
+                        <p className="text-xs text-[var(--js-text-secondary)]">{p.category}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block">
+                    <span className="text-xs text-[var(--js-text-secondary)] font-semibold block mb-1.5">
+                      What do you want to do with these products?
+                    </span>
+                    <select
+                      value={moveToShop}
+                      onChange={(e) => setMoveToShop(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-white border border-[var(--js-border)] rounded-xl text-sm text-[var(--js-text)] focus:outline-none focus:border-[#C84B31]"
+                      data-testid="move-products-select"
+                    >
+                      <option value="">Delete all products</option>
+                      {shops.filter(s => s.id !== deleteConfirm.id && !s.is_deleted).map((s) => (
+                        <option key={s.id} value={s.id}>Move to: {s.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  {moveToShop ? (
+                    <p className="text-xs text-[#2D6A4F] bg-[#2D6A4F]/10 p-2 rounded-lg">
+                      ✓ Products will be moved to the selected shop
+                    </p>
+                  ) : (
+                    <p className="text-xs text-[#D90429] bg-[#D90429]/10 p-2 rounded-lg">
+                      ⚠️ All products will be deactivated (can be restored later)
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => { setDeleteConfirm(null); setShopProducts([]); setMoveToShop(""); }}
+                className="flex-1 bg-[var(--js-subtle)] text-[var(--js-text)] font-semibold py-2.5 rounded-full hover:bg-[var(--js-border)]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                data-testid="confirm-delete-shop"
+                className="flex-1 bg-[#D90429] hover:bg-[#A83A23] text-white font-semibold py-2.5 rounded-full"
+              >
+                {moveToShop ? `Move & Delete Shop` : `Delete Shop`}
+              </button>
+            </div>
+          </div>
         </Modal>
       )}
 
