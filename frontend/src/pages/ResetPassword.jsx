@@ -35,7 +35,7 @@ export default function ResetPassword() {
     <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12 grain-bg">
       <div className="w-full max-w-md fade-up">
         <div className="flex flex-col items-center mb-8">
-          <Link to="/"><Logo size={80} className="shadow-xl" /></Link>
+          <Link to="/"><Logo size={104} className="shadow-xl" /></Link>
           <h1 className="font-display font-bold text-2xl text-[var(--js-text)] mt-4">Set a new password</h1>
         </div>
 
