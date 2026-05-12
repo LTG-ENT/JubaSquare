@@ -17,7 +17,7 @@ export const Logo = ({ size = 40, className = "" }) => (
       style={{ 
         mixBlendMode: 'normal', 
         background: 'transparent',
-        transform: 'scale(1.2)',
+        transform: 'scale(1.1)',
         objectFit: 'cover'
       }}
       loading="eager"
