@@ -11,7 +11,6 @@ import { Logo } from "@/components/Logo";
 import NotificationBell from "@/components/NotificationBell";
 import CategoriesNavMenu from "@/components/CategoriesNavMenu";
 import GlobalSearch from "@/components/GlobalSearch";
-import DarkModeIconButton from "@/components/DarkModeIconButton";
 
 const Brand = () => (
   <Link to="/" className="flex items-center gap-3 shrink-0" data-testid="brand-logo">
@@ -205,8 +204,6 @@ export default function Header() {
               <GlobalSearch />
             </div>
             <CurrencyToggle />
-
-            <DarkModeIconButton />
 
             {user && <NotificationBell />}
 

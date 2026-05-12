@@ -11,7 +11,7 @@ function applyDarkMode(isDark) {
   }
 }
 
-export default function DarkModeIconButton({ className = "" }) {
+export default function DarkModeIconButton() {
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window === "undefined") return false;
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -36,7 +36,7 @@ export default function DarkModeIconButton({ className = "" }) {
       aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
       title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
       data-testid="dark-mode-toggle-button"
-      className={`p-2.5 rounded-full hover:bg-white/10 transition ${className}`}
+      className="fixed bottom-6 right-6 z-[60] w-12 h-12 rounded-full flex items-center justify-center bg-[#1A1A1A] text-white shadow-[0_8px_24px_rgba(0,0,0,0.25)] hover:scale-105 active:scale-95 transition"
     >
       {darkMode ? (
         <Sun className="w-5 h-5 text-yellow-300" />

@@ -9,6 +9,7 @@ import { SystemProvider } from "@/context/SystemContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import RouteLoader from "@/components/RouteLoader";
+import DarkModeIconButton from "@/components/DarkModeIconButton";
 
 // ---------------------------------------------------------------------------
 // Eagerly bundled (small + commonly first-paint on a cold visit)
@@ -90,6 +91,7 @@ export default function App() {
                 </Routes>
               </Suspense>
             </BrowserRouter>
+            <DarkModeIconButton />
             <Toaster
               position="top-right"
               toastOptions={{

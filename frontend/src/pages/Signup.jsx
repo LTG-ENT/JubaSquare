@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import api, { formatDetail } from "@/lib/api";
 import { Logo } from "@/components/Logo";
-import { User, Store, Loader2, CheckCircle2, Mail } from "lucide-react";
+import { ArrowLeft, User, Store, Loader2, CheckCircle2, Mail } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Signup() {
@@ -78,6 +78,15 @@ export default function Signup() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12 grain-bg">
+      <button
+        type="button"
+        onClick={() => (window.history.length > 1 ? navigate(-1) : navigate("/"))}
+        data-testid="signup-back-button"
+        className="fixed top-5 left-5 z-50 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-[var(--js-border)] text-[var(--js-text)] text-sm font-semibold shadow-sm hover:bg-[var(--js-subtle)] transition"
+      >
+        <ArrowLeft className="w-4 h-4" />
+        Back
+      </button>
       <div className="w-full max-w-md fade-up">
         <div className="flex flex-col items-center mb-8">
           <Link to="/"><Logo size={88} className="drop-shadow-2xl sm:w-24 sm:h-24 md:w-28 md:h-28 lg:w-32 lg:h-32 xl:w-36 xl:h-36" /></Link>
