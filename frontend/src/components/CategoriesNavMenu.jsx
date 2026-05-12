@@ -6,17 +6,13 @@ import { LayoutGrid, ChevronDown } from "lucide-react";
 const GROUPS = [
   { id: "retail", label: "Retail" },
   { id: "wholesale", label: "Wholesale" },
-  { id: "restaurant", label: "Restaurants" },
 ];
 
 /**
  * Build a deep-link for a category click in the mega-menu.
- *  - ALL groups now use category_id (single source of truth: DB).
+ * Only for retail and wholesale (restaurants removed from dropdown).
  */
 function buildHref(groupId, cat) {
-  if (groupId === "restaurant") {
-    return `/restaurants?category_id=${encodeURIComponent(cat.id)}`;
-  }
   if (groupId === "wholesale") {
     return `/marketplace?view=wholesale&category_id=${encodeURIComponent(cat.id)}`;
   }
@@ -26,18 +22,18 @@ function buildHref(groupId, cat) {
 
 /**
  * Categories nav button with a hover-triggered mega-menu dropdown.
- * Shows all 4 groups (Retail / Wholesale / Restaurants / Food) in tabs,
- * each tab listing top-level categories with their sub-categories.
+ * Shows ONLY retail and wholesale categories (restaurants removed).
+ * Each tab lists top-level categories with their sub-categories.
  *
  * Props:
- *   - active: bool — applies active styling to the default "Categories" trigger
+ *   - active: bool — applies active styling to the trigger
  *   - onNavigate: () => void — called when a link in the menu is clicked
  *   - trigger: ReactNode (optional) — custom trigger element. When omitted, a
- *     default "Categories" pill button (links to /marketplace) is rendered.
+ *     default "Marketplace" pill button (links to /marketplace) is rendered.
  */
 export default function CategoriesNavMenu({ active, onNavigate, trigger }) {
   const [open, setOpen] = useState(false);
-  const [data, setData] = useState({ retail: [], wholesale: [], restaurant: [] });
+  const [data, setData] = useState({ retail: [], wholesale: [] });
   const [activeGroup, setActiveGroup] = useState("retail");
   const closeTimer = useRef(null);
   const location = useLocation();
@@ -109,7 +105,7 @@ export default function CategoriesNavMenu({ active, onNavigate, trigger }) {
           aria-expanded={open}
         >
           <LayoutGrid className="w-4 h-4" />
-          <span>Categories</span>
+          <span>Marketplace</span>
           <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
         </Link>
       )}

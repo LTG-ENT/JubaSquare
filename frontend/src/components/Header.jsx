@@ -86,16 +86,14 @@ export default function Header() {
           <Brand />
 
           <nav className="hidden lg:flex items-center gap-1">
-            {settings.module_marketplace ? (
+            {navLink("/", "Home", HomeIcon)}
+            {settings.module_marketplace && (
               <CategoriesNavMenu
-                active={location.pathname === "/"}
+                active={location.pathname === "/marketplace"}
                 onNavigate={() => setMobileOpen(false)}
-                trigger={navLink("/", "Home", HomeIcon)}
+                trigger={navLink("/marketplace", "Marketplace", LayoutGrid)}
               />
-            ) : (
-              navLink("/", "Home", HomeIcon)
             )}
-            {settings.module_marketplace && navLink("/marketplace", "Categories", LayoutGrid)}
             {navLink("/shops", "Shops", Store)}
             {settings.module_restaurants && navLink("/restaurants", "Restaurants", UtensilsCrossed)}
             {user?.role === "customer" && navLink("/orders", "Orders", ClipboardList)}
