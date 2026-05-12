@@ -103,13 +103,96 @@ function ReviewModal({ item, onClose, onSubmitted }) {
   );
 }
 
+function RestaurantReviewModal({ order, onClose, onSubmitted }) {
+  const [rating, setRating] = useState(5);
+  const [comment, setComment] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      const { data } = await api.post(`/reviews`, {
+        restaurant_id: order.restaurant_id,
+        order_id: order.id,
+        rating,
+        comment,
+      });
+      toast.success("Thanks for your review!");
+      onSubmitted(order.id, data);
+      onClose();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to submit review");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  const itemsPreview = (order.items || []).slice(0, 3).map((it) => `${it.quantity}× ${it.name}`).join(", ");
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/55 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+      <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-[#5C5C5C] font-bold">Leave a review</p>
+            <h3 className="font-display font-bold text-xl text-[#1A1A1A] mt-1">{order.restaurant_name || "Restaurant"}</h3>
+            <p className="text-xs text-[#5C5C5C] mt-1">Order #{(order.id || "").slice(0, 8).toUpperCase()}</p>
+          </div>
+          <button onClick={onClose} data-testid="close-restaurant-review-modal" className="p-2 hover:bg-[#F2EBE5] rounded-full"><X className="w-4 h-4" /></button>
+        </div>
+
+        <form onSubmit={submit} className="space-y-4">
+          {itemsPreview && (
+            <div className="bg-[#F8F5F0] border border-[#E2E2D9] rounded-2xl px-4 py-3">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-[#5C5C5C] font-bold mb-1">You ordered</p>
+              <p className="text-sm text-[#1A1A1A]">{itemsPreview}{(order.items || []).length > 3 ? ` +${order.items.length - 3} more` : ""}</p>
+            </div>
+          )}
+
+          <div>
+            <label className="text-xs font-semibold text-[#5C5C5C] block mb-1">How was your experience?</label>
+            <StarRating value={rating} onChange={setRating} testId="restaurant-review-rating" />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-[#5C5C5C] block mb-1">Comment (optional)</label>
+            <textarea
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              data-testid="restaurant-review-comment-input"
+              maxLength={1000}
+              rows={4}
+              placeholder="Tell others about the food, service, delivery time..."
+              className="w-full bg-[#F8F5F0] border border-[#E2E2D9] rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-[#C84B31]"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={onClose} className="text-sm font-semibold text-[#5C5C5C] px-4 py-2.5 rounded-full hover:bg-[#F2EBE5]">Cancel</button>
+            <button
+              type="submit"
+              disabled={submitting}
+              data-testid="submit-restaurant-review-btn"
+              className="bg-[#C84B31] hover:bg-[#A83A23] disabled:bg-[#A3A39E] text-white text-sm font-semibold px-5 py-2.5 rounded-full"
+            >
+              {submitting ? "Submitting..." : "Post review"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function Orders() {
   const [marketplaceOrders, setMarketplaceOrders] = useState([]);
   const [restaurantOrders, setRestaurantOrders] = useState([]);
   const [searchParams] = useSearchParams();
   const newId = searchParams.get("new");
   const [reviewItem, setReviewItem] = useState(null);
+  const [restaurantReviewOrder, setRestaurantReviewOrder] = useState(null);
   const [reviewedIds, setReviewedIds] = useState(new Set()); // session-only set of product_ids the user reviewed via this page
+  const [reviewedOrderIds, setReviewedOrderIds] = useState(new Set()); // restaurant order ids reviewed in this session (merged with has_review from backend)
   const [activeTab, setActiveTab] = useState("all"); // "all", "marketplace", "restaurant"
 
   useEffect(() => {
@@ -131,6 +214,14 @@ export default function Orders() {
     setReviewedIds((prev) => {
       const n = new Set(prev);
       n.add(productId);
+      return n;
+    });
+  };
+
+  const onRestaurantReviewSubmitted = (orderId) => {
+    setReviewedOrderIds((prev) => {
+      const n = new Set(prev);
+      n.add(orderId);
       return n;
     });
   };
@@ -288,12 +379,22 @@ export default function Orders() {
                     <div className="flex items-center justify-between mt-4 pt-4 border-t border-[#E2E2D9]">
                       <div className="font-bold text-lg text-[#1A1A1A]">Total: {formatUSD(o.total)}</div>
                       {canReview && (
-                        <button
-                          onClick={() => {/* TODO: open review modal for restaurant */}}
-                          className="bg-[#E9C46A] hover:bg-[#D4B05A] text-[#0E1A2B] text-sm font-semibold px-4 py-2 rounded-full flex items-center gap-1"
-                        >
-                          <Star className="w-4 h-4" /> Write Review
-                        </button>
+                        (o.has_review || reviewedOrderIds.has(o.id)) ? (
+                          <span
+                            data-testid={`restaurant-order-${o.id}-reviewed`}
+                            className="inline-flex items-center gap-1 text-[12px] font-semibold text-[#2D6A4F] bg-[#2D6A4F]/10 px-3 py-1.5 rounded-full"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Reviewed
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => setRestaurantReviewOrder(o)}
+                            data-testid={`write-restaurant-review-${o.id}`}
+                            className="bg-[#E9C46A] hover:bg-[#D4B05A] text-[#0E1A2B] text-sm font-semibold px-4 py-2 rounded-full flex items-center gap-1"
+                          >
+                            <Star className="w-4 h-4" /> Write Review
+                          </button>
+                        )
                       )}
                     </div>
                   </div>
@@ -379,6 +480,14 @@ export default function Orders() {
           item={reviewItem}
           onClose={() => setReviewItem(null)}
           onSubmitted={onReviewSubmitted}
+        />
+      )}
+
+      {restaurantReviewOrder && (
+        <RestaurantReviewModal
+          order={restaurantReviewOrder}
+          onClose={() => setRestaurantReviewOrder(null)}
+          onSubmitted={onRestaurantReviewSubmitted}
         />
       )}
     </div>

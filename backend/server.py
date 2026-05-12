@@ -2198,6 +2198,21 @@ async def list_restaurant_orders(user: dict = Depends(get_current_user)):
             {"customer_id": user["id"]},
             {"_id": 0}
         ).sort("created_at", -1).to_list(100)
+        # Enrich with has_review flag so the UI can show "Reviewed" state
+        order_ids = [o["id"] for o in orders]
+        if order_ids:
+            reviewed = await db.reviews.find(
+                {"order_id": {"$in": order_ids}, "user_id": user["id"]},
+                {"_id": 0, "order_id": 1, "id": 1, "rating": 1},
+            ).to_list(len(order_ids))
+            reviewed_map = {r["order_id"]: r for r in reviewed}
+            for o in orders:
+                rv = reviewed_map.get(o["id"])
+                o["has_review"] = rv is not None
+                if rv:
+                    o["review_id"] = rv.get("id")
+                    o["review_rating"] = rv.get("rating")
+        return orders
     elif user["role"] in ["seller", "admin"]:
         # Seller sees orders for their restaurants
         restaurants = await db.restaurants.find(
