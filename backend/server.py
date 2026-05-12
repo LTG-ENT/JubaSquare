@@ -384,6 +384,14 @@ class ShopCommissionIn(BaseModel):
     commission_rate: Optional[float] = None  # None = inherit global rate
 
 
+class InvoiceFrequencyIn(BaseModel):
+    frequency: Literal["daily", "weekly", "monthly", "quarterly", "yearly"]
+
+
+class ShopInvoiceFrequencyIn(BaseModel):
+    frequency: Optional[Literal["daily", "weekly", "monthly", "quarterly", "yearly"]] = None  # None = use global
+
+
 class ProductIn(BaseModel):
     shop_id: str
     name: str
@@ -3785,6 +3793,48 @@ async def admin_shop_commission(shop_id: str, body: ShopCommissionIn, _: dict = 
     else:
         await db.shops.update_one({"id": shop_id}, {"$set": {"commission_rate": float(rate)}})
     return await db.shops.find_one({"id": shop_id}, {"_id": 0})
+
+
+@api.put("/admin/invoice-frequency")
+async def admin_set_global_invoice_frequency(body: InvoiceFrequencyIn, _: dict = Depends(require_role("admin"))):
+    """Set global invoice frequency (daily, weekly, monthly, quarterly, yearly)"""
+    await db.settings.update_one(
+        {"id": "system"},
+        {"$set": {"invoice_frequency": body.frequency}},
+        upsert=True
+    )
+    cache_invalidate("settings:")
+    return {"ok": True, "frequency": body.frequency}
+
+
+@api.put("/admin/shops/{shop_id}/invoice-frequency")
+async def admin_set_shop_invoice_frequency(shop_id: str, body: ShopInvoiceFrequencyIn, _: dict = Depends(require_role("admin"))):
+    """Set per-shop invoice frequency override. None = use global setting."""
+    shop = await db.shops.find_one({"id": shop_id})
+    if not shop:
+        raise HTTPException(404, "Shop not found")
+    
+    if body.frequency is None:
+        await db.shops.update_one({"id": shop_id}, {"$unset": {"invoice_frequency": ""}})
+    else:
+        await db.shops.update_one({"id": shop_id}, {"$set": {"invoice_frequency": body.frequency}})
+    
+    return await db.shops.find_one({"id": shop_id}, {"_id": 0})
+
+
+@api.put("/admin/restaurants/{restaurant_id}/invoice-frequency")
+async def admin_set_restaurant_invoice_frequency(restaurant_id: str, body: ShopInvoiceFrequencyIn, _: dict = Depends(require_role("admin"))):
+    """Set per-restaurant invoice frequency override. None = use global setting."""
+    restaurant = await db.restaurants.find_one({"id": restaurant_id})
+    if not restaurant:
+        raise HTTPException(404, "Restaurant not found")
+    
+    if body.frequency is None:
+        await db.restaurants.update_one({"id": restaurant_id}, {"$unset": {"invoice_frequency": ""}})
+    else:
+        await db.restaurants.update_one({"id": restaurant_id}, {"$set": {"invoice_frequency": body.frequency}})
+    
+    return await db.restaurants.find_one({"id": restaurant_id}, {"_id": 0})
 
 
 @api.get("/admin/blocked-emails")
