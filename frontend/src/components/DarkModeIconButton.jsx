@@ -3,7 +3,8 @@ import { Moon, Sun } from "lucide-react";
 
 const STORAGE_KEY = "darkMode";
 
-function applyDarkMode(isDark) {
+function applyTheme(isDark) {
+  document.documentElement.setAttribute("data-theme", isDark ? "dark" : "light");
   if (isDark) {
     document.documentElement.classList.add("dark");
   } else {
@@ -20,7 +21,7 @@ export default function DarkModeIconButton() {
   });
 
   useEffect(() => {
-    applyDarkMode(darkMode);
+    applyTheme(darkMode);
   }, [darkMode]);
 
   const toggle = () => {

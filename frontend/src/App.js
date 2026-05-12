@@ -47,9 +47,19 @@ const Terms = lazy(() => import("@/pages/legal/Terms"));
 const Privacy = lazy(() => import("@/pages/legal/Privacy"));
 const Returns = lazy(() => import("@/pages/legal/Returns"));
 
-// Dark mode removed — light theme is enforced.
+// Honor user's saved dark-mode preference before first paint to avoid a flash.
 if (typeof document !== "undefined") {
-  document.documentElement.setAttribute("data-theme", "light");
+  try {
+    const saved = localStorage.getItem("darkMode");
+    const prefersDark =
+      saved !== null
+        ? saved === "true"
+        : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    document.documentElement.setAttribute("data-theme", prefersDark ? "dark" : "light");
+    if (prefersDark) document.documentElement.classList.add("dark");
+  } catch {
+    document.documentElement.setAttribute("data-theme", "light");
+  }
 }
 
 export default function App() {
