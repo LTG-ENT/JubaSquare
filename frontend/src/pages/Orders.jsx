@@ -196,23 +196,86 @@ export default function Orders() {
                   cooking: { label: "Cooking", bg: "bg-orange-500" },
                   ready: { label: "Ready", bg: "bg-green-500" },
                   completed: { label: "Completed", bg: "bg-gray-500" },
+                  cancel_requested: { label: "Cancellation pending", bg: "bg-yellow-600" },
+                  cancel_approved: { label: "Cancelled", bg: "bg-red-500" },
+                  cancelled: { label: "Cancelled", bg: "bg-red-500" },
                 };
                 const config = STATUS_CONFIG[o.status] || STATUS_CONFIG.pending;
                 const canReview = o.status === "completed";
-                
+
+                // Cancellation banner content for the customer.
+                let updateBanner = null;
+                if (o.status === "cancel_requested") {
+                  updateBanner = {
+                    tone: "warning",
+                    title: "The restaurant has requested to cancel this order",
+                    body: (
+                      <>
+                        Waiting for admin review. If approved, you won't be charged. If rejected,
+                        the order will be restored to <span className="font-semibold">{o.previous_status || "its previous status"}</span>.
+                        {o.cancel_reason && (
+                          <span className="block mt-1"><span className="font-semibold">Restaurant's reason:</span> {o.cancel_reason}</span>
+                        )}
+                      </>
+                    ),
+                  };
+                } else if (o.status === "cancel_approved" || o.status === "cancelled") {
+                  updateBanner = {
+                    tone: "error",
+                    title: "This order was cancelled",
+                    body: <>The restaurant cancelled this order and admin approved it. You have not been charged.</>,
+                  };
+                } else if (o.cancel_outcome === "rejected") {
+                  updateBanner = {
+                    tone: "success",
+                    title: "Cancellation request rejected",
+                    body: (
+                      <>
+                        The restaurant requested to cancel, but admin rejected — your order is back to <span className="font-semibold">{o.status}</span> and will be fulfilled.
+                        {o.cancel_rejected_note && (
+                          <span className="block mt-1"><span className="font-semibold">Admin note:</span> {o.cancel_rejected_note}</span>
+                        )}
+                      </>
+                    ),
+                  };
+                }
+
+                const toneClasses = {
+                  warning: "bg-yellow-50 border-yellow-300 text-yellow-900",
+                  error: "bg-red-50 border-red-300 text-red-800",
+                  success: "bg-green-50 border-green-300 text-green-800",
+                };
+
                 return (
-                  <div key={o.id} className="bg-white border border-[#E2E2D9] rounded-3xl p-5 sm:p-6">
+                  <div
+                    key={o.id}
+                    data-testid={`restaurant-order-${o.id}`}
+                    className="bg-white border border-[#E2E2D9] rounded-3xl p-5 sm:p-6"
+                  >
                     <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
                       <div>
                         <p className="text-[10px] uppercase tracking-[0.18em] text-[#5C5C5C] font-bold">RESTAURANT</p>
                         <p className="font-display font-semibold text-lg text-[#1A1A1A]">{o.restaurant_name}</p>
                         <p className="text-xs text-[#5C5C5C] mt-0.5">{new Date(o.created_at).toLocaleString()}</p>
                       </div>
-                      <div className={`${config.bg} ${s.text || "text-white"} px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1`}>
+                      <div
+                        data-testid={`restaurant-order-status-${o.id}`}
+                        className={`${config.bg} text-white px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1`}
+                      >
                         {config.label}
                       </div>
                     </div>
-                    
+
+                    {updateBanner && (
+                      <div
+                        data-testid={`order-update-banner-${o.id}`}
+                        className={`rounded-2xl border p-4 mb-4 ${toneClasses[updateBanner.tone]}`}
+                      >
+                        <p className="font-bold text-sm">{updateBanner.title}</p>
+                        <p className="text-xs mt-1 leading-relaxed">{updateBanner.body}</p>
+                      </div>
+                    )}
+
                     <div className="border-t border-[#E2E2D9] pt-4 space-y-2">
                       {o.items.map((item, idx) => (
                         <div key={idx} className="flex justify-between text-sm">
@@ -221,7 +284,7 @@ export default function Orders() {
                         </div>
                       ))}
                     </div>
-                    
+
                     <div className="flex items-center justify-between mt-4 pt-4 border-t border-[#E2E2D9]">
                       <div className="font-bold text-lg text-[#1A1A1A]">Total: {formatUSD(o.total)}</div>
                       {canReview && (

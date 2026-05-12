@@ -74,6 +74,15 @@ Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode fo
 - Restaurant filtering on click: `restaurants.filter(r => menuItems.some(m => m.restaurant_id === r.id && m.food_category === selected))`.
 - Auto-sync: admin `POST/PUT/DELETE /api/admin/categories` already calls `cache_invalidate("cat:")`, so any new admin category (e.g., adding "BBQ") appears on next page mount without redeploy.
 
+### Iter 6.8 (Feb 2026) — Trending UI + Customer Order-Updates banner
+- **Trending Restaurants UI**: new `TrendingRestaurants.jsx` component fetches `/trending/restaurants?limit=6`, auto-hides when fewer than 2 entries. Mounted on Home (above Food & Restaurants) and on /restaurants (only when no category filter is active). Each card carries a `#1 ★ 9` rank badge with `trending_score` (clicks + 2× orders).
+- **Customer "Order updates" banner** on `/orders` for restaurant orders:
+  - 🟡 Warning when `status === 'cancel_requested'` — shows previous status + restaurant's reason.
+  - 🔴 Error when `cancel_approved` / `cancelled` — confirms the order is cancelled and customer wasn't charged.
+  - 🟢 Success when `cancel_outcome === 'rejected'` — shows status restored to previous, optional admin note.
+- **Backend**: `admin_approve_cancel` / `admin_reject_cancel` now stamp `cancel_outcome: "approved" | "rejected"` so the frontend can detect rejection cleanly (replaces the fragile heuristic).
+- **Bug fix**: latent `ReferenceError: s.text` in `Orders.jsx` (a marketplace-only variable was referenced inside the restaurant branch) — replaced with hardcoded `text-white` since restaurant status pills already specify their own bg colour.
+
 ### Iter 6.7 (Feb 2026) — Global search + cancellation modal polish
 - **Global search** in Header (desktop + mobile menu): debounced typeahead against new `GET /api/search?q=…&limit=5` endpoint.
   - Backend: case-insensitive regex match on `name`/`description` across restaurants, shops and products. Excludes soft-deleted/hidden/inactive rows. Short-circuits to empty arrays for queries < 2 chars.

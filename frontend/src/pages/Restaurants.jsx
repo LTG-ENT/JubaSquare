@@ -4,6 +4,7 @@ import api from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import RestaurantCard from "@/components/RestaurantCard";
+import TrendingRestaurants from "@/components/TrendingRestaurants";
 import AreaSelector from "@/components/AreaSelector";
 import { useCart } from "@/context/CartContext";
 
@@ -152,6 +153,11 @@ export default function Restaurants() {
           </div>
           <AreaSelector value={area} onChange={setArea} />
         </div>
+
+        {/* TRENDING — only when no category filter is active */}
+        {activeCatId === "all" && (
+          <TrendingRestaurants limit={6} title="Trending now" subtitle="Most ordered & visited this week" />
+        )}
 
         <div className="flex flex-wrap gap-2 mb-8 items-center">
           {chips.map((chip) => {

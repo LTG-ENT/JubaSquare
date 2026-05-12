@@ -2389,7 +2389,7 @@ async def admin_approve_cancel(order_id: str, _: dict = Depends(require_role("ad
 
     await db.restaurant_orders.update_one(
         {"id": order_id},
-        {"$set": {"status": "cancel_approved", "cancel_decided_at": now_iso(), "updated_at": now_iso()}},
+        {"$set": {"status": "cancel_approved", "cancel_outcome": "approved", "cancel_decided_at": now_iso(), "updated_at": now_iso()}},
     )
     # Notify customer
     customer_id = order.get("customer_id")
@@ -2427,6 +2427,7 @@ async def admin_reject_cancel(order_id: str, body: CancelRejectIn, _: dict = Dep
         {"id": order_id},
         {"$set": {
             "status": previous,
+            "cancel_outcome": "rejected",
             "cancel_decided_at": now_iso(),
             "cancel_rejected_note": body.admin_note or "",
             "updated_at": now_iso(),

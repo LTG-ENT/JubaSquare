@@ -6,6 +6,7 @@ import Footer from "@/components/Footer";
 import ShopCard from "@/components/ShopCard";
 import WholesaleCard from "@/components/WholesaleCard";
 import RestaurantCard from "@/components/RestaurantCard";
+import TrendingRestaurants from "@/components/TrendingRestaurants";
 import AreaSelector from "@/components/AreaSelector";
 import { useCart } from "@/context/CartContext";
 import { ArrowRight, Sparkles, Package } from "lucide-react";
@@ -249,6 +250,11 @@ export default function Home() {
           ))}
         </div>
       </section>
+
+      {/* TRENDING — auto-hides when there isn't enough data */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
+        <TrendingRestaurants limit={6} />
+      </div>
 
       {/* FOOD & RESTAURANTS */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 w-full">
