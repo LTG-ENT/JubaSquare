@@ -27,7 +27,7 @@ export default function ForgotPassword() {
     <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12 grain-bg">
       <div className="w-full max-w-md fade-up">
         <div className="flex flex-col items-center mb-8">
-          <Link to="/"><Logo size={72} className="shadow-xl sm:w-24 sm:h-24 md:w-28 md:h-28 lg:w-32 lg:h-32" /></Link>
+          <Link to="/"><Logo size={64} className="shadow-xl sm:w-20 sm:h-20 md:w-24 md:h-24 lg:w-28 lg:h-28 xl:w-32 xl:h-32" /></Link>
           <h1 className="font-display font-bold text-2xl text-[var(--js-text)] mt-4">Forgot password?</h1>
           <p className="text-sm text-[var(--js-text-secondary)] mt-2 text-center">
             Enter your email and we'll send you a reset link.

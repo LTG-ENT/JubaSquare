@@ -70,7 +70,7 @@ export default function Footer() {
           {/* Brand */}
           <div className="md:col-span-1">
             <Link to="/" className="flex items-center gap-3">
-              <Logo size={64} className="sm:w-20 sm:h-20 md:w-24 md:h-24" />
+              <Logo size={56} className="sm:w-16 sm:h-16 md:w-20 md:h-20 lg:w-[72px] lg:h-[72px]" />
               <div className="leading-tight">
                 <p className="font-display font-bold text-lg text-white">JubaSquare</p>
                 <p className="text-[10px] uppercase tracking-[0.2em] text-white/60">by L.T.G Enterprise</p>
