@@ -66,6 +66,13 @@ Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode fo
 - **Frontend**: removed Food Category select from the Seller "New business" modal; `RestaurantCard` no longer shows the category badge nor links to category-filtered pages; `onEdit` no longer carries the `category` field.
 - **Root-cause fix for "Cannot destructure property 'basename' of useContext(...) as it is null" crash**: the Seller Dashboard modal referenced `RESTAURANT_CATEGORIES` which was never declared, throwing a `ReferenceError`. That error bubbled up to `ErrorBoundary` (rendered above `<BrowserRouter>`), whose fallback used a `<Link>` — requiring Router context that didn't exist. `ErrorBoundary` now uses a plain `<a href="/">` so any future unhandled error degrades gracefully instead of cascading into a Router error. Smoke-tested: opening the modal and clicking "Restaurant" no longer crashes.
 
+### Iter 6.3 (Feb 2026) — Restaurant categories unified as single source of truth (DB)
+- Added `GET /api/menu-items` (filterable by `food_category`, `restaurant_id`, paginated) so frontend can derive which restaurants/menu items use which categories.
+- Removed every hardcoded restaurant-category fallback in `SellerDashboard.jsx` (`"Fast Food"`, `"Fried Chicken"`). Defaults are now `Object.keys(restaurantCategoriesMap)[0] || ""`.
+- `Restaurants.jsx` chips now use **DB categories from `/categories/tree?group=restaurant`** intersected with food_categories actually used by menu items. Categories with zero menu items are hidden (per spec rule #7).
+- `CategoriesNavMenu.jsx` (Header mega-menu) Restaurant tab now hides empty admin categories — only shows ones with at least one menu item.
+- Auto-sync: admin `POST/PUT/DELETE /api/admin/categories` already calls `cache_invalidate("cat:")`, so writes are reflected on next read within the 60s TTL window (typically immediate).
+
 ## Backlog (P1 / P2)
 - **P1** Unread message badge polling / realtime updates on Messages tab
 - **P1** COD-only checkout enforcement on `/shop/:shop_id` order flow (currently only banner)

@@ -487,7 +487,7 @@ function ProductsTab() {
       price_usd: 0, stock: 100,
       min_order_qty: 1, bulk_price_usd: "",
       pricing_tiers: [],
-      food_category: "Fried Chicken",
+      food_category: "",
       side_items: [],
     };
   }
@@ -572,9 +572,9 @@ function ProductsTab() {
       setMode("marketplace");
     } else if (restaurants.length > 0) {
       next.restaurant_id = restaurants[0].id;
-      // Use the first restaurant's main category (not sub-category)
-      const restaurantCategory = restaurants[0].category || "Fast Food";
-      next.food_category = restaurantCategory;
+      // Default to the first admin-defined restaurant category (DB source of truth).
+      // If admin has not defined any, leave blank — the form will show "No Categories".
+      next.food_category = Object.keys(restaurantCategoriesMap)[0] || "";
       setMode("restaurant");
     }
     setForm(next);
@@ -600,15 +600,13 @@ function ProductsTab() {
   const openEditMenu = (m) => {
     setMode("restaurant");
     setEditing({ kind: "menu", ...m });
-    // Keep the existing food_category when editing, or default to restaurant's main category
-    const restaurant = restaurants.find(r => r.id === m.restaurant_id);
-    const restaurantCategory = restaurant?.category || "Fast Food";
     setForm({
       ...defaultForm(),
       restaurant_id: m.restaurant_id, name: m.name,
       price_usd: m.price_usd,
       description: m.description || "", image_url: m.image_url || "",
-      food_category: m.food_category || restaurantCategory,
+      // Use the existing food_category if set; otherwise blank (no hardcoded fallback)
+      food_category: m.food_category || "",
       side_items: m.side_items || [],
     });
     setShowForm(true);
@@ -785,10 +783,10 @@ function ProductsTab() {
                   const [kind, id] = e.target.value.split(":");
                   if (kind === "r") {
                     setMode("restaurant");
-                    // Find the restaurant and use its main category (not sub-category)
-                    const restaurant = restaurants.find(r => r.id === id);
-                    const restaurantCategory = restaurant?.category || "Fast Food";
-                    setForm({ ...form, restaurant_id: id, food_category: restaurantCategory });
+                    // Default food_category to the first admin-defined restaurant category.
+                    // No hardcoded fallback — if admin has none, leave blank.
+                    const firstFoodCat = Object.keys(restaurantCategoriesMap)[0] || "";
+                    setForm({ ...form, restaurant_id: id, food_category: firstFoodCat });
                   } else {
                     // Shop selected - set retail category with sub-category
                     const shop = shops.find(s => s.id === id);

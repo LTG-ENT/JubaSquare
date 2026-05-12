@@ -11,18 +11,23 @@ export default function Restaurants() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [restaurants, setRestaurants] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
+  // Admin-managed restaurant categories — the SINGLE SOURCE OF TRUTH.
+  const [dbCategories, setDbCategories] = useState([]);
   const [activeCat, setActiveCat] = useState(searchParams.get("category") || "All");
   const [sortBy, setSortBy] = useState("recommended");
   const { area, setArea } = useCart();
 
   useEffect(() => {
     api.get("/restaurants?limit=200").then((r) => setRestaurants(r.data));
-    // Fetch all restaurant menu items so we can: (a) list the food categories
-    // that actually have items in them, and (b) filter restaurants by which
-    // ones have a menu item in the selected category.
     api.get("/menu-items?limit=200").then((r) => {
       setMenuItems(Array.isArray(r.data) ? r.data : []);
     });
+    // Fetch admin-defined top-level restaurant categories. /categories/tree
+    // already filters to active categories and returns them grouped.
+    api.get("/categories/tree?group=restaurant").then((r) => {
+      const tree = Array.isArray(r.data) ? r.data : [];
+      setDbCategories(tree.map((c) => c.name));
+    }).catch(() => setDbCategories([]));
   }, []);
 
   // Update activeCat when URL params change
@@ -31,24 +36,23 @@ export default function Restaurants() {
     if (cat) setActiveCat(cat);
   }, [searchParams]);
 
-  // Get categories from menu items' food_category (not restaurant.category)
+  // Chips: "All" + DB categories that have at least one menu item attached.
+  // Empty categories are hidden per requirement #7.
   const cats = useMemo(() => {
-    const foodCategories = new Set(menuItems.map(m => m.food_category).filter(Boolean));
-    return ["All", ...Array.from(foodCategories)];
-  }, [menuItems]);
+    const usedFoodCats = new Set(menuItems.map((m) => m.food_category).filter(Boolean));
+    const visible = dbCategories.filter((name) => usedFoodCats.has(name));
+    return ["All", ...visible];
+  }, [dbCategories, menuItems]);
 
-  // Filter restaurants by checking if they have menu items in the selected category
+  // Filter restaurants: show only those whose menu items match the selected DB category.
   const filtered = useMemo(() => {
     if (activeCat === "All") return restaurants;
-    
-    // Get restaurant IDs that have menu items in this category
     const restaurantIds = new Set(
       menuItems
-        .filter(m => m.food_category === activeCat)
-        .map(m => m.restaurant_id)
+        .filter((m) => m.food_category === activeCat)
+        .map((m) => m.restaurant_id),
     );
-    
-    return restaurants.filter(r => restaurantIds.has(r.id));
+    return restaurants.filter((r) => restaurantIds.has(r.id));
   }, [activeCat, restaurants, menuItems]);
 
   // Backend already sorts verified-first. Apply client sort options.
