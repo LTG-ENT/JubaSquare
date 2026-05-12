@@ -208,11 +208,21 @@ function ShopsTab() {
     e.preventDefault();
     try {
       if (form.type === "restaurant") {
-        // Restaurants no longer have a top-level category — they're classified
-        // purely by their menu items' food_category.
         const payload = {
-          name: form.name, description: form.description, area: form.area,
-          image_url: form.image_url, is_open: true,
+          name: form.name, 
+          description: form.description, 
+          area: form.area,
+          image_url: form.image_url, 
+          is_open: true,
+          delivery_pricing: {
+            type: form.delivery_mode || "fixed",
+            fixed_fee: form.delivery_mode === "fixed" ? parseFloat(form.delivery_fee_usd) || 2.0 : 0.0,
+            area_fees: form.delivery_mode === "per_area"
+              ? (form.delivery_per_area || [])
+                  .filter((a) => a.area && a.area.trim())
+                  .map((a) => ({ area: a.area.trim(), fee: parseFloat(a.fee_usd) || 0 }))
+              : [],
+          }
         };
         if (editing?._kind === "restaurant") {
           await api.put(`/restaurants/${editing.id}`, payload);
@@ -249,15 +259,31 @@ function ShopsTab() {
 
   const onEdit = (s, kind) => {
     setEditing({ ...s, _kind: kind });
+    
+    // Handle delivery pricing for both shops and restaurants
+    let deliveryMode = "free";
+    let deliveryFee = 0;
+    let deliveryPerArea = [];
+    
+    if (kind === "restaurant" && s.delivery_pricing) {
+      deliveryMode = s.delivery_pricing.type || "fixed";
+      deliveryFee = s.delivery_pricing.fixed_fee || 0;
+      deliveryPerArea = (s.delivery_pricing.area_fees || []).map(a => ({ area: a.area, fee_usd: a.fee }));
+    } else if (kind === "shop") {
+      deliveryMode = s.delivery_mode || "free";
+      deliveryFee = s.delivery_fee_usd || 0;
+      deliveryPerArea = s.delivery_per_area || [];
+    }
+    
     setForm({
       name: s.name,
       type: kind,
       description: s.description || "",
       area: s.area,
       image_url: s.image_url,
-      delivery_mode: s.delivery_mode || "free",
-      delivery_fee_usd: s.delivery_fee_usd || 0,
-      delivery_per_area: s.delivery_per_area || [],
+      delivery_mode: deliveryMode,
+      delivery_fee_usd: deliveryFee,
+      delivery_per_area: deliveryPerArea,
     });
     setShowForm(true);
   };
@@ -380,9 +406,7 @@ function ShopsTab() {
             <ImageUpload label="Shop photo" value={form.image_url} onChange={(v) => setForm({ ...form, image_url: v })} testId="shop-image-upload" />
             <Textarea label="Description" value={form.description} onChange={(v) => setForm({ ...form, description: v })} testId="shop-desc-input" />
 
-            {form.type === "shop" && (
-              <DeliveryEditor form={form} setForm={setForm} />
-            )}
+            <DeliveryEditor form={form} setForm={setForm} />
 
             <button type="submit" data-testid="shop-submit-btn" className="w-full bg-[#1A1A1A] text-white font-semibold py-3 rounded-full">{editing ? "Save changes" : `Create ${form.type}`}</button>
           </form>
