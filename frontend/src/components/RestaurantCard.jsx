@@ -45,12 +45,18 @@ export default function RestaurantCard({ restaurant }) {
   const filteredMenu = menu.filter((m) => !search || m.name.toLowerCase().includes(search.toLowerCase()));
 
   const addMenu = (item, sides) => {
-    addItem({
+    const success = addItem({
       item_type: "menu_item", item_id: item.id, name: item.name,
       price_usd: item.price_usd, image_url: item.image_url, quantity: 1,
       sides: sides || [],
+    }, {
+      restaurant_id: restaurant.id,
+      restaurant_name: restaurant.name,
     });
-    toast.success(`${item.name} added to cart`);
+    
+    if (success) {
+      toast.success(`${item.name} added to cart`);
+    }
   };
 
   return (

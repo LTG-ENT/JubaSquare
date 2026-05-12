@@ -10,9 +10,17 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 
 export default function Cart() {
-  const { items, removeItem, setQuantity, subtotalUSD, area, setArea, clear, exchangeRate, setExchangeRate, currency } = useCart();
+  const { items, removeItem, setQuantity, subtotalUSD, area, setArea, clear, exchangeRate, setExchangeRate, currency, cartMode, restaurantId } = useCart();
   const { user } = useAuth();
   const navigate = useNavigate();
+  
+  // Redirect to RestaurantCheckout if cart is in restaurant mode
+  useEffect(() => {
+    if (cartMode === "restaurant" && restaurantId && items.length > 0) {
+      navigate("/restaurant-checkout");
+    }
+  }, [cartMode, restaurantId, items.length, navigate]);
+  
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
   const [note, setNote] = useState("");
