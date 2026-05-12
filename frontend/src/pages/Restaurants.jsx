@@ -36,13 +36,10 @@ export default function Restaurants() {
     if (cat) setActiveCat(cat);
   }, [searchParams]);
 
-  // Chips: "All" + DB categories that have at least one menu item attached.
-  // Empty categories are hidden per requirement #7.
-  const cats = useMemo(() => {
-    const usedFoodCats = new Set(menuItems.map((m) => m.food_category).filter(Boolean));
-    const visible = dbCategories.filter((name) => usedFoodCats.has(name));
-    return ["All", ...visible];
-  }, [dbCategories, menuItems]);
+  // Chips: "All" + ALL admin-defined restaurant categories (DB source of truth).
+  // Categories are shown regardless of whether they currently have menu items.
+  // The empty state for a clicked-but-unused category renders below the chips.
+  const cats = useMemo(() => ["All", ...dbCategories], [dbCategories]);
 
   // Filter restaurants: show only those whose menu items match the selected DB category.
   const filtered = useMemo(() => {

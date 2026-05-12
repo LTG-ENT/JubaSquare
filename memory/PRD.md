@@ -69,9 +69,10 @@ Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode fo
 ### Iter 6.3 (Feb 2026) — Restaurant categories unified as single source of truth (DB)
 - Added `GET /api/menu-items` (filterable by `food_category`, `restaurant_id`, paginated) so frontend can derive which restaurants/menu items use which categories.
 - Removed every hardcoded restaurant-category fallback in `SellerDashboard.jsx` (`"Fast Food"`, `"Fried Chicken"`). Defaults are now `Object.keys(restaurantCategoriesMap)[0] || ""`.
-- `Restaurants.jsx` chips now use **DB categories from `/categories/tree?group=restaurant`** intersected with food_categories actually used by menu items. Categories with zero menu items are hidden (per spec rule #7).
-- `CategoriesNavMenu.jsx` (Header mega-menu) Restaurant tab now hides empty admin categories — only shows ones with at least one menu item.
-- Auto-sync: admin `POST/PUT/DELETE /api/admin/categories` already calls `cache_invalidate("cat:")`, so writes are reflected on next read within the 60s TTL window (typically immediate).
+- `Restaurants.jsx` chips show **"All" + ALL admin-defined restaurant categories** from `/categories/tree?group=restaurant`. Categories are NOT hidden when empty (per user spec) — instead a clicked-but-empty category renders a "No restaurants in this category" state.
+- `CategoriesNavMenu.jsx` Header mega-menu Restaurant tab also renders all admin categories.
+- Restaurant filtering on click: `restaurants.filter(r => menuItems.some(m => m.restaurant_id === r.id && m.food_category === selected))`.
+- Auto-sync: admin `POST/PUT/DELETE /api/admin/categories` already calls `cache_invalidate("cat:")`, so any new admin category (e.g., adding "BBQ") appears on next page mount without redeploy.
 
 ## Backlog (P1 / P2)
 - **P1** Unread message badge polling / realtime updates on Messages tab

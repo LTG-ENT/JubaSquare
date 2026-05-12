@@ -23,7 +23,6 @@ const GROUPS = [
 export default function CategoriesNavMenu({ active, onNavigate, trigger }) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState({ retail: [], wholesale: [], restaurant: [] });
-  const [usedFoodCats, setUsedFoodCats] = useState(new Set());
   const [activeGroup, setActiveGroup] = useState("retail");
   const closeTimer = useRef(null);
   const location = useLocation();
@@ -34,15 +33,6 @@ export default function CategoriesNavMenu({ active, onNavigate, trigger }) {
       .then((r) => {
         // /categories/tree without a group returns a dict keyed by group
         if (r.data && !Array.isArray(r.data)) setData(r.data);
-      })
-      .catch(() => {});
-    // Restaurant categories must be hidden when no menu items use them
-    // (single source of truth + hide-empty rule).
-    api
-      .get("/menu-items?limit=200")
-      .then((r) => {
-        const arr = Array.isArray(r.data) ? r.data : [];
-        setUsedFoodCats(new Set(arr.map((m) => m.food_category).filter(Boolean)));
       })
       .catch(() => {});
   }, []);
@@ -73,23 +63,13 @@ export default function CategoriesNavMenu({ active, onNavigate, trigger }) {
     return `${g.linkBase}${encodeURIComponent(name)}`;
   };
 
-  const groupHasItems = (gid) => {
-    const arr = data[gid] || [];
-    if (gid === "restaurant") {
-      // Hide empty restaurant categories (no menu items currently use them).
-      return arr.some((c) => usedFoodCats.has(c.name));
-    }
-    return arr.length > 0;
-  };
+  const groupHasItems = (gid) => (data[gid] || []).length > 0;
   const totalCount = Object.values(data).reduce(
     (sum, arr) => sum + (arr || []).length + (arr || []).reduce((s, p) => s + (p.children?.length || 0), 0),
     0,
   );
 
-  const currentList =
-    activeGroup === "restaurant"
-      ? (data.restaurant || []).filter((c) => usedFoodCats.has(c.name))
-      : data[activeGroup] || [];
+  const currentList = data[activeGroup] || [];
 
   return (
     <div
