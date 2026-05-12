@@ -74,6 +74,18 @@ Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode fo
 - Restaurant filtering on click: `restaurants.filter(r => menuItems.some(m => m.restaurant_id === r.id && m.food_category === selected))`.
 - Auto-sync: admin `POST/PUT/DELETE /api/admin/categories` already calls `cache_invalidate("cat:")`, so any new admin category (e.g., adding "BBQ") appears on next page mount without redeploy.
 
+### Iter 6.5 (Feb 2026) — Cart isolation hardening (marketplace ⇄ restaurant)
+- **Bug fixed**: customers could mix marketplace/wholesale products and restaurant menu items in a single cart, breaking checkout. The previous `CartContext.addItem` only blocked across-restaurant mixing; marketplace items were always allowed to slip through.
+- `CartContext.jsx` rewrite of `addItem`:
+  - Computes `activeMode` from `items.length` (so a stale `cartMode` after a manual clear can't lock the user out).
+  - Blocks marketplace adds when `activeMode === "restaurant"`.
+  - Blocks restaurant adds when `activeMode === "marketplace"`.
+  - Keeps existing cross-restaurant block.
+  - All three blocks share `toast.error(..., { id: "cart-isolation" })` so rapid clicks don't stack toasts.
+  - Self-heal `useEffect` resets `cartMode/restaurantId/restaurantName` to null whenever `items.length` hits 0.
+- Callers updated to honor the new boolean return (`ProductCard`, `WholesaleCard`, `ProductDetail`, `Favorites`): success toasts only fire when `addItem` returned `true`. `RestaurantCard` already did this.
+- Verified e2e via Playwright: marketplace-first then menu-add → blocked; restaurant-first then product-add → blocked; cart count stays at 1 in both cases.
+
 ### Iter 6.4 (Feb 2026) — Header dropdown navigates by category_id
 - `CategoriesNavMenu.jsx`: restaurant-group links now use `/restaurants?category_id=<uuid>` instead of `/restaurants?category=<name>`. Retail/wholesale still use name-based params (separate concern).
 - `Restaurants.jsx`: rewrote state to be keyed by category id. Reads `category_id` from URL first; falls back to legacy `category=name` if present. Resolves id → category name (using the live DB list) to filter menu items. Active chip syncs reliably regardless of how the URL was reached.

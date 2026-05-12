@@ -70,7 +70,7 @@ export default function Favorites() {
                         <p className="text-xs text-[var(--js-text-secondary)]">{formatSSP(p.price_usd, exchangeRate)}</p>
                         <div className="flex gap-2 mt-3">
                           <button
-                            onClick={() => { addItem({ item_type: "product", item_id: p.id, name: p.name, price_usd: p.price_usd, image_url: p.image_url, quantity: 1 }); toast.success("Added"); }}
+                            onClick={() => { const ok = addItem({ item_type: "product", item_id: p.id, name: p.name, price_usd: p.price_usd, image_url: p.image_url, quantity: 1 }); if (ok) toast.success("Added"); }}
                             data-testid={`fav-add-cart-${p.id}`}
                             className="flex-1 bg-[#1A1A1A] text-white text-xs font-semibold py-2 rounded-full">Add to cart</button>
                           <button onClick={() => remove("product", p.id)} data-testid={`fav-remove-product-${p.id}`} className="bg-[var(--js-subtle)] text-[var(--js-text)] text-xs font-semibold px-3 py-2 rounded-full">Remove</button>

@@ -19,40 +19,79 @@ export const CartProvider = ({ children }) => {
   const [area, setArea] = useState(() => readStorage()?.area || "Munuki");
   const [exchangeRate, setExchangeRate] = useState(() => readStorage()?.exchangeRate || 600);
   const [currency, setCurrency] = useState(() => readStorage()?.currency || "SSP");
-  
-  // NEW: Track cart mode and restaurant for single-restaurant rule
-  const [cartMode, setCartMode] = useState(() => readStorage()?.cartMode || "marketplace"); // "marketplace" | "restaurant"
+
+  // Cart-isolation tracking: marketplace vs restaurant
+  const [cartMode, setCartMode] = useState(() => readStorage()?.cartMode || null); // null | "marketplace" | "restaurant"
   const [restaurantId, setRestaurantId] = useState(() => readStorage()?.restaurantId || null);
   const [restaurantName, setRestaurantName] = useState(() => readStorage()?.restaurantName || null);
 
   useEffect(() => {
-    localStorage.setItem(KEY, JSON.stringify({ 
-      items, area, exchangeRate, currency, cartMode, restaurantId, restaurantName 
+    localStorage.setItem(KEY, JSON.stringify({
+      items, area, exchangeRate, currency, cartMode, restaurantId, restaurantName,
     }));
   }, [items, area, exchangeRate, currency, cartMode, restaurantId, restaurantName]);
 
+  // Self-heal: if cart is empty, reset mode so the next add can start fresh
+  useEffect(() => {
+    if (items.length === 0 && (cartMode !== null || restaurantId !== null)) {
+      setCartMode(null);
+      setRestaurantId(null);
+      setRestaurantName(null);
+    }
+  }, [items.length, cartMode, restaurantId]);
+
+  /**
+   * Add an item to cart with strict marketplace ⇄ restaurant isolation.
+   * Returns `true` on success, `false` if blocked (so callers can skip success toasts).
+   *
+   * Pass `options.restaurant_id` (+ `restaurant_name`) when adding a menu item.
+   * Omit it for marketplace/wholesale products.
+   */
   const addItem = (item, options = {}) => {
-    const { restaurant_id, restaurant_name, force = false } = options;
-    
-    // RESTAURANT MODE: Enforce single restaurant rule
-    if (restaurant_id) {
-      if (restaurantId && restaurantId !== restaurant_id && !force) {
-        // Different restaurant - show warning
-        toast.error(
-          `Cart contains items from ${restaurantName}. Please clear cart before adding from a different restaurant.`,
-          { duration: 4000 }
-        );
-        return false;
-      }
-      
-      // Set restaurant mode
-      if (!restaurantId) {
+    const { restaurant_id, restaurant_name } = options;
+    const isRestaurantItem = !!restaurant_id;
+    const activeMode = items.length === 0 ? null : cartMode;
+
+    // Block: trying to add a marketplace item while cart already holds restaurant items
+    if (!isRestaurantItem && activeMode === "restaurant") {
+      toast.error(
+        "You have items from another order type. Please clear cart to continue.",
+        { duration: 4000, id: "cart-isolation" }
+      );
+      return false;
+    }
+
+    // Block: trying to add a restaurant item while cart already holds marketplace items
+    if (isRestaurantItem && activeMode === "marketplace") {
+      toast.error(
+        "You have items from another order type. Please clear cart to continue.",
+        { duration: 4000, id: "cart-isolation" }
+      );
+      return false;
+    }
+
+    // Block: trying to add a menu item from a different restaurant
+    if (isRestaurantItem && restaurantId && restaurantId !== restaurant_id) {
+      toast.error(
+        `Cart contains items from ${restaurantName}. Please clear cart before adding from a different restaurant.`,
+        { duration: 4000, id: "cart-isolation" }
+      );
+      return false;
+    }
+
+    // First item — lock the cart mode accordingly
+    if (items.length === 0) {
+      if (isRestaurantItem) {
         setCartMode("restaurant");
         setRestaurantId(restaurant_id);
         setRestaurantName(restaurant_name);
+      } else {
+        setCartMode("marketplace");
+        setRestaurantId(null);
+        setRestaurantName(null);
       }
     }
-    
+
     setItems((prev) => {
       const idx = prev.findIndex(
         (i) => i.item_id === item.item_id && i.item_type === item.item_type,
@@ -64,7 +103,7 @@ export const CartProvider = ({ children }) => {
       }
       return [...prev, { ...item, quantity: item.quantity || 1 }];
     });
-    
+
     return true;
   };
 
@@ -78,7 +117,7 @@ export const CartProvider = ({ children }) => {
 
   const clear = () => {
     setItems([]);
-    setCartMode("marketplace");
+    setCartMode(null);
     setRestaurantId(null);
     setRestaurantName(null);
   };

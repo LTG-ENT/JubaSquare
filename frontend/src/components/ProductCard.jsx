@@ -24,7 +24,7 @@ export default function ProductCard({ product, shop }) {
 
   const onAdd = (e) => {
     e.preventDefault(); e.stopPropagation();
-    addItem({
+    const ok = addItem({
       item_type: "product",
       item_id: product.id,
       name: product.name,
@@ -32,7 +32,7 @@ export default function ProductCard({ product, shop }) {
       image_url: product.image_url,
       quantity: 1,
     });
-    toast.success(`${product.name} added to cart`);
+    if (ok) toast.success(`${product.name} added to cart`);
   };
 
   const toggleFav = async (e) => {

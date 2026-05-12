@@ -20,7 +20,7 @@ export default function WholesaleCard({ product, shop }) {
       toast.error(`Minimum order quantity is ${product.min_order_qty}`);
       return;
     }
-    addItem({
+    const ok = addItem({
       item_type: "product",
       item_id: product.id,
       name: product.name,
@@ -28,7 +28,7 @@ export default function WholesaleCard({ product, shop }) {
       image_url: product.image_url,
       quantity: qty,
     });
-    toast.success(`${qty}× ${product.name} added`);
+    if (ok) toast.success(`${qty}× ${product.name} added`);
   };
 
   return (

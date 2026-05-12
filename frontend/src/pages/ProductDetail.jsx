@@ -94,7 +94,7 @@ export default function ProductDetail() {
       toast.error(`Minimum order quantity is ${minQty}`);
       return;
     }
-    addItem({
+    const ok = addItem({
       item_type: "product",
       item_id: product.id,
       name: product.name,
@@ -102,7 +102,7 @@ export default function ProductDetail() {
       image_url: product.image_url,
       quantity: qty,
     });
-    toast.success(`${qty}× ${product.name} added to cart`);
+    if (ok) toast.success(`${qty}× ${product.name} added to cart`);
   };
 
   const toggleFav = async () => {
