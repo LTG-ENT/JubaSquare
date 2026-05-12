@@ -267,23 +267,23 @@ function ShopsTab() {
   const [moveToShop, setMoveToShop] = useState("");
 
   const onDelete = async (s, kind) => {
-    if (kind === "restaurant") {
-      if (!window.confirm("Delete this restaurant and its menu items?")) return;
-      await api.delete(`/restaurants/${s.id}`);
-      toast.success("Restaurant deleted — menu items deactivated.");
-      load();
-      return;
-    }
-
-    // For shops, fetch products first
+    // Fetch products/menu items first
     try {
-      const response = await api.get(`/products?shop_id=${s.id}&limit=200`);
-      const products = response.data || [];
-      setShopProducts(products);
-      setDeleteConfirm(s);
-      setMoveToShop("");
+      if (kind === "restaurant") {
+        const response = await api.get(`/restaurants/${s.id}/menu`);
+        const menuItems = response.data || [];
+        setShopProducts(menuItems);
+        setDeleteConfirm({ ...s, _kind: kind });
+        setMoveToShop("");
+      } else {
+        const response = await api.get(`/products?shop_id=${s.id}&limit=200`);
+        const products = response.data || [];
+        setShopProducts(products);
+        setDeleteConfirm({ ...s, _kind: kind });
+        setMoveToShop("");
+      }
     } catch (err) {
-      toast.error("Failed to load shop products");
+      toast.error(`Failed to load ${kind === "restaurant" ? "menu items" : "products"}`);
     }
   };
 
@@ -291,25 +291,41 @@ function ShopsTab() {
     if (!deleteConfirm) return;
     
     try {
+      const isRestaurant = deleteConfirm._kind === "restaurant";
+      
       if (moveToShop && shopProducts.length > 0) {
-        // Move products to another shop
-        await Promise.all(
-          shopProducts.map((p) => 
-            api.put(`/products/${p.id}`, { ...p, shop_id: moveToShop })
-          )
-        );
-        toast.success(`${shopProducts.length} product(s) moved to new shop`);
+        // Move products/menu items to another shop/restaurant
+        if (isRestaurant) {
+          await Promise.all(
+            shopProducts.map((item) => 
+              api.put(`/menu-items/${item.id}`, { ...item, restaurant_id: moveToShop })
+            )
+          );
+        } else {
+          await Promise.all(
+            shopProducts.map((p) => 
+              api.put(`/products/${p.id}`, { ...p, shop_id: moveToShop })
+            )
+          );
+        }
+        toast.success(`${shopProducts.length} ${isRestaurant ? "menu item(s)" : "product(s)"} moved successfully`);
       }
       
-      // Delete the shop
-      await api.delete(`/shops/${deleteConfirm.id}`);
-      toast.success("Shop deleted successfully");
+      // Delete the shop/restaurant
+      if (isRestaurant) {
+        await api.delete(`/restaurants/${deleteConfirm.id}`);
+        toast.success("Restaurant deleted successfully");
+      } else {
+        await api.delete(`/shops/${deleteConfirm.id}`);
+        toast.success("Shop deleted successfully");
+      }
+      
       setDeleteConfirm(null);
       setShopProducts([]);
       setMoveToShop("");
       load();
     } catch (err) {
-      toast.error(formatDetail(err.response?.data?.detail) || "Failed to delete shop");
+      toast.error(formatDetail(err.response?.data?.detail) || "Failed to delete");
     }
   };
 
@@ -381,20 +397,24 @@ function ShopsTab() {
           <div className="space-y-4">
             <div className="bg-[#FFF7E0] border border-[#E9C46A] rounded-2xl p-4">
               <p className="text-sm text-[#7A5C12] font-semibold">
-                ⚠️ This shop has {shopProducts.length} product(s)
+                ⚠️ This {deleteConfirm._kind === "restaurant" ? "restaurant" : "shop"} has {shopProducts.length} {deleteConfirm._kind === "restaurant" ? "menu item(s)" : "product(s)"}
               </p>
             </div>
 
             {shopProducts.length > 0 && (
               <>
                 <div className="max-h-60 overflow-y-auto space-y-2">
-                  <p className="text-xs font-semibold text-[var(--js-text-secondary)] uppercase tracking-wider">Products in this shop:</p>
+                  <p className="text-xs font-semibold text-[var(--js-text-secondary)] uppercase tracking-wider">
+                    {deleteConfirm._kind === "restaurant" ? "Menu items in this restaurant:" : "Products in this shop:"}
+                  </p>
                   {shopProducts.map((p) => (
                     <div key={p.id} className="flex items-center gap-3 p-2 bg-[var(--js-subtle)] rounded-xl border border-[var(--js-border)]">
                       <img src={p.image_url} alt={p.name} className="w-12 h-12 object-cover rounded-lg" />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-[var(--js-text)] truncate">{p.name}</p>
-                        <p className="text-xs text-[var(--js-text-secondary)]">{p.category}</p>
+                        <p className="text-xs text-[var(--js-text-secondary)]">
+                          {deleteConfirm._kind === "restaurant" ? p.food_category || p.category : p.category}
+                        </p>
                       </div>
                     </div>
                   ))}
@@ -403,31 +423,42 @@ function ShopsTab() {
                 <div className="space-y-2">
                   <label className="block">
                     <span className="text-xs text-[var(--js-text-secondary)] font-semibold block mb-1.5">
-                      What do you want to do with these products?
+                      What do you want to do with these {deleteConfirm._kind === "restaurant" ? "menu items" : "products"}?
                     </span>
                     <select
                       value={moveToShop}
                       onChange={(e) => setMoveToShop(e.target.value)}
                       className="w-full px-3 py-2.5 bg-white border border-[var(--js-border)] rounded-xl text-sm text-[var(--js-text)] focus:outline-none focus:border-[#C84B31]"
-                      data-testid="move-products-select"
+                      data-testid="move-items-select"
                     >
-                      <option value="">Delete all products</option>
-                      {shops.filter(s => s.id !== deleteConfirm.id && !s.is_deleted).map((s) => (
-                        <option key={s.id} value={s.id}>Move to: {s.name}</option>
-                      ))}
+                      <option value="">Delete all {deleteConfirm._kind === "restaurant" ? "menu items" : "products"}</option>
+                      {deleteConfirm._kind === "restaurant" 
+                        ? restaurants.filter(r => r.id !== deleteConfirm.id).map((r) => (
+                            <option key={r.id} value={r.id}>Move to: {r.name}</option>
+                          ))
+                        : shops.filter(s => s.id !== deleteConfirm.id && !s.is_deleted).map((s) => (
+                            <option key={s.id} value={s.id}>Move to: {s.name}</option>
+                          ))
+                      }
                     </select>
                   </label>
                   {moveToShop ? (
                     <p className="text-xs text-[#2D6A4F] bg-[#2D6A4F]/10 p-2 rounded-lg">
-                      ✓ Products will be moved to the selected shop
+                      ✓ {deleteConfirm._kind === "restaurant" ? "Menu items" : "Products"} will be moved to the selected {deleteConfirm._kind === "restaurant" ? "restaurant" : "shop"}
                     </p>
                   ) : (
                     <p className="text-xs text-[#D90429] bg-[#D90429]/10 p-2 rounded-lg">
-                      ⚠️ All products will be deactivated (can be restored later)
+                      ⚠️ All {deleteConfirm._kind === "restaurant" ? "menu items" : "products"} will be deactivated (can be restored later)
                     </p>
                   )}
                 </div>
               </>
+            )}
+
+            {shopProducts.length === 0 && (
+              <p className="text-sm text-[var(--js-text-secondary)] text-center py-4">
+                This {deleteConfirm._kind === "restaurant" ? "restaurant" : "shop"} has no {deleteConfirm._kind === "restaurant" ? "menu items" : "products"}.
+              </p>
             )}
 
             <div className="flex gap-2 pt-2">
@@ -441,10 +472,13 @@ function ShopsTab() {
               <button
                 type="button"
                 onClick={confirmDelete}
-                data-testid="confirm-delete-shop"
+                data-testid="confirm-delete-business"
                 className="flex-1 bg-[#D90429] hover:bg-[#A83A23] text-white font-semibold py-2.5 rounded-full"
               >
-                {moveToShop ? `Move & Delete Shop` : `Delete Shop`}
+                {moveToShop 
+                  ? `Move & Delete ${deleteConfirm._kind === "restaurant" ? "Restaurant" : "Shop"}` 
+                  : `Delete ${deleteConfirm._kind === "restaurant" ? "Restaurant" : "Shop"}`
+                }
               </button>
             </div>
           </div>
