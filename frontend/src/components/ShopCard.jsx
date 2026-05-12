@@ -23,7 +23,7 @@ export default function ShopCard({ shop, productsPreview = [] }) {
               </span>
             ) : (
               <span className="bg-[#E9C46A] text-[#1A1A1A] text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1 shadow-md">
-                <Clock className="w-3 h-3" /> {shop.verification}
+                <Clock className="w-3 h-3" /> {shop.verification === "Pending" ? "Not Verified" : shop.verification}
               </span>
             )}
           </div>

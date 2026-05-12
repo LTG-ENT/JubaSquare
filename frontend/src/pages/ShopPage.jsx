@@ -6,7 +6,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ProductCard from "@/components/ProductCard";
 import ContactSellerModal from "@/components/ContactSellerModal";
-import { MapPin, Clock, MessageCircle, Store, ShieldCheck, Banknote, ArrowLeft, AlertCircle } from "lucide-react";
+import { MapPin, Clock, MessageCircle, Store, ShieldCheck, Banknote, ArrowLeft, AlertCircle, Star } from "lucide-react";
 
 export default function ShopPage() {
   const { shop_id } = useParams();
@@ -134,13 +134,22 @@ export default function ShopPage() {
                           <ShieldCheck className="w-3 h-3" /> VERIFIED
                         </span>
                       )}
-                      <span data-testid="shop-status" className={`inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full ${isOpen ? "bg-[#2D6A4F] text-white" : "bg-[#5C5C5C] text-white"}`}>
-                        ● {isOpen ? "OPEN" : "CLOSED"}
-                      </span>
                     </div>
                     <div className="flex items-center gap-3 text-xs text-[var(--js-text-secondary)] mt-1.5 flex-wrap">
                       {shop.area && <span className="inline-flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> {shop.area}</span>}
                       {shop.opening_hours && <span className="inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> {shop.opening_hours}</span>}
+                      {shop.average_rating ? (
+                        <span className="inline-flex items-center gap-1" data-testid="shop-rating">
+                          <Star className="w-3.5 h-3.5 fill-[#E9C46A] text-[#E9C46A]" />
+                          <span className="font-semibold text-[#1A1A1A]">{shop.average_rating}</span>
+                          <span>({shop.review_count || 0} reviews)</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 italic" data-testid="shop-no-reviews">
+                          <Star className="w-3.5 h-3.5" />
+                          <span>No reviews yet</span>
+                        </span>
+                      )}
                     </div>
                     {shop.description && (
                       <p className="text-sm text-[var(--js-text-secondary)] mt-2 leading-relaxed" data-testid="shop-description">{shop.description}</p>
