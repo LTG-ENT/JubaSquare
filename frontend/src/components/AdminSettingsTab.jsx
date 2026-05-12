@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import api, { formatDetail } from "@/lib/api";
-import { Percent, Save, RotateCcw, Info, Store, ArrowRight, Users, Search, Filter, MoreVertical, Edit, Key, Mail, Power, Trash2, Eye, X, CheckCircle, XCircle, ShoppingBag, DollarSign, Plus, Moon, Sun } from "lucide-react";
+import { Percent, Save, RotateCcw, Info, Store, ArrowRight, Users, Search, Filter, MoreVertical, Edit, Key, Mail, Power, Trash2, Eye, X, CheckCircle, XCircle, ShoppingBag, DollarSign, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 /**
@@ -169,23 +169,6 @@ export default function AdminSettingsTab({ onGoToShop }) {
               Set how often automatic invoices are generated platform-wide. Individual shops can override this in Shops tab.
             </p>
             <GlobalInvoiceFrequency />
-          </div>
-        </div>
-      </div>
-
-      {/* Dark Mode Toggle */}
-      <div className="bg-white border border-[var(--js-border)] rounded-2xl p-5 sm:p-6">
-        <div className="flex items-start gap-4">
-          <div className="w-11 h-11 rounded-xl bg-purple-500/10 text-purple-600 flex items-center justify-center flex-shrink-0">
-            <Moon className="w-5 h-5" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">Appearance</p>
-            <h2 className="font-display font-bold text-lg text-[var(--js-text)] mt-0.5">Dark Mode</h2>
-            <p className="text-xs text-[var(--js-text-secondary)] mt-1 leading-relaxed">
-              Toggle between light and dark theme for the admin dashboard.
-            </p>
-            <DarkModeToggle />
           </div>
         </div>
       </div>
@@ -1161,72 +1144,6 @@ function GlobalInvoiceFrequency() {
       <p className="text-xs text-[var(--js-text-secondary)] mt-2">
         Current: <span className="font-bold text-blue-600">{frequencyOptions.find(o => o.value === frequency)?.label}</span>
       </p>
-    </div>
-  );
-}
-
-// Dark Mode Toggle Component
-function DarkModeToggle() {
-  const [darkMode, setDarkMode] = useState(false);
-
-  useEffect(() => {
-    const savedMode = localStorage.getItem('darkMode');
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    const isDark = savedMode === 'true' || (!savedMode && prefersDark);
-
-    setDarkMode(isDark);
-    applyDarkMode(isDark);
-  }, []);
-
-  const applyDarkMode = (isDark) => {
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  };
-
-  const toggleDarkMode = () => {
-    const newMode = !darkMode;
-    setDarkMode(newMode);
-    localStorage.setItem('darkMode', String(newMode));
-    applyDarkMode(newMode);
-    toast.success(newMode ? 'Dark mode enabled' : 'Light mode enabled');
-  };
-
-  return (
-    <div data-testid="dark-mode-toggle" className="mt-4 flex items-center justify-between p-4 bg-[var(--js-subtle)] rounded-2xl border border-[var(--js-border)]">
-      <div className="flex items-center gap-3">
-        {darkMode ? (
-          <Moon className="w-5 h-5 text-purple-600" />
-        ) : (
-          <Sun className="w-5 h-5 text-yellow-600" />
-        )}
-        <div>
-          <p className="font-semibold text-sm text-[var(--js-text)]">
-            {darkMode ? 'Dark Mode' : 'Light Mode'}
-          </p>
-          <p className="text-xs text-[var(--js-text-secondary)]">
-            {darkMode ? 'Currently using dark theme' : 'Currently using light theme'}
-          </p>
-        </div>
-      </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={darkMode}
-        onClick={toggleDarkMode}
-        data-testid="dark-mode-switch"
-        className={`relative inline-flex h-7 w-12 items-center rounded-full transition ${
-          darkMode ? 'bg-purple-600' : 'bg-gray-300'
-        }`}
-      >
-        <span
-          className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${
-            darkMode ? 'translate-x-6' : 'translate-x-1'
-          }`}
-        />
-      </button>
     </div>
   );
 }
