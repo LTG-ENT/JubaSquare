@@ -10,6 +10,7 @@ import { useState } from "react";
 import { Logo } from "@/components/Logo";
 import NotificationBell from "@/components/NotificationBell";
 import CategoriesNavMenu from "@/components/CategoriesNavMenu";
+import GlobalSearch from "@/components/GlobalSearch";
 
 const Brand = () => (
   <Link to="/" className="flex items-center gap-3" data-testid="brand-logo">
@@ -101,6 +102,9 @@ export default function Header() {
           </nav>
 
           <div className="flex items-center gap-2">
+            <div className="hidden md:block">
+              <GlobalSearch />
+            </div>
             <CurrencyToggle />
 
             {user && <NotificationBell />}
@@ -149,6 +153,9 @@ export default function Header() {
 
         {mobileOpen && (
           <div className="lg:hidden pb-4 flex flex-col gap-1 fade-up">
+            <div className="md:hidden mb-2">
+              <GlobalSearch />
+            </div>
             {navLink("/", "Home", HomeIcon)}
             {settings.module_marketplace && navLink("/marketplace", "Categories", LayoutGrid)}
             {navLink("/shops", "Shops", Store)}

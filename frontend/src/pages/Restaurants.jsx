@@ -136,6 +136,8 @@ export default function Restaurants() {
     }
   };
 
+  const focusId = searchParams.get("focus");
+
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
@@ -199,7 +201,7 @@ export default function Restaurants() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {sorted.map((r) => <RestaurantCard key={r.id} restaurant={r} />)}
+            {sorted.map((r) => <RestaurantCard key={r.id} restaurant={r} initialOpen={focusId === r.id} />)}
           </div>
         )}
       </div>

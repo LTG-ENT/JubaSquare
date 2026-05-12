@@ -74,6 +74,14 @@ Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode fo
 - Restaurant filtering on click: `restaurants.filter(r => menuItems.some(m => m.restaurant_id === r.id && m.food_category === selected))`.
 - Auto-sync: admin `POST/PUT/DELETE /api/admin/categories` already calls `cache_invalidate("cat:")`, so any new admin category (e.g., adding "BBQ") appears on next page mount without redeploy.
 
+### Iter 6.7 (Feb 2026) — Global search + cancellation modal polish
+- **Global search** in Header (desktop + mobile menu): debounced typeahead against new `GET /api/search?q=…&limit=5` endpoint.
+  - Backend: case-insensitive regex match on `name`/`description` across restaurants, shops and products. Excludes soft-deleted/hidden/inactive rows. Short-circuits to empty arrays for queries < 2 chars.
+  - Frontend: `GlobalSearch.jsx` renders results grouped by type with icons; click navigates to `/product/:id`, `/shop/:id`, or `/restaurants?focus=:id`.
+  - `RestaurantCard` now accepts `initialOpen` so the Restaurants page auto-opens the focused restaurant's modal when `?focus=<id>` is present.
+- **Cancellation reason modal** in KitchenDashboard: replaced the `window.prompt` flow with a proper modal (`cancel-modal`) — textarea with 500-char counter, warning panel showing current status, "Keep order" / "Send to admin" buttons, disabled-while-submitting state. Eliminates the bug where pressing Esc silently lost the reason.
+- **Bug-fix in same iteration**: `loadOrders` now re-syncs `selectedOrder` from the freshly-fetched list so the detail panel reflects the new status (Accept → Cancel-Pending) without requiring a manual re-click. Removed the post-submit `setSelectedOrder(null)` so the pending banner appears immediately.
+
 ### Iter 6.6 (Feb 2026) — Advanced restaurant features (P1 batch)
 - **Open/Close toggle (Kitchen Dashboard)**: `restaurant-open-toggle` button in the KitchenDashboard header flips `is_open` via the existing `PUT /api/restaurants/{id}/toggle-open`. `POST /api/restaurant-orders` now returns HTTP 400 *"Restaurant is currently closed…"* when `is_open=false`, blocking customer ordering. Toast confirms the state change on the seller side.
 - **Order Cancellation with admin approval**:

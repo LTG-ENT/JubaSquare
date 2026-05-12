@@ -31,8 +31,8 @@ function MiniCurrencyToggle() {
   );
 }
 
-export default function RestaurantCard({ restaurant }) {
-  const [open, setOpen] = useState(false);
+export default function RestaurantCard({ restaurant, initialOpen = false }) {
+  const [open, setOpen] = useState(initialOpen);
   const [menu, setMenu] = useState([]);
   const [search, setSearch] = useState("");
   const [isFavorite, setIsFavorite] = useState(false);

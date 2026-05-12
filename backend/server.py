@@ -2610,6 +2610,66 @@ async def track_trending_click(body: TrendingClickIn):
     return {"ok": True}
 
 
+# ----------------------------------------------------------------------------
+# Orders
+# ----------------------------------------------------------------------------
+
+
+# ----------------------------------------------------------------------------
+# Global search — restaurants + products + shops grouped, used by Header bar
+# ----------------------------------------------------------------------------
+import re as _re
+
+@api.get("/search")
+async def global_search(q: str = "", limit: int = 5):
+    """Case-insensitive substring search on name (and description) across
+    restaurants, shops and products. Returns up to `limit` of each group,
+    excluding soft-deleted/hidden items. Returns empty lists for q='' or
+    queries shorter than 2 chars so the UI can short-circuit."""
+    q = (q or "").strip()
+    if len(q) < 2:
+        return {"restaurants": [], "shops": [], "products": [], "query": q}
+
+    limit = max(1, min(int(limit or 5), 20))
+    pat = _re.escape(q)
+    name_rx = {"$regex": pat, "$options": "i"}
+    desc_rx = {"$regex": pat, "$options": "i"}
+
+    projection = {"_id": 0, "id": 1, "name": 1, "image_url": 1, "area": 1, "category": 1}
+
+    # Restaurants — exclude soft-deleted, surface "Closed" badge but still show
+    restaurants = await db.restaurants.find(
+        {"$or": [{"name": name_rx}, {"description": desc_rx}], "is_deleted": {"$ne": True}},
+        {**projection, "is_open": 1, "average_rating": 1, "review_count": 1},
+    ).limit(limit).to_list(limit)
+
+    # Shops — exclude hidden/deleted from public results
+    shops = await db.shops.find(
+        {
+            "$or": [{"name": name_rx}, {"description": desc_rx}],
+            "is_deleted": {"$ne": True},
+            "is_public": {"$ne": False},
+        },
+        {**projection, "verification": 1},
+    ).limit(limit).to_list(limit)
+
+    # Products — exclude inactive
+    products = await db.products.find(
+        {
+            "$or": [{"name": name_rx}, {"description": desc_rx}],
+            "is_active": {"$ne": False},
+        },
+        {**projection, "price_usd": 1, "shop_id": 1, "is_wholesale": 1},
+    ).limit(limit).to_list(limit)
+
+    return {
+        "restaurants": restaurants,
+        "shops": shops,
+        "products": products,
+        "query": q,
+    }
+
+
 @api.get("/trending/restaurants")
 async def get_trending_restaurants(limit: Optional[int] = 10):
     """Get trending restaurants (by clicks + orders)"""

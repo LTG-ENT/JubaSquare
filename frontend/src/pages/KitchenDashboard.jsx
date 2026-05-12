@@ -31,6 +31,10 @@ export default function KitchenDashboard() {
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [activeFilter, setActiveFilter] = useState("all");
+  // Cancellation modal state — replaces the old window.prompt
+  const [cancelTarget, setCancelTarget] = useState(null); // order being cancelled
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelSubmitting, setCancelSubmitting] = useState(false);
   
   // Fetch restaurant and orders
   useEffect(() => {
@@ -62,6 +66,9 @@ export default function KitchenDashboard() {
       const { data } = await api.get(`/restaurant-orders/restaurant/${restaurantId}`);
       setOrders(data);
       setLoading(false);
+      // Re-sync the currently selected order so the actions panel reflects
+      // the latest status (otherwise actions like Accept/Cancel can look stale).
+      setSelectedOrder((prev) => prev ? (data.find((o) => o.id === prev.id) || null) : null);
     } catch (err) {
       console.error("Failed to load orders:", err);
       setLoading(false);
@@ -94,20 +101,28 @@ export default function KitchenDashboard() {
     }
   };
 
-  const requestCancel = async (orderId) => {
-    const reason = window.prompt(
-      "Reason for cancellation (will be sent to admin for approval):",
-      ""
-    );
-    if (reason === null) return; // user hit Cancel
+  const requestCancel = (order) => {
+    setCancelTarget(order);
+    setCancelReason("");
+  };
+
+  const submitCancelRequest = async () => {
+    if (!cancelTarget) return;
+    setCancelSubmitting(true);
     try {
-      await api.post(`/restaurant-orders/${orderId}/request-cancel`, { reason });
+      await api.post(`/restaurant-orders/${cancelTarget.id}/request-cancel`, {
+        reason: cancelReason.trim(),
+      });
       toast.success("Cancellation request sent to admin");
-      // refresh detail panel too
-      setSelectedOrder(null);
+      setCancelTarget(null);
+      setCancelReason("");
+      // Don't reset selectedOrder — loadOrders below re-syncs it so the
+      // detail panel correctly switches to the 'Cancellation pending' banner.
       loadOrders();
     } catch (err) {
       toast.error(err.response?.data?.detail || "Failed to request cancellation");
+    } finally {
+      setCancelSubmitting(false);
     }
   };
   
@@ -503,7 +518,7 @@ export default function KitchenDashboard() {
                   {/* Request Cancellation — visible while order is in-progress */}
                   {["accepted", "cooking", "ready"].includes(selectedOrder.status) && (
                     <button
-                      onClick={() => requestCancel(selectedOrder.id)}
+                      onClick={() => requestCancel(selectedOrder)}
                       data-testid="request-cancel-btn"
                       className="w-full bg-white hover:bg-red-50 text-red-600 border-2 border-red-300 hover:border-red-500 font-semibold py-3 rounded-xl transition"
                     >
@@ -540,7 +555,70 @@ export default function KitchenDashboard() {
           </div>
         </div>
       </div>
-      
+
+      {/* Cancellation request modal */}
+      {cancelTarget && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => !cancelSubmitting && setCancelTarget(null)}
+          data-testid="cancel-modal"
+        >
+          <div
+            className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-md shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              <h2 className="font-display font-bold text-2xl text-[var(--js-text)]">
+                Request Cancellation
+              </h2>
+              <p className="text-sm text-[var(--js-text-secondary)] mt-2">
+                Order <span className="font-semibold">#{cancelTarget.id.substring(0, 8)}</span> — {cancelTarget.customer_name}
+              </p>
+              <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-xs text-yellow-800">
+                This request will be sent to an administrator. The order will remain in its current
+                status (<span className="font-semibold">{cancelTarget.status}</span>) until they approve or reject it.
+              </div>
+
+              <label className="block mt-5 text-sm font-semibold text-[var(--js-text)]">
+                Reason for cancellation
+              </label>
+              <textarea
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                rows={3}
+                maxLength={500}
+                placeholder="e.g. customer unreachable, ingredient out of stock, kitchen overloaded…"
+                data-testid="cancel-reason-input"
+                disabled={cancelSubmitting}
+                className="mt-2 w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#C84B31] disabled:opacity-60"
+              />
+              <p className="mt-1 text-[10px] text-[var(--js-text-secondary)] text-right">
+                {cancelReason.length}/500
+              </p>
+
+              <div className="mt-6 flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setCancelTarget(null)}
+                  disabled={cancelSubmitting}
+                  data-testid="cancel-modal-close"
+                  className="px-5 py-2.5 rounded-full text-sm font-semibold bg-[var(--js-subtle)] hover:bg-[var(--js-border)] text-[var(--js-text)] disabled:opacity-60"
+                >
+                  Keep order
+                </button>
+                <button
+                  onClick={submitCancelRequest}
+                  disabled={cancelSubmitting}
+                  data-testid="cancel-modal-submit"
+                  className="px-5 py-2.5 rounded-full text-sm font-semibold bg-[#D90429] hover:bg-[#A60320] disabled:bg-[#A3A39E] text-white"
+                >
+                  {cancelSubmitting ? "Sending…" : "Send to admin"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Footer />
     </div>
   );
