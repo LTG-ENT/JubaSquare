@@ -4,7 +4,7 @@ import { useCart } from "@/context/CartContext";
 import { useSystem } from "@/context/SystemContext";
 import {
   ShoppingCart, LogOut, Home as HomeIcon, LayoutGrid, Store, UtensilsCrossed,
-  LayoutDashboard, Menu, X, User as UserIcon, ClipboardList, Settings as SettingsIcon, Package,
+  LayoutDashboard, Menu, X, User as UserIcon, Settings as SettingsIcon, Package,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Logo } from "@/components/Logo";
@@ -182,8 +182,6 @@ export default function Header() {
             )}
             {navLink("/shops", "Shops", Store)}
             {settings.module_restaurants && navLink("/restaurants", "Restaurants", UtensilsCrossed)}
-            {user?.role === "customer" && navLink("/orders", "Orders", ClipboardList)}
-            {dashboardPath && navLink(dashboardPath, "Dashboard", LayoutDashboard)}
           </nav>
 
           <div className="flex items-center gap-2">
@@ -236,8 +234,6 @@ export default function Header() {
             {settings.module_marketplace && navLink("/marketplace", "Categories", LayoutGrid)}
             {navLink("/shops", "Shops", Store)}
             {settings.module_restaurants && navLink("/restaurants", "Restaurants", UtensilsCrossed)}
-            {user?.role === "customer" && navLink("/orders", "Orders", ClipboardList)}
-            {dashboardPath && navLink(dashboardPath, "Dashboard", LayoutDashboard)}
             {user && (
               <div className="mt-1 pt-2 border-t border-white/10 flex flex-col gap-1" data-testid="mobile-profile-menu">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-white/50 font-bold px-3 pt-1">Profile</p>
