@@ -1148,19 +1148,4 @@ function GlobalInvoiceFrequency() {
   );
 }
 
-            </>
-          )}
-        </div>
-
-        <div className="mt-4 pt-4 border-t border-[var(--js-border)]">
-          <button
-            onClick={onClose}
-            className="w-full px-4 py-2 border border-[var(--js-border)] rounded-xl font-semibold hover:bg-[var(--js-bg)]"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+export default AdminSettingsTab;
