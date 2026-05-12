@@ -287,29 +287,9 @@ export default function RestaurantCheckout() {
                 <CreditCard className="w-5 h-5" />
                 Payment Method
               </h2>
-              <div className="space-y-3">
-                <button
-                  onClick={() => setPaymentMethod("cash")}
-                  className={`w-full p-4 rounded-xl border-2 text-left transition ${
-                    paymentMethod === "cash"
-                      ? "border-[#C84B31] bg-[#C84B31]/5"
-                      : "border-[var(--js-border)] hover:border-[#C84B31]/50"
-                  }`}
-                >
-                  <div className="font-semibold text-[var(--js-text)]">Cash on Delivery</div>
-                  <div className="text-sm text-[var(--js-text-secondary)] mt-1">Pay when your order arrives</div>
-                </button>
-                <button
-                  onClick={() => setPaymentMethod("mobile_money")}
-                  className={`w-full p-4 rounded-xl border-2 text-left transition ${
-                    paymentMethod === "mobile_money"
-                      ? "border-[#C84B31] bg-[#C84B31]/5"
-                      : "border-[var(--js-border)] hover:border-[#C84B31]/50"
-                  }`}
-                >
-                  <div className="font-semibold text-[var(--js-text)]">Mobile Money</div>
-                  <div className="text-sm text-[var(--js-text-secondary)] mt-1">Pay via mobile money</div>
-                </button>
+              <div className="p-4 rounded-xl border-2 border-[#C84B31] bg-[#C84B31]/5">
+                <div className="font-semibold text-[var(--js-text)]">Cash on Delivery</div>
+                <div className="text-sm text-[var(--js-text-secondary)] mt-1">Pay when your order arrives</div>
               </div>
             </div>
           </div>

@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { MapPin, X, Plus, Search } from "lucide-react";
+import { MapPin, X, Plus, Search, Star, Heart } from "lucide-react";
 import api, { formatPrice, formatPriceAlt } from "@/lib/api";
 import { useCart } from "@/context/CartContext";
+import { useAuth } from "@/context/AuthContext";
 import { useEffect } from "react";
 import { toast } from "sonner";
 
@@ -34,13 +35,67 @@ export default function RestaurantCard({ restaurant }) {
   const [open, setOpen] = useState(false);
   const [menu, setMenu] = useState([]);
   const [search, setSearch] = useState("");
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [favoriteId, setFavoriteId] = useState(null);
   const { addItem, exchangeRate, currency } = useCart();
+  const { user } = useAuth();
 
   useEffect(() => {
     if (open && menu.length === 0) {
       api.get(`/restaurants/${restaurant.id}/menu`).then((r) => setMenu(r.data));
     }
   }, [open, restaurant.id, menu.length]);
+  
+  // Check if restaurant is favorited
+  useEffect(() => {
+    if (user) {
+      api.get("/favorites").then((r) => {
+        const fav = r.data.find(f => f.target_type === "restaurant" && f.target_id === restaurant.id);
+        if (fav) {
+          setIsFavorite(true);
+          setFavoriteId(fav.favorite_id);
+        }
+      }).catch(() => {});
+    }
+  }, [user, restaurant.id]);
+  
+  const toggleFavorite = async (e) => {
+    e.stopPropagation();
+    
+    if (!user) {
+      toast.error("Please login to save favorites");
+      return;
+    }
+    
+    try {
+      if (isFavorite && favoriteId) {
+        await api.delete(`/favorites/${favoriteId}`);
+        setIsFavorite(false);
+        setFavoriteId(null);
+        toast.success("Removed from favorites");
+      } else {
+        const { data } = await api.post("/favorites", {
+          target_type: "restaurant",
+          target_id: restaurant.id
+        });
+        setIsFavorite(true);
+        setFavoriteId(data.id);
+        toast.success("Added to favorites");
+      }
+    } catch (err) {
+      toast.error("Failed to update favorites");
+    }
+  };
+  
+  // Track click for trending
+  const handleCardClick = () => {
+    api.post("/trending/click", {
+      target_type: "restaurant",
+      target_id: restaurant.id
+    }).catch(() => {});
+    
+    setOpen(true);
+  };
 
   const filteredMenu = menu.filter((m) => !search || m.name.toLowerCase().includes(search.toLowerCase()));
 
@@ -61,7 +116,7 @@ export default function RestaurantCard({ restaurant }) {
 
   return (
     <>
-      <div data-testid={`restaurant-card-${restaurant.id}`} className="js-card overflow-hidden flex flex-col group cursor-pointer" onClick={() => setOpen(true)}>
+      <div data-testid={`restaurant-card-${restaurant.id}`} className="js-card overflow-hidden flex flex-col group cursor-pointer" onClick={handleCardClick}>
         <div className="aspect-[16/10] overflow-hidden bg-[var(--js-subtle)] relative">
           <img src={restaurant.image_url} alt={restaurant.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" />
           <div className="absolute top-3 left-3">
@@ -69,12 +124,35 @@ export default function RestaurantCard({ restaurant }) {
               {restaurant.is_open ? "● Open" : "● Closed"}
             </span>
           </div>
+          {/* Heart Icon for Favorites */}
+          <button
+            onClick={toggleFavorite}
+            className="absolute top-3 right-3 w-10 h-10 rounded-full bg-white/90 backdrop-blur-sm hover:bg-white flex items-center justify-center transition shadow-lg z-10"
+            title={isFavorite ? "Remove from favorites" : "Add to favorites"}
+          >
+            <Heart 
+              className={`w-5 h-5 transition ${
+                isFavorite 
+                  ? "fill-red-500 text-red-500" 
+                  : "text-gray-600"
+              }`}
+            />
+          </button>
         </div>
         <div className="p-4">
           <h3 className="font-display font-semibold text-lg text-[var(--js-text)]">{restaurant.name}</h3>
           <p className="text-sm text-[var(--js-text-secondary)] mt-1 line-clamp-2">{restaurant.description}</p>
-          <div className="mt-3 flex items-center gap-1 text-xs text-[var(--js-text-secondary)]">
-            <MapPin className="w-3 h-3" /> {restaurant.area}
+          <div className="mt-3 flex items-center gap-3 text-xs text-[var(--js-text-secondary)]">
+            <div className="flex items-center gap-1">
+              <MapPin className="w-3 h-3" /> {restaurant.area}
+            </div>
+            {restaurant.average_rating && (
+              <div className="flex items-center gap-1">
+                <Star className="w-3.5 h-3.5 fill-[#E9C46A] text-[#E9C46A]" />
+                <span className="font-semibold text-[var(--js-text)]">{restaurant.average_rating}</span>
+                <span className="text-[var(--js-text-secondary)]">({restaurant.review_count || 0})</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
