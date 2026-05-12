@@ -120,6 +120,15 @@ Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode fo
 - Callers updated to honor the new boolean return (`ProductCard`, `WholesaleCard`, `ProductDetail`, `Favorites`): success toasts only fire when `addItem` returned `true`. `RestaurantCard` already did this.
 - Verified e2e via Playwright: marketplace-first then menu-add → blocked; restaurant-first then product-add → blocked; cart count stays at 1 in both cases.
 
+### Iter 7 hotfix (Feb 2026) — AdminSettingsTab Dark Mode build fix
+- **Bug**: `AdminSettingsTab.jsx` was unbuildable. Previous edit inserted the entire `DarkModeToggle` function body in the middle of `GlobalInvoiceFrequency`'s `<button>` JSX (between `disabled={saving}` and `className=...`), orphaning the button's closing tag → `SyntaxError: Unexpected token (1153:23)`.
+- **Fix** (`AdminSettingsTab.jsx`):
+  - Closed `GlobalInvoiceFrequency`'s `<button>` properly and let the component finish.
+  - Moved `DarkModeToggle` out to its own top-level function after `GlobalInvoiceFrequency`.
+  - Trimmed direct `document.body` style mutation; toggle now only flips `dark` class on `<html>` + persists `darkMode` in `localStorage` + honors `prefers-color-scheme` on first load. Added `data-testid` on toggle wrapper and switch.
+- **Verified e2e** (Playwright, admin@ltg.com): switch click → `html.classList.contains('dark') === true`, `localStorage.darkMode === 'true'`, toast "Dark mode enabled"; second click reverses both. Build is green (only pre-existing eslint `react-hooks/exhaustive-deps` warnings remain).
+- **Note**: Tailwind `dark:` variants aren't yet applied across the app — Dark Mode currently sets the class only. Wiring dark CSS variables / `dark:` utilities across components is **P2 backlog**.
+
 ### Iter 6.4 (Feb 2026) — Header dropdown navigates by category_id
 - `CategoriesNavMenu.jsx`: restaurant-group links now use `/restaurants?category_id=<uuid>` instead of `/restaurants?category=<name>`. Retail/wholesale still use name-based params (separate concern).
 - `Restaurants.jsx`: rewrote state to be keyed by category id. Reads `category_id` from URL first; falls back to legacy `category=name` if present. Resolves id → category name (using the live DB list) to filter menu items. Active chip syncs reliably regardless of how the URL was reached.

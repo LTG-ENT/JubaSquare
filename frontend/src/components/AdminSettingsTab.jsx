@@ -1148,17 +1148,32 @@ function GlobalInvoiceFrequency() {
             key={opt.value}
             onClick={() => saveFrequency(opt.value)}
             disabled={saving}
+            className={`px-4 py-2 rounded-xl text-sm font-semibold transition border-2 ${
+              frequency === opt.value
+                ? "border-blue-500 bg-blue-50 text-blue-700"
+                : "border-[var(--js-border)] text-[var(--js-text)] hover:border-blue-300"
+            } disabled:opacity-50`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-[var(--js-text-secondary)] mt-2">
+        Current: <span className="font-bold text-blue-600">{frequencyOptions.find(o => o.value === frequency)?.label}</span>
+      </p>
+    </div>
+  );
+}
 
 // Dark Mode Toggle Component
 function DarkModeToggle() {
   const [darkMode, setDarkMode] = useState(false);
 
   useEffect(() => {
-    // Check localStorage and system preference
     const savedMode = localStorage.getItem('darkMode');
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     const isDark = savedMode === 'true' || (!savedMode && prefersDark);
-    
+
     setDarkMode(isDark);
     applyDarkMode(isDark);
   }, []);
@@ -1166,12 +1181,8 @@ function DarkModeToggle() {
   const applyDarkMode = (isDark) => {
     if (isDark) {
       document.documentElement.classList.add('dark');
-      document.body.style.backgroundColor = '#1a1a1a';
-      document.body.style.color = '#ffffff';
     } else {
       document.documentElement.classList.remove('dark');
-      document.body.style.backgroundColor = '#ffffff';
-      document.body.style.color = '#1a1a1a';
     }
   };
 
@@ -1184,7 +1195,7 @@ function DarkModeToggle() {
   };
 
   return (
-    <div className="mt-4 flex items-center justify-between p-4 bg-[var(--js-subtle)] rounded-2xl border border-[var(--js-border)]">
+    <div data-testid="dark-mode-toggle" className="mt-4 flex items-center justify-between p-4 bg-[var(--js-subtle)] rounded-2xl border border-[var(--js-border)]">
       <div className="flex items-center gap-3">
         {darkMode ? (
           <Moon className="w-5 h-5 text-purple-600" />
@@ -1205,6 +1216,7 @@ function DarkModeToggle() {
         role="switch"
         aria-checked={darkMode}
         onClick={toggleDarkMode}
+        data-testid="dark-mode-switch"
         className={`relative inline-flex h-7 w-12 items-center rounded-full transition ${
           darkMode ? 'bg-purple-600' : 'bg-gray-300'
         }`}
@@ -1215,23 +1227,6 @@ function DarkModeToggle() {
           }`}
         />
       </button>
-    </div>
-  );
-}
-
-            className={`px-4 py-2 rounded-xl text-sm font-semibold transition border-2 ${
-              frequency === opt.value
-                ? "border-blue-500 bg-blue-50 text-blue-700"
-                : "border-[var(--js-border)] text-[var(--js-text)] hover:border-blue-300"
-            } disabled:opacity-50`}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
-      <p className="text-xs text-[var(--js-text-secondary)] mt-2">
-        Current: <span className="font-bold text-blue-600">{frequencyOptions.find(o => o.value === frequency)?.label}</span>
-      </p>
     </div>
   );
 }
