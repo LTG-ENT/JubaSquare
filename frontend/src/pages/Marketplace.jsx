@@ -258,7 +258,7 @@ export default function Marketplace() {
               </div>
             </div>
 
-            {(selectedCategory || selectedShop || search) && (
+            {((selectedCategoryId || selectedCategoryLegacy) || selectedShop || search) && (
               <button
                 onClick={() => { setSearchParams({}); setSearch(""); }}
                 data-testid="clear-filters"
