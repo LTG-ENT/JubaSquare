@@ -10,7 +10,7 @@ import time
 from typing import Optional
 
 # Backend URL from frontend/.env
-BASE_URL = "https://order-updates-hub.preview.emergentagent.com/api"
+BASE_URL = "https://logo-resize-update.preview.emergentagent.com/api"
 
 # Admin credentials
 ADMIN_EMAIL = "ltg-general-trading@hotmail.com"
