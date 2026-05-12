@@ -35,7 +35,7 @@ export default function Login() {
     <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12 grain-bg">
       <div className="w-full max-w-md fade-up">
         <div className="flex flex-col items-center mb-10">
-          <Link to="/"><Logo size={112} className="shadow-xl" /></Link>
+          <Link to="/"><Logo size={80} className="shadow-xl sm:w-24 sm:h-24 md:w-28 md:h-28 lg:w-32 lg:h-32" /></Link>
           <h1 className="font-display font-bold text-3xl text-[var(--js-text)] mt-5">JubaSquare</h1>
           <p className="text-[10px] uppercase tracking-[0.25em] text-[var(--js-text-secondary)] font-bold mt-1">by L.T.G Enterprise</p>
           <p className="text-sm text-[var(--js-text-secondary)] mt-4 text-center">Sign in to your JubaSquare account</p>

@@ -31,7 +31,7 @@ export default function VerifyEmail() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12 grain-bg">
       <div className="w-full max-w-md text-center fade-up">
-        <Link to="/"><Logo size={104} className="shadow-xl mx-auto" /></Link>
+        <Link to="/"><Logo size={72} className="shadow-xl mx-auto sm:w-24 sm:h-24 md:w-28 md:h-28 lg:w-32 lg:h-32" /></Link>
         <h1 className="font-display font-bold text-2xl text-[var(--js-text)] mt-6">Verify your email</h1>
 
         <div className="mt-8 bg-white border border-[var(--js-border)] rounded-3xl p-8" data-testid="verify-email-card">

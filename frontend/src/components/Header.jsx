@@ -14,7 +14,7 @@ import GlobalSearch from "@/components/GlobalSearch";
 
 const Brand = () => (
   <Link to="/" className="flex items-center gap-3 shrink-0" data-testid="brand-logo">
-    <Logo size={72} className="sm:w-20 sm:h-20 lg:w-24 lg:h-24" />
+    <Logo size={56} className="sm:w-16 sm:h-16 md:w-20 md:h-20 lg:w-24 lg:h-24 xl:w-28 xl:h-28" />
     <div className="flex flex-col leading-tight min-w-0">
       <span className="font-display font-bold text-xl sm:text-2xl text-white whitespace-nowrap">JubaSquare</span>
       <span className="hidden sm:inline text-[10px] uppercase tracking-[0.18em] text-white/60 -mt-0.5 whitespace-nowrap">by L.T.G Enterprise</span>
