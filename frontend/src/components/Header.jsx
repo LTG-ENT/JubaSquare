@@ -169,8 +169,22 @@ export default function Header() {
       )}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="h-20 lg:h-24 flex items-center justify-between gap-4">
-          <Brand />
+          {/* Mobile menu button - left side on mobile */}
+          <button
+            onClick={() => setMobileOpen((v) => !v)}
+            data-testid="mobile-menu-button"
+            className="lg:hidden p-2 rounded-full hover:bg-white/10 transition"
+            aria-label="Menu"
+          >
+            {mobileOpen ? <X className="w-6 h-6 text-white" /> : <Menu className="w-6 h-6 text-white" />}
+          </button>
 
+          {/* Centered Brand */}
+          <div className="flex-1 flex justify-center lg:justify-start">
+            <Brand />
+          </div>
+
+          {/* Desktop Navigation - hidden on mobile */}
           <nav className="hidden lg:flex items-center gap-1">
             {navLink("/", "Home", HomeIcon)}
             {settings.module_marketplace && (
@@ -184,6 +198,7 @@ export default function Header() {
             {settings.module_restaurants && navLink("/restaurants", "Restaurants", UtensilsCrossed)}
           </nav>
 
+          {/* Right side actions */}
           <div className="flex items-center gap-2">
             <div className="hidden md:block">
               <GlobalSearch />
@@ -218,10 +233,6 @@ export default function Header() {
                 Sign In
               </Link>
             )}
-
-            <button onClick={() => setMobileOpen(!mobileOpen)} className="lg:hidden p-2 rounded-full hover:bg-white/10 text-white" data-testid="mobile-menu-toggle">
-              {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </button>
           </div>
         </div>
 
