@@ -1077,11 +1077,11 @@ function PasswordResetModal({ user, onClose, onSuccess }) {
                   {loading ? "Generating..." : "Generate Temporary Password"}
                 </button>
               )}
-            </div>
-          </div>
+            </>
+          )}
         </div>
-      )}
-    </>
+      </div>
+    </div>
   );
 }
 
