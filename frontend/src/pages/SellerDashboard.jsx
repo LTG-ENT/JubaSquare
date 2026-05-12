@@ -483,11 +483,15 @@ function ProductsTab() {
   function defaultForm() {
     return {
       shop_id: "", restaurant_id: "",
-      name: "", category: "", description: "", image_url: "",
+      name: "", 
+      category_id: "",  // PRIMARY: UUID (required)
+      category: "",     // DEPRECATED: for display only
+      description: "", image_url: "",
       price_usd: 0, stock: 100,
       min_order_qty: 1, bulk_price_usd: "",
       pricing_tiers: [],
-      food_category: "",
+      category_id_menu: "",  // PRIMARY: UUID for menu items (required)
+      food_category: "",     // DEPRECATED: for display only
       side_items: [],
     };
   }
@@ -517,23 +521,24 @@ function ProductsTab() {
     setMenuItems(allMenu);
 
     // Fetch all category groups with sub-categories from database
+    // Returns: { parentId: { id, name, children: [{id, name}, ...] }, ... }
     const fetchCategoriesForGroup = async (group) => {
       try {
-        const categoriesRes = await api.get(`/categories?group=${group}`);
-        const flatCategories = categoriesRes.data || [];
+        const categoriesRes = await api.get(`/categories/tree?group=${group}`);
+        const tree = categoriesRes.data || [];
         
-        // Build map of parent category name -> array of child category names
+        // Build map of parent category id -> {id, name, children: [{id, name}]}
         const catMap = {};
         
-        // First, get all parent categories (those with parent_id = null)
-        const parents = flatCategories.filter(cat => cat.parent_id === null);
-        
-        // For each parent, find its children and map by name
-        parents.forEach(parent => {
-          const children = flatCategories
-            .filter(cat => cat.parent_id === parent.id && cat.is_active !== false)
-            .map(child => child.name);
-          catMap[parent.name] = children;
+        tree.forEach(parent => {
+          catMap[parent.id] = {
+            id: parent.id,
+            name: parent.name,
+            children: (parent.children || []).map(child => ({
+              id: child.id,
+              name: child.name
+            }))
+          };
         });
         
         return catMap;
@@ -565,16 +570,26 @@ function ProductsTab() {
     // Default to first shop, if any
     if (shops.length > 0) {
       next.shop_id = shops[0].id;
-      // Use first retail category with first sub-category from database
-      const firstParent = Object.keys(retailCategoriesMap)[0] || "Groceries";
-      const firstSubcat = retailCategoriesMap[firstParent]?.[0] || "";
-      next.category = firstSubcat ? `${firstParent} > ${firstSubcat}` : firstParent;
+      // Use first retail category (ID) from database
+      const firstParentId = Object.keys(retailCategoriesMap)[0];
+      const firstParent = retailCategoriesMap[firstParentId];
+      if (firstParent) {
+        const firstChild = firstParent.children[0];
+        // Set category_id (primary) - use child if exists, otherwise parent
+        next.category_id = firstChild ? firstChild.id : firstParent.id;
+        // Set category name (for display only)
+        next.category = firstChild ? `${firstParent.name} > ${firstChild.name}` : firstParent.name;
+      }
       setMode("marketplace");
     } else if (restaurants.length > 0) {
       next.restaurant_id = restaurants[0].id;
-      // Default to the first admin-defined restaurant category (DB source of truth).
-      // If admin has not defined any, leave blank — the form will show "No Categories".
-      next.food_category = Object.keys(restaurantCategoriesMap)[0] || "";
+      // Default to first restaurant category ID from database
+      const firstParentId = Object.keys(restaurantCategoriesMap)[0];
+      const firstParent = restaurantCategoriesMap[firstParentId];
+      if (firstParent) {
+        next.category_id_menu = firstParent.id;
+        next.food_category = firstParent.name;
+      }
       setMode("restaurant");
     }
     setForm(next);
@@ -587,7 +602,9 @@ function ProductsTab() {
     setEditing({ kind: "product", ...p });
     setForm({
       ...defaultForm(),
-      shop_id: p.shop_id, name: p.name, category: p.category,
+      shop_id: p.shop_id, name: p.name, 
+      category_id: p.category_id || "",  // PRIMARY
+      category: p.category || "",         // DEPRECATED (for display)
       price_usd: p.price_usd, stock: p.stock,
       description: p.description || "", image_url: p.image_url || "",
       min_order_qty: p.min_order_qty || 1,
@@ -605,8 +622,8 @@ function ProductsTab() {
       restaurant_id: m.restaurant_id, name: m.name,
       price_usd: m.price_usd,
       description: m.description || "", image_url: m.image_url || "",
-      // Use the existing food_category if set; otherwise blank (no hardcoded fallback)
-      food_category: m.food_category || "",
+      category_id_menu: m.category_id || "",  // PRIMARY
+      food_category: m.food_category || "",   // DEPRECATED (for display)
       side_items: m.side_items || [],
     });
     setShowForm(true);
@@ -620,7 +637,8 @@ function ProductsTab() {
           restaurant_id: form.restaurant_id, name: form.name,
           price_usd: parseFloat(form.price_usd) || 0,
           image_url: form.image_url, description: form.description,
-          food_category: form.food_category,
+          category_id: form.category_id_menu,  // PRIMARY (required)
+          food_category: form.food_category,   // DEPRECATED (backward compat)
           side_items: (form.side_items || []).map((s) => ({ name: s.name, price_usd: parseFloat(s.price_usd) || 0 })),
         };
         if (editing?.kind === "menu") await api.put(`/menu-items/${editing.id}`, payload);
@@ -628,7 +646,9 @@ function ProductsTab() {
         toast.success(editing ? "Menu item updated" : "Menu item added");
       } else {
         const payload = {
-          shop_id: form.shop_id, name: form.name, category: form.category,
+          shop_id: form.shop_id, name: form.name, 
+          category_id: form.category_id,  // PRIMARY (required)
+          category: form.category,        // DEPRECATED (backward compat)
           price_usd: parseFloat(form.price_usd) || 0,
           stock: parseInt(form.stock) || 0,
           image_url: form.image_url, description: form.description,
@@ -822,9 +842,9 @@ function ProductsTab() {
                 <Input label="Food name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required testId="product-name-input" />
                 {(() => {
                   // Get available main restaurant categories (parent categories)
-                  const mainCategories = Object.keys(restaurantCategoriesMap);
+                  const mainCategoryIds = Object.keys(restaurantCategoriesMap);
                   
-                  if (mainCategories.length === 0) {
+                  if (mainCategoryIds.length === 0) {
                     return (
                       <div className="block">
                         <span className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Food category</span>
@@ -835,14 +855,35 @@ function ProductsTab() {
                     );
                   }
                   
+                  // Build options array: [{value: id, label: name}, ...]
+                  const options = mainCategoryIds.map(id => ({
+                    value: id,
+                    label: restaurantCategoriesMap[id].name
+                  }));
+                  
                   return (
-                    <Select 
-                      label="Food category" 
-                      value={form.food_category} 
-                      onChange={(v) => setForm({ ...form, food_category: v })} 
-                      options={mainCategories} 
-                      testId="food-category-select" 
-                    />
+                    <div>
+                      <span className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Food category</span>
+                      <select 
+                        value={form.category_id_menu} 
+                        onChange={(e) => {
+                          const selectedId = e.target.value;
+                          const selectedCat = restaurantCategoriesMap[selectedId];
+                          setForm({ 
+                            ...form, 
+                            category_id_menu: selectedId,
+                            food_category: selectedCat ? selectedCat.name : ""
+                          });
+                        }}
+                        className="js-input w-full"
+                        data-testid="food-category-select"
+                        required
+                      >
+                        {options.map(opt => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
+                    </div>
                   );
                 })()}
                 <Input label="Price (USD)" type="number" step="0.01" value={form.price_usd} onChange={(v) => setForm({ ...form, price_usd: v })} required testId="product-price-input" />
@@ -860,18 +901,9 @@ function ProductsTab() {
                   const isWholesale = mode === "wholesale";
                   const categoriesMap = isWholesale ? wholesaleCategoriesMap : retailCategoriesMap;
                   
-                  // Parse the category to get parent and sub-category
-                  const [parentCat, subCat] = (form.category || "").includes(" > ") 
-                    ? form.category.split(" > ") 
-                    : [form.category, ""];
+                  const parentCategoryIds = Object.keys(categoriesMap);
                   
-                  // Get available parent categories
-                  const parentCategories = Object.keys(categoriesMap);
-                  
-                  // Get sub-categories for selected parent
-                  const subcategories = categoriesMap[parentCat] || [];
-                  
-                  if (subcategories.length === 0 && parentCat) {
+                  if (parentCategoryIds.length === 0) {
                     return (
                       <div className="block">
                         <span className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Category</span>
@@ -882,26 +914,103 @@ function ProductsTab() {
                     );
                   }
                   
+                  // Find which parent this category_id belongs to
+                  let selectedParentId = "";
+                  let selectedChildId = "";
+                  
+                  for (const parentId of parentCategoryIds) {
+                    const parent = categoriesMap[parentId];
+                    if (parent.id === form.category_id) {
+                      selectedParentId = parentId;
+                      break;
+                    }
+                    const child = parent.children.find(c => c.id === form.category_id);
+                    if (child) {
+                      selectedParentId = parentId;
+                      selectedChildId = child.id;
+                      break;
+                    }
+                  }
+                  
+                  // If no match found, default to first parent
+                  if (!selectedParentId && parentCategoryIds.length > 0) {
+                    selectedParentId = parentCategoryIds[0];
+                  }
+                  
+                  const currentParent = categoriesMap[selectedParentId];
+                  const hasChildren = currentParent && currentParent.children.length > 0;
+                  
+                  // If has children and no child selected, default to first child
+                  if (hasChildren && !selectedChildId) {
+                    selectedChildId = currentParent.children[0].id;
+                  }
+                  
+                  // Build parent options
+                  const parentOptions = parentCategoryIds.map(id => ({
+                    value: id,
+                    label: categoriesMap[id].name
+                  }));
+                  
+                  // Build child options for selected parent
+                  const childOptions = currentParent && currentParent.children.length > 0 
+                    ? currentParent.children.map(c => ({ value: c.id, label: c.name }))
+                    : [];
+                  
                   return (
                     <>
-                      <Select 
-                        label="Category" 
-                        value={parentCat} 
-                        onChange={(v) => {
-                          const newSubcats = categoriesMap[v] || [];
-                          setForm({ ...form, category: newSubcats.length > 0 ? `${v} > ${newSubcats[0]}` : v });
-                        }} 
-                        options={parentCategories} 
-                        testId="product-cat-select" 
-                      />
-                      {subcategories.length > 0 && (
-                        <Select 
-                          label="Sub-category" 
-                          value={subCat || subcategories[0]} 
-                          onChange={(v) => setForm({ ...form, category: `${parentCat} > ${v}` })} 
-                          options={subcategories} 
-                          testId="product-subcat-select" 
-                        />
+                      <div>
+                        <span className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Category</span>
+                        <select
+                          value={selectedParentId}
+                          onChange={(e) => {
+                            const newParentId = e.target.value;
+                            const newParent = categoriesMap[newParentId];
+                            // If has children, select first child; otherwise select parent
+                            const newCatId = newParent.children.length > 0 
+                              ? newParent.children[0].id 
+                              : newParent.id;
+                            const newCatName = newParent.children.length > 0
+                              ? `${newParent.name} > ${newParent.children[0].name}`
+                              : newParent.name;
+                            setForm({ 
+                              ...form, 
+                              category_id: newCatId,
+                              category: newCatName
+                            });
+                          }}
+                          className="js-input w-full"
+                          data-testid="product-cat-select"
+                          required
+                        >
+                          {parentOptions.map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      
+                      {hasChildren && childOptions.length > 0 && (
+                        <div>
+                          <span className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Sub-category</span>
+                          <select
+                            value={selectedChildId || childOptions[0].value}
+                            onChange={(e) => {
+                              const newChildId = e.target.value;
+                              const child = currentParent.children.find(c => c.id === newChildId);
+                              setForm({ 
+                                ...form, 
+                                category_id: newChildId,
+                                category: `${currentParent.name} > ${child.name}`
+                              });
+                            }}
+                            className="js-input w-full"
+                            data-testid="product-subcat-select"
+                            required
+                          >
+                            {childOptions.map(opt => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                          </select>
+                        </div>
                       )}
                     </>
                   );
