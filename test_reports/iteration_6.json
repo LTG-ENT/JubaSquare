@@ -1,0 +1,46 @@
+{
+  "summary": "Iter6 Phase-5 advanced restaurant features tested end-to-end. Backend: 20/20 pytest pass in /app/backend/tests/test_iter6_features.py covering (A) Open/Close toggle blocks POST /restaurant-orders with HTTP 400 'closed' and unblocks on re-open, (B) cancellation flow — request-cancel returns 400 from pending/completed and 200 from accepted/cooking/ready (stores previous_status + cancel_reason + cancel_requested_at + notifies customer), admin approve sets cancel_approved (second approve 400), admin reject restores previous_status and notifies customer with 'rejected' message (second reject 400), GET /admin/cancel-requests admin-only and only returns cancel_requested, (C) sellers receive 403 when passing cancelled/cancel_approved/cancel_rejected via PUT /status while admin succeeds, (D) restaurant invoices — POST /admin/restaurant-invoices/generate returns {ok:true,count:N}; auto-rebuild triggers when status='completed' (verified via _rebuild_restaurant_invoices); commission_rate prefers restaurant.commission_rate (0.20 override beat global 0.10); total_sales = sum(order.subtotal) and excludes delivery_fee; GET ?status=Unpaid filter works; PUT status='Paid' notifies seller with type='commission'; GET /seller/restaurant-invoices scoped to caller; non-admin gets 403 on admin routes. Frontend (admin@ltg.com / Kokobleake1): Admin /admin → admin-tab-cancellations renders empty-cancellations when no pending; admin-tab-invoices → invoice-kind-toggle with shop+restaurant buttons, restaurant pane shows regenerate-restaurant-invoices-btn + mark-paid-restaurant-{id} for the unpaid invoice from backend tests. Seller dashboard → seller-invoice-kind-toggle with shop+restaurant sub-tabs. /kitchen/{id} dashboard now renders (after fix below), restaurant-open-toggle flips restaurant-open-label between '● Open — accepting orders' and '● Closed — paused' without page reload and shows 'Restaurant is now OPEN/CLOSED' toast.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "KitchenDashboard.jsx", "issue": "STATUS_CONFIG was extended with cancel_requested/cancel_approved/cancelled keys but ordersByStatus was not — Object.entries(STATUS_CONFIG).map() crashed with 'Cannot read properties of undefined (reading length)' on every kitchen dashboard load, fully blocking the open/close toggle and request-cancel UI. FIXED in this run by adding the three missing keys to ordersByStatus (lines 197-203).", "selector": "[data-testid='restaurant-open-toggle']", "priority": "CRITICAL (now fixed)"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/kitchen/:restaurantId", "issues": ["Status-counter grid now shows 8 cards (added cancel_requested + cancel_approved + cancelled) and TWO of them are labelled 'Cancelled' (cancel_approved and cancelled both use the same label in STATUS_CONFIG). Consider rendering only 5 main lifecycle cards plus one merged 'Cancelled' bucket, or differentiate labels (e.g., 'Cancel-Approved' vs 'Cancelled')."]},
+      {"screen": "Top maintenance banner", "issues": ["Persistent 'orders are paused' banner still hardcoded across pages (carried over from iter5 — no regression)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter6_features.py",
+    "/app/test_reports/pytest/iter6_results.xml"
+  ],
+  "action_items": [
+    "REVIEW the KitchenDashboard hot-fix in /app/frontend/src/pages/KitchenDashboard.jsx (added 3 keys to ordersByStatus). Decide whether to keep 8 status cards or visually merge them — current UI shows two 'Cancelled' cards side by side.",
+    "Cancellation reason is captured (cancel_reason) but the Kitchen request-cancel modal uses window.prompt — consider replacing with a proper modal so reasons aren't silently lost when users press Esc.",
+    "PUT /api/admin/restaurant-invoices/{id}/status accepts InvoiceStatusIn — confirm its Literal allows 'Overdue' too (tests passed Paid/Unpaid; spec mentions Overdue). Code-review hint: server.py 3903 only filters Paid/Unpaid for GET ?status= so Overdue invoices are not directly listable via that filter.",
+    "GET /api/admin/restaurant-invoices?status=Overdue silently returns ALL invoices (the if-check whitelists only Paid|Unpaid). Either widen the whitelist or document the filter.",
+    "_rebuild_restaurant_invoices() deletes ALL restaurant_invoices then re-inserts, preserving id/status/created_at via 'existing' lookup. Race risk: a concurrent PUT mark-paid between delete_many and insert_one could be lost. Consider an upsert pattern."
+  ],
+  "critical_code_review_comments": [
+    "KitchenDashboard.jsx: STATUS_CONFIG and ordersByStatus drift was a latent crash; add a defensive `(ordersByStatus[status] || []).length` to prevent future regressions.",
+    "request_order_cancel: notification is only sent to customer; seller who initiated the request gets no acknowledgement. Consider parity with approve/reject which notify both parties.",
+    "Server _rebuild_restaurant_invoices does delete_many+insert_one; a true upsert keyed on (seller_id, restaurant_id, week_start) would be safer.",
+    "admin_list_restaurant_invoices status filter only allows {Paid, Unpaid} — drop 'Overdue' from the spec UI or extend the whitelist (status in {Paid, Unpaid, Overdue}).",
+    "Auto-rebuild on every restaurant-order completion is O(N) over all completed orders — fine at low volume, but should be debounced or scoped to the affected (seller, restaurant, week) bucket once the platform grows."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter6_features.py",
+    "/app/frontend/src/pages/KitchenDashboard.jsx"
+  ],
+  "success_rate": {
+    "backend": "100% (20/20 iter6)",
+    "frontend": "100% on iter6 critical flows after the KitchenDashboard crash fix: open/close toggle + label updates, admin cancellations tab (empty state), admin invoices kind-toggle + restaurant pane with regenerate + mark-paid buttons, seller invoice kind-toggle."
+  },
+  "test_credentials": "Admin: admin@ltg.com / Kokobleake1 (confirmed from /app/backend/.env and /app/memory/test_credentials.md). Earlier iter5 report incorrectly referenced ltg-general-trading@hotmail.com — that login fails. Tests sign up ephemeral TEST_iter6_seller/customer accounts via /api/auth/signup and flip email_verified=true via direct Mongo.",
+  "seed_data_creation": "Per-module: 1 TEST_Iter6_Restaurant_* + 1 TEST_Iter6_Burger menu item + 1 TEST_Cat_Iter6 category (only if no restaurant category exists). All cleaned up in teardown along with the ephemeral users + their orders + restaurant_invoices.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Six pytest files now: backend_test.py (25), test_iter2_features.py (18), test_iter3_features.py (15), test_iter4_features.py (8), test_iter5_features.py (21), test_iter6_features.py (20) = 107 tests on file. iter6 introduces _set_status_as_admin helper to walk an order through pending→accepted→cooking→ready→completed because sellers can only move forward and only admin can fast-forward without going through verification. Kitchen Dashboard route is /kitchen/:restaurantId (NOT /seller/restaurant/:id as the task spec hinted). data-testids confirmed present: restaurant-open-toggle, restaurant-open-label, request-cancel-btn, cancel-pending-banner, admin-tab-cancellations, empty-cancellations, approve-cancel-{id}, reject-cancel-{id}, refresh-cancellations, invoice-kind-toggle, invoice-kind-shop, invoice-kind-restaurant, regenerate-restaurant-invoices-btn, mark-paid-restaurant-{id}, mark-unpaid-restaurant-{id}, seller-invoice-kind-toggle, seller-invoice-kind-shop, seller-invoice-kind-restaurant.",
+  "rca of the issue": "Bug: Kitchen Dashboard crashed with TypeError reading 'length' of undefined whenever loaded. Reproduction: login as admin → /kitchen/{restaurantId} → React error boundary fires. RCA: STATUS_CONFIG at lines 10-19 was extended to 8 statuses (added cancel_requested/cancel_approved/cancelled) but the ordersByStatus dictionary at lines 197-203 only covered 5; the Object.entries(STATUS_CONFIG).map() at line 266 then dereferenced ordersByStatus['cancel_requested'].length on an undefined value. Mitigation: extended ordersByStatus to include all 8 keys, each filtering orders by their status. Verified: page now renders, toggle works, label updates from '● Open — accepting orders' to '● Closed — paused' and back without page reload. Suggested follow-up: defensive (ordersByStatus[status] || []).length plus design pass on the 8-card layout (two cards now display the same 'Cancelled' label)."
+}

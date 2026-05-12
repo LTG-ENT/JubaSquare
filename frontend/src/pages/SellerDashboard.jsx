@@ -1289,6 +1289,35 @@ function PricingTiersEditor({ tiers, setTiers }) {
 }
 
 function InvoicesTab() {
+  const [kind, setKind] = useState("shop");
+  return (
+    <div>
+      <div className="inline-flex items-center bg-[var(--js-subtle)] rounded-full p-1 mb-6" data-testid="seller-invoice-kind-toggle">
+        <button
+          onClick={() => setKind("shop")}
+          data-testid="seller-invoice-kind-shop"
+          className={`px-5 py-2 text-sm font-semibold rounded-full transition ${
+            kind === "shop" ? "bg-white shadow text-[var(--js-text)]" : "text-[var(--js-text-secondary)]"
+          }`}
+        >
+          Shop invoices
+        </button>
+        <button
+          onClick={() => setKind("restaurant")}
+          data-testid="seller-invoice-kind-restaurant"
+          className={`px-5 py-2 text-sm font-semibold rounded-full transition ${
+            kind === "restaurant" ? "bg-white shadow text-[var(--js-text)]" : "text-[var(--js-text-secondary)]"
+          }`}
+        >
+          Restaurant invoices
+        </button>
+      </div>
+      {kind === "shop" ? <SellerShopInvoices /> : <SellerRestaurantInvoices />}
+    </div>
+  );
+}
+
+function SellerShopInvoices() {
   const [invoices, setInvoices] = useState([]);
   const load = () => api.get("/seller/invoices").then((r) => setInvoices(r.data));
   useEffect(() => { load(); }, []);
@@ -1334,6 +1363,61 @@ function InvoicesTab() {
                 </tr>
               ))}
               {invoices.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-[var(--js-text-secondary)]">No invoices yet. They're auto-generated weekly from your orders.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SellerRestaurantInvoices() {
+  const [invoices, setInvoices] = useState([]);
+  useEffect(() => {
+    api.get("/seller/restaurant-invoices").then((r) => setInvoices(r.data)).catch(() => setInvoices([]));
+  }, []);
+
+  const totalSales = invoices.reduce((s, i) => s + (i.total_sales || 0), 0);
+  const totalCommission = invoices.reduce((s, i) => s + (i.commission || 0), 0);
+  const owed = invoices.filter((i) => i.status === "Unpaid").reduce((s, i) => s + (i.amount_owed || 0), 0);
+
+  return (
+    <div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        <Stat label="Restaurant Invoices" value={invoices.length} color="#1A1A1A" />
+        <Stat label="Food Sales" value={formatUSD(totalSales)} color="#2D6A4F" />
+        <Stat label="Commission" value={formatUSD(totalCommission)} color="#C84B31" />
+        <Stat label="Amount Owed" value={formatUSD(owed)} color="#D90429" />
+      </div>
+      <div className="bg-white border border-[var(--js-border)] rounded-2xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-[var(--js-bg)] text-[var(--js-text-secondary)] text-xs uppercase tracking-wider">
+              <tr>
+                <th className="text-left p-4 font-bold">Restaurant</th>
+                <th className="text-left p-4 font-bold hidden sm:table-cell">Week</th>
+                <th className="text-left p-4 font-bold">Sales</th>
+                <th className="text-left p-4 font-bold hidden md:table-cell">Commission</th>
+                <th className="text-left p-4 font-bold">Amount Owed</th>
+                <th className="text-left p-4 font-bold">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {invoices.map((inv) => (
+                <tr key={inv.id} className="border-t border-[var(--js-border)]" data-testid={`seller-restaurant-invoice-${inv.id}`}>
+                  <td className="p-4 font-semibold">{inv.restaurant_name}</td>
+                  <td className="p-4 text-[var(--js-text-secondary)] hidden sm:table-cell text-xs">{inv.week_label}</td>
+                  <td className="p-4 font-bold">{formatUSD(inv.total_sales)}</td>
+                  <td className="p-4 hidden md:table-cell text-[#C84B31] font-semibold">{formatUSD(inv.commission)}</td>
+                  <td className="p-4 font-display font-bold">{formatUSD(inv.amount_owed)}</td>
+                  <td className="p-4">
+                    {inv.status === "Paid"
+                      ? <span className="inline-flex items-center gap-1 bg-[#2D6A4F]/10 text-[#2D6A4F] text-xs font-bold px-2 py-1 rounded-full"><CheckCircle2 className="w-3 h-3" /> Paid</span>
+                      : <span className="inline-flex items-center gap-1 bg-[#D90429]/10 text-[#D90429] text-xs font-bold px-2 py-1 rounded-full"><Clock className="w-3 h-3" /> Unpaid</span>}
+                  </td>
+                </tr>
+              ))}
+              {invoices.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-[var(--js-text-secondary)]">No restaurant invoices yet. They auto-generate when restaurant orders are marked completed.</td></tr>}
             </tbody>
           </table>
         </div>

@@ -8,7 +8,7 @@ import AdminPagesTab from "@/components/AdminPagesTab";
 import AdminSettingsTab from "@/components/AdminSettingsTab";
 import AdminFooterTab from "@/components/AdminFooterTab";
 import AdminCategoriesTab from "@/components/AdminCategoriesTab";
-import { Store, Mail, ShoppingBag, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Percent, Eye, X, BarChart3, Settings as SettingsIcon, BookOpen, Sliders, PanelBottom, FolderTree } from "lucide-react";
+import { Store, Mail, ShoppingBag, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Percent, Eye, X, BarChart3, Settings as SettingsIcon, BookOpen, Sliders, PanelBottom, FolderTree, Ban } from "lucide-react";
 import { toast } from "sonner";
 
 const TABS = [
@@ -16,6 +16,7 @@ const TABS = [
   { id: "shops", label: "Shops", icon: Store },
   { id: "categories", label: "Categories", icon: FolderTree },
   { id: "invoices", label: "Invoices", icon: FileText },
+  { id: "cancellations", label: "Cancellation Requests", icon: Ban },
   { id: "emails", label: "Blocked Emails", icon: Mail },
   { id: "orders", label: "All Orders", icon: ShoppingBag },
   { id: "pages", label: "Pages", icon: BookOpen },
@@ -56,7 +57,8 @@ export default function AdminDashboard() {
           {tab === "analytics" && <AdminAnalytics />}
           {tab === "shops" && <AdminShopsTab />}
           {tab === "categories" && <AdminCategoriesTab />}
-          {tab === "invoices" && <AdminInvoicesTab />}
+          {tab === "invoices" && <AdminInvoicesPane />}
+          {tab === "cancellations" && <AdminCancellationsTab />}
           {tab === "emails" && <AdminEmailsTab />}
           {tab === "orders" && <AdminOrdersTab />}
           {tab === "pages" && <AdminPagesTab />}
@@ -488,3 +490,252 @@ function Stat({ label, value, color }) {
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Invoices pane: sub-tab toggle between Shop invoices and Restaurant invoices.
+// Kept as a wrapper so the existing AdminInvoicesTab can stay untouched.
+// ---------------------------------------------------------------------------
+function AdminInvoicesPane() {
+  const [kind, setKind] = useState("shop");
+  return (
+    <div>
+      <div className="inline-flex items-center bg-[var(--js-subtle)] rounded-full p-1 mb-6" data-testid="invoice-kind-toggle">
+        <button
+          onClick={() => setKind("shop")}
+          data-testid="invoice-kind-shop"
+          className={`px-5 py-2 text-sm font-semibold rounded-full transition ${
+            kind === "shop" ? "bg-white shadow text-[var(--js-text)]" : "text-[var(--js-text-secondary)]"
+          }`}
+        >
+          Shop invoices
+        </button>
+        <button
+          onClick={() => setKind("restaurant")}
+          data-testid="invoice-kind-restaurant"
+          className={`px-5 py-2 text-sm font-semibold rounded-full transition ${
+            kind === "restaurant" ? "bg-white shadow text-[var(--js-text)]" : "text-[var(--js-text-secondary)]"
+          }`}
+        >
+          Restaurant invoices
+        </button>
+      </div>
+      {kind === "shop" ? <AdminInvoicesTab /> : <AdminRestaurantInvoicesTab />}
+    </div>
+  );
+}
+
+function AdminRestaurantInvoicesTab() {
+  const [invoices, setInvoices] = useState([]);
+  const [filter, setFilter] = useState("all");
+
+  const load = async () => {
+    const q = filter === "all" ? "" : `?status=${filter === "paid" ? "Paid" : "Unpaid"}`;
+    const { data } = await api.get(`/admin/restaurant-invoices${q}`);
+    setInvoices(data);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [filter]);
+
+  const regenerate = async () => {
+    await api.post("/admin/restaurant-invoices/generate");
+    toast.success("Restaurant invoices regenerated");
+    load();
+  };
+
+  const setStatus = async (id, status) => {
+    await api.put(`/admin/restaurant-invoices/${id}/status`, { status });
+    toast.success(`Marked as ${status}`);
+    load();
+  };
+
+  const totalSales = invoices.reduce((s, i) => s + (i.total_sales || 0), 0);
+  const totalCommission = invoices.reduce((s, i) => s + (i.commission || 0), 0);
+  const unpaidAmount = invoices.filter((i) => i.status === "Unpaid").reduce((s, i) => s + (i.commission || 0), 0);
+
+  return (
+    <div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        <Stat label="Restaurant Invoices" value={invoices.length} color="#1A1A1A" />
+        <Stat label="Food Sales (commissionable)" value={formatUSD(totalSales)} color="#2D6A4F" />
+        <Stat label="Commission" value={formatUSD(totalCommission)} color="#C84B31" />
+        <Stat label="Unpaid" value={formatUSD(unpaidAmount)} color="#D90429" />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <select value={filter} onChange={(e) => setFilter(e.target.value)} data-testid="restaurant-invoice-filter-select" className="bg-white border border-[var(--js-border)] rounded-full px-4 py-2 text-sm font-semibold focus:outline-none focus:border-[#C84B31]">
+          <option value="all">All</option>
+          <option value="paid">Paid only</option>
+          <option value="unpaid">Unpaid only</option>
+        </select>
+        <button onClick={regenerate} data-testid="regenerate-restaurant-invoices-btn" className="ml-auto bg-[var(--js-subtle)] hover:bg-[var(--js-border)] text-[var(--js-text)] text-sm font-semibold px-4 py-2 rounded-full">
+          🔄 Regenerate from completed orders
+        </button>
+      </div>
+
+      <div className="bg-white border border-[var(--js-border)] rounded-2xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-[var(--js-bg)] text-[var(--js-text-secondary)] text-xs uppercase tracking-wider">
+              <tr>
+                <th className="text-left p-4 font-bold">Restaurant</th>
+                <th className="text-left p-4 font-bold hidden sm:table-cell">Week</th>
+                <th className="text-left p-4 font-bold">Sales</th>
+                <th className="text-left p-4 font-bold hidden md:table-cell">Commission</th>
+                <th className="text-left p-4 font-bold">Status</th>
+                <th className="p-4"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {invoices.map((inv) => (
+                <tr key={inv.id} className="border-t border-[var(--js-border)]" data-testid={`restaurant-invoice-row-${inv.id}`}>
+                  <td className="p-4 font-semibold text-[var(--js-text)]">{inv.restaurant_name}</td>
+                  <td className="p-4 text-[var(--js-text-secondary)] hidden sm:table-cell text-xs">{inv.week_label}</td>
+                  <td className="p-4 font-bold">{formatUSD(inv.total_sales)}</td>
+                  <td className="p-4 hidden md:table-cell">
+                    <p className="font-semibold text-[#C84B31]">{formatUSD(inv.commission)}</p>
+                    <p className="text-[10px] text-[var(--js-text-secondary)]">{(inv.commission_rate * 100).toFixed(1)}%</p>
+                  </td>
+                  <td className="p-4">
+                    {inv.status === "Paid" ? (
+                      <span className="inline-flex items-center gap-1 bg-[#2D6A4F]/10 text-[#2D6A4F] text-xs font-bold px-2 py-1 rounded-full"><CheckCircle2 className="w-3 h-3" /> Paid</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 bg-[#D90429]/10 text-[#D90429] text-xs font-bold px-2 py-1 rounded-full"><Clock className="w-3 h-3" /> Unpaid</span>
+                    )}
+                  </td>
+                  <td className="p-4 text-right">
+                    {inv.status === "Unpaid" ? (
+                      <button
+                        onClick={() => setStatus(inv.id, "Paid")}
+                        data-testid={`mark-paid-restaurant-${inv.id}`}
+                        className="bg-[#2D6A4F] hover:bg-[#245940] text-white text-xs font-bold px-3 py-1.5 rounded-full"
+                      >
+                        Mark paid
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setStatus(inv.id, "Unpaid")}
+                        data-testid={`mark-unpaid-restaurant-${inv.id}`}
+                        className="bg-[var(--js-subtle)] hover:bg-[var(--js-border)] text-[var(--js-text)] text-xs font-bold px-3 py-1.5 rounded-full"
+                      >
+                        Mark unpaid
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {invoices.length === 0 && (
+                <tr><td colSpan={6} className="p-10 text-center text-[var(--js-text-secondary)]">
+                  No restaurant invoices yet. They auto-generate when restaurant orders are marked completed in the Kitchen Dashboard.
+                </td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Cancellation Requests: admin approve or reject seller cancellation requests
+// ---------------------------------------------------------------------------
+function AdminCancellationsTab() {
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get("/admin/cancel-requests");
+      setRequests(data);
+    } catch (e) {
+      toast.error("Failed to load cancellation requests");
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { load(); }, []);
+
+  const approve = async (orderId) => {
+    if (!window.confirm("Approve cancellation? The order will be cancelled and the customer notified.")) return;
+    try {
+      await api.post(`/admin/cancel-requests/${orderId}/approve`);
+      toast.success("Cancellation approved");
+      load();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Failed to approve");
+    }
+  };
+
+  const reject = async (orderId) => {
+    const note = window.prompt("Optional note to seller/customer (why was rejection issued?):", "");
+    if (note === null) return;
+    try {
+      await api.post(`/admin/cancel-requests/${orderId}/reject`, { admin_note: note });
+      toast.success("Cancellation rejected — order restored");
+      load();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Failed to reject");
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="font-display font-semibold text-xl text-[var(--js-text)]">Pending cancellation requests</h2>
+        <button onClick={load} className="text-sm text-[#C84B31] hover:underline" data-testid="refresh-cancellations">Refresh</button>
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-[var(--js-text-secondary)]">Loading…</p>
+      ) : requests.length === 0 ? (
+        <div className="bg-white border border-[var(--js-border)] rounded-2xl p-10 text-center text-[var(--js-text-secondary)]" data-testid="empty-cancellations">
+          No pending cancellation requests.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {requests.map((o) => (
+            <div key={o.id} className="bg-white border border-[var(--js-border)] rounded-2xl p-5" data-testid={`cancel-row-${o.id}`}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-bold text-[var(--js-text)]">
+                    Order #{o.id.slice(0, 8)} <span className="text-[var(--js-text-secondary)] font-normal">— {o.restaurant_name}</span>
+                  </p>
+                  <p className="text-xs text-[var(--js-text-secondary)] mt-1">
+                    Previous status: <span className="font-semibold text-[var(--js-text)]">{o.previous_status || "—"}</span>
+                    {" · "}Customer: <span className="font-semibold text-[var(--js-text)]">{o.customer_name}</span>
+                    {" · "}Total: <span className="font-semibold text-[var(--js-text)]">{formatUSD(o.total)}</span>
+                  </p>
+                  {o.cancel_reason && (
+                    <p className="text-sm text-[var(--js-text)] mt-2 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                      <span className="font-semibold">Reason:</span> {o.cancel_reason}
+                    </p>
+                  )}
+                  <p className="text-[10px] text-[var(--js-text-secondary)] mt-2">
+                    Requested: {o.cancel_requested_at ? new Date(o.cancel_requested_at).toLocaleString() : "—"}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => reject(o.id)}
+                    data-testid={`reject-cancel-${o.id}`}
+                    className="bg-white border border-[var(--js-border)] hover:border-[var(--js-text)] text-[var(--js-text)] text-sm font-semibold px-4 py-2 rounded-full"
+                  >
+                    Reject
+                  </button>
+                  <button
+                    onClick={() => approve(o.id)}
+                    data-testid={`approve-cancel-${o.id}`}
+                    className="bg-[#D90429] hover:bg-[#A60320] text-white text-sm font-semibold px-4 py-2 rounded-full"
+                  >
+                    Approve
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+

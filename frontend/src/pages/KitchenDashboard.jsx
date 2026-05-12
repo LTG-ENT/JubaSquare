@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import { Clock, Phone, MapPin, DollarSign, CheckCircle, ChefHat, Package, Printer } from "lucide-react";
+import { Clock, Phone, MapPin, DollarSign, CheckCircle, ChefHat, Package, Printer, Power, XCircle } from "lucide-react";
 import api from "@/lib/api";
 import { toast } from "sonner";
 
@@ -13,6 +13,9 @@ const STATUS_CONFIG = {
   cooking: { label: "Cooking", color: "bg-orange-500", icon: ChefHat },
   ready: { label: "Ready", color: "bg-green-500", icon: Package },
   completed: { label: "Completed", color: "bg-gray-500", icon: CheckCircle },
+  cancel_requested: { label: "Cancel Pending", color: "bg-yellow-600", icon: XCircle },
+  cancel_approved: { label: "Cancelled", color: "bg-red-500", icon: XCircle },
+  cancelled: { label: "Cancelled", color: "bg-red-500", icon: XCircle },
 };
 
 export default function KitchenDashboard() {
@@ -73,7 +76,35 @@ export default function KitchenDashboard() {
         printReceipt(orders.find(o => o.id === orderId));
       }
     } catch (err) {
-      toast.error("Failed to update order status");
+      toast.error(err.response?.data?.detail || "Failed to update order status");
+    }
+  };
+
+  const toggleOpen = async () => {
+    if (!restaurant) return;
+    try {
+      const { data } = await api.put(`/restaurants/${restaurantId}/toggle-open`);
+      setRestaurant({ ...restaurant, is_open: data.is_open });
+      toast.success(data.is_open ? "Restaurant is now OPEN" : "Restaurant is now CLOSED");
+    } catch (err) {
+      toast.error("Failed to update restaurant status");
+    }
+  };
+
+  const requestCancel = async (orderId) => {
+    const reason = window.prompt(
+      "Reason for cancellation (will be sent to admin for approval):",
+      ""
+    );
+    if (reason === null) return; // user hit Cancel
+    try {
+      await api.post(`/restaurant-orders/${orderId}/request-cancel`, { reason });
+      toast.success("Cancellation request sent to admin");
+      // refresh detail panel too
+      setSelectedOrder(null);
+      loadOrders();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to request cancellation");
     }
   };
   
@@ -162,13 +193,16 @@ export default function KitchenDashboard() {
     }, 250);
   };
   
-  // Group orders by status
+  // Group orders by status — must include every key in STATUS_CONFIG
   const ordersByStatus = {
     pending: orders.filter(o => o.status === "pending"),
     accepted: orders.filter(o => o.status === "accepted"),
     cooking: orders.filter(o => o.status === "cooking"),
     ready: orders.filter(o => o.status === "ready"),
     completed: orders.filter(o => o.status === "completed"),
+    cancel_requested: orders.filter(o => o.status === "cancel_requested"),
+    cancel_approved: orders.filter(o => o.status === "cancel_approved"),
+    cancelled: orders.filter(o => o.status === "cancelled"),
   };
   
   const filteredOrders = activeFilter === "all" 
@@ -194,19 +228,40 @@ export default function KitchenDashboard() {
       
       <div className="max-w-7xl mx-auto px-4 py-6">
         {/* Header */}
-        <div className="mb-6">
-          <button
-            onClick={() => navigate("/seller")}
-            className="text-sm text-[var(--js-text-secondary)] hover:text-[var(--js-text)] mb-2"
-          >
-            ← Back to Seller Dashboard
-          </button>
-          <h1 className="text-3xl font-bold text-[var(--js-text)]">
-            {restaurant?.name} - Kitchen Dashboard
-          </h1>
-          <p className="text-[var(--js-text-secondary)] mt-1">
-            Manage your restaurant orders in real-time
-          </p>
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <button
+              onClick={() => navigate("/seller")}
+              className="text-sm text-[var(--js-text-secondary)] hover:text-[var(--js-text)] mb-2"
+            >
+              ← Back to Seller Dashboard
+            </button>
+            <h1 className="text-3xl font-bold text-[var(--js-text)]">
+              {restaurant?.name} - Kitchen Dashboard
+            </h1>
+            <p className="text-[var(--js-text-secondary)] mt-1">
+              Manage your restaurant orders in real-time
+            </p>
+          </div>
+
+          {/* Open/Close toggle */}
+          {restaurant && (
+            <button
+              onClick={toggleOpen}
+              data-testid="restaurant-open-toggle"
+              className={`inline-flex items-center gap-2 px-5 py-3 rounded-full font-bold text-sm shadow-sm transition ${
+                restaurant.is_open
+                  ? "bg-[#2D6A4F] hover:bg-[#245940] text-white"
+                  : "bg-[#A3A39E] hover:bg-[#8A8A85] text-white"
+              }`}
+              title={restaurant.is_open ? "Click to close (stop receiving orders)" : "Click to open"}
+            >
+              <Power className="w-4 h-4" />
+              <span data-testid="restaurant-open-label">
+                {restaurant.is_open ? "● Open — accepting orders" : "● Closed — paused"}
+              </span>
+            </button>
+          )}
         </div>
         
         {/* Stats */}
@@ -433,6 +488,35 @@ export default function KitchenDashboard() {
                   {selectedOrder.status === "completed" && (
                     <div className="text-center py-6 text-[var(--js-text-secondary)]">
                       Order completed ✓
+                    </div>
+                  )}
+
+                  {/* Request Cancellation — visible while order is in-progress */}
+                  {["accepted", "cooking", "ready"].includes(selectedOrder.status) && (
+                    <button
+                      onClick={() => requestCancel(selectedOrder.id)}
+                      data-testid="request-cancel-btn"
+                      className="w-full bg-white hover:bg-red-50 text-red-600 border-2 border-red-300 hover:border-red-500 font-semibold py-3 rounded-xl transition"
+                    >
+                      Request Cancellation (admin approval)
+                    </button>
+                  )}
+
+                  {selectedOrder.status === "cancel_requested" && (
+                    <div className="rounded-xl bg-yellow-50 border border-yellow-300 p-4 text-sm text-yellow-800" data-testid="cancel-pending-banner">
+                      <div className="font-bold mb-1">Cancellation pending admin review</div>
+                      <div className="text-xs">
+                        Previous status: <span className="font-semibold">{selectedOrder.previous_status || "—"}</span>
+                      </div>
+                      {selectedOrder.cancel_reason && (
+                        <div className="text-xs mt-1">Reason: {selectedOrder.cancel_reason}</div>
+                      )}
+                    </div>
+                  )}
+
+                  {(selectedOrder.status === "cancel_approved" || selectedOrder.status === "cancelled") && (
+                    <div className="rounded-xl bg-red-50 border border-red-300 p-4 text-sm text-red-700 text-center font-semibold">
+                      Order cancelled
                     </div>
                   )}
                 </div>

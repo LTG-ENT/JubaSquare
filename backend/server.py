@@ -468,7 +468,20 @@ class RestaurantOrderIn(BaseModel):
 
 class OrderStatusUpdate(BaseModel):
     """Update order status in kitchen dashboard"""
-    status: Literal["pending", "accepted", "cooking", "ready", "completed", "cancelled"]
+    status: Literal[
+        "pending", "accepted", "cooking", "ready", "completed", "cancelled",
+        "cancel_requested", "cancel_approved", "cancel_rejected",
+    ]
+
+
+class CancelRequestIn(BaseModel):
+    """Seller requests cancellation of a restaurant order (status must be accepted/cooking/ready)"""
+    reason: str = ""
+
+
+class CancelRejectIn(BaseModel):
+    """Admin rejects a cancellation request — order reverts to previous_status"""
+    admin_note: str = ""
 
 
 class StatusIn(BaseModel):
@@ -2109,6 +2122,10 @@ async def create_restaurant_order(body: RestaurantOrderIn, user: dict = Depends(
     restaurant = await db.restaurants.find_one({"id": body.restaurant_id})
     if not restaurant:
         raise HTTPException(404, "Restaurant not found")
+    if restaurant.get("is_deleted"):
+        raise HTTPException(404, "Restaurant not found")
+    if not restaurant.get("is_open", True):
+        raise HTTPException(400, "Restaurant is currently closed. Please try again later.")
     
     # Calculate delivery fee
     delivery_fee = 0.0
@@ -2258,23 +2275,175 @@ async def update_restaurant_order_status(
     body: OrderStatusUpdate,
     user: dict = Depends(require_role("seller", "admin"))
 ):
-    """Update restaurant order status (Kitchen Dashboard)"""
+    """Update restaurant order status (Kitchen Dashboard).
+    Sellers may move forward (pending → accepted → cooking → ready → completed).
+    Sellers may NOT set cancelled/cancel_approved/cancel_rejected directly —
+    those go through the admin-approval flow at /restaurant-orders/{id}/request-cancel."""
     order = await db.restaurant_orders.find_one({"id": order_id})
     if not order:
         raise HTTPException(404, "Order not found")
-    
+
     # Verify seller owns the restaurant
     if user["role"] != "admin":
         restaurant = await db.restaurants.find_one({"id": order["restaurant_id"]})
         if not restaurant or restaurant["seller_id"] != user["id"]:
             raise HTTPException(403, "Forbidden")
-    
+        # Sellers cannot bypass the admin-approval flow
+        if body.status in {"cancelled", "cancel_approved", "cancel_rejected"}:
+            raise HTTPException(
+                403,
+                "Use POST /restaurant-orders/{id}/request-cancel — cancellations require admin approval.",
+            )
+
     await db.restaurant_orders.update_one(
         {"id": order_id},
         {"$set": {"status": body.status, "updated_at": now_iso()}}
     )
-    
+
+    # Trigger invoice rebuild on completion so commission is captured.
+    if body.status == "completed":
+        try:
+            await _rebuild_restaurant_invoices()
+        except Exception as e:
+            log.warning(f"Restaurant-invoice rebuild after completion failed: {e}")
+
     return {"ok": True, "status": body.status}
+
+
+# ----------------------------------------------------------------------------
+# Cancellation request flow (seller → admin approval)
+# ----------------------------------------------------------------------------
+@api.post("/restaurant-orders/{order_id}/request-cancel")
+async def request_order_cancel(
+    order_id: str,
+    body: CancelRequestIn,
+    user: dict = Depends(require_role("seller", "admin")),
+):
+    """Seller requests cancellation of an in-progress order.
+    Allowed when current status ∈ {accepted, cooking, ready}. Stores previous_status
+    so admin can either approve (→ cancel_approved) or reject (→ revert)."""
+    order = await db.restaurant_orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(404, "Order not found")
+
+    if user["role"] != "admin":
+        restaurant = await db.restaurants.find_one({"id": order["restaurant_id"]})
+        if not restaurant or restaurant["seller_id"] != user["id"]:
+            raise HTTPException(403, "Forbidden")
+
+    current = order.get("status")
+    if current not in {"accepted", "cooking", "ready"}:
+        raise HTTPException(400, f"Cannot request cancellation from status '{current}'")
+
+    await db.restaurant_orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "status": "cancel_requested",
+            "previous_status": current,
+            "cancel_reason": body.reason or "",
+            "cancel_requested_at": now_iso(),
+            "updated_at": now_iso(),
+        }},
+    )
+
+    # Notify customer that the seller has requested cancellation
+    customer_id = order.get("customer_id")
+    if customer_id:
+        await create_notification(
+            user_id=customer_id,
+            message=f"The restaurant has requested to cancel your order #{order_id[:8]}. Awaiting admin review.",
+            ntype="order",
+            meta={"order_id": order_id, "kind": "restaurant", "cancel_request": True},
+        )
+    return {"ok": True, "status": "cancel_requested", "previous_status": current}
+
+
+@api.get("/admin/cancel-requests")
+async def admin_list_cancel_requests(_: dict = Depends(require_role("admin"))):
+    """All pending cancellation requests across restaurants."""
+    return await db.restaurant_orders.find(
+        {"status": "cancel_requested"}, {"_id": 0}
+    ).sort("cancel_requested_at", -1).to_list(500)
+
+
+@api.post("/admin/cancel-requests/{order_id}/approve")
+async def admin_approve_cancel(order_id: str, _: dict = Depends(require_role("admin"))):
+    """Admin approves cancellation → status becomes cancel_approved (terminal)."""
+    order = await db.restaurant_orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(404, "Order not found")
+    if order.get("status") != "cancel_requested":
+        raise HTTPException(400, "No pending cancellation request")
+
+    await db.restaurant_orders.update_one(
+        {"id": order_id},
+        {"$set": {"status": "cancel_approved", "cancel_decided_at": now_iso(), "updated_at": now_iso()}},
+    )
+    # Notify customer
+    customer_id = order.get("customer_id")
+    if customer_id:
+        await create_notification(
+            user_id=customer_id,
+            message=f"Your order #{order_id[:8]} was cancelled by the restaurant (admin-approved).",
+            ntype="order",
+            meta={"order_id": order_id, "kind": "restaurant", "cancel_approved": True},
+        )
+    # Notify seller
+    restaurant = await db.restaurants.find_one({"id": order.get("restaurant_id")})
+    seller_id = restaurant.get("seller_id") if restaurant else None
+    if seller_id:
+        await create_notification(
+            user_id=seller_id,
+            message=f"Cancellation approved for order #{order_id[:8]}.",
+            ntype="order",
+            meta={"order_id": order_id, "kind": "restaurant", "cancel_approved": True},
+        )
+    return {"ok": True, "status": "cancel_approved"}
+
+
+@api.post("/admin/cancel-requests/{order_id}/reject")
+async def admin_reject_cancel(order_id: str, body: CancelRejectIn, _: dict = Depends(require_role("admin"))):
+    """Admin rejects cancellation → order reverts to previous_status and customer is notified."""
+    order = await db.restaurant_orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(404, "Order not found")
+    if order.get("status") != "cancel_requested":
+        raise HTTPException(400, "No pending cancellation request")
+
+    previous = order.get("previous_status") or "accepted"
+    await db.restaurant_orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "status": previous,
+            "cancel_decided_at": now_iso(),
+            "cancel_rejected_note": body.admin_note or "",
+            "updated_at": now_iso(),
+        }},
+    )
+    # Notify customer (per user requirement)
+    customer_id = order.get("customer_id")
+    if customer_id:
+        await create_notification(
+            user_id=customer_id,
+            message=(
+                f"Cancellation request for your order #{order_id[:8]} was rejected — "
+                f"the restaurant will fulfil it. Status restored to '{previous}'."
+            ),
+            ntype="order",
+            meta={"order_id": order_id, "kind": "restaurant", "cancel_rejected": True, "restored_status": previous},
+        )
+    # Notify seller
+    restaurant = await db.restaurants.find_one({"id": order.get("restaurant_id")})
+    seller_id = restaurant.get("seller_id") if restaurant else None
+    if seller_id:
+        msg = f"Cancellation rejected for order #{order_id[:8]}. Order restored to '{previous}'."
+        if body.admin_note:
+            msg += f" Admin note: {body.admin_note}"
+        await create_notification(
+            user_id=seller_id, message=msg, ntype="order",
+            meta={"order_id": order_id, "kind": "restaurant", "cancel_rejected": True, "restored_status": previous},
+        )
+    return {"ok": True, "status": previous}
 
 
 # ----------------------------------------------------------------------------
@@ -3647,6 +3816,138 @@ async def seller_list_invoices(user: dict = Depends(require_role("seller", "admi
 
 
 # ----------------------------------------------------------------------------
+# Restaurant Invoices (separate weekly table for restaurant-order commissions)
+# ----------------------------------------------------------------------------
+async def _rebuild_restaurant_invoices():
+    """Regenerate restaurant_invoices from all completed restaurant_orders.
+    One invoice per (seller, restaurant, ISO-week). Mirrors _rebuild_invoices() but
+    keeps restaurant commissions in a separate collection per product spec."""
+    settings = await get_settings()
+    global_rate = float(settings.get("commission_rate", 0.10))
+
+    restaurants = await db.restaurants.find({}, {"_id": 0}).to_list(500)
+    rest_by_id = {r["id"]: r for r in restaurants}
+
+    rate_for = {}
+    for r in restaurants:
+        rc = r.get("commission_rate")
+        rate_for[r["id"]] = float(rc) if rc is not None else global_rate
+
+    orders = await db.restaurant_orders.find({"status": "completed"}, {"_id": 0}).to_list(5000)
+    buckets: dict = {}
+    for o in orders:
+        try:
+            created = datetime.fromisoformat(o["created_at"])
+        except Exception:
+            continue
+        rest = rest_by_id.get(o.get("restaurant_id"))
+        if not rest:
+            continue
+        seller_id = rest.get("seller_id")
+        if not seller_id:
+            continue
+        ws, we, label = _iso_week_range(created)
+        key = (seller_id, rest["id"], ws)
+        b = buckets.setdefault(key, {
+            "seller_id": seller_id,
+            "restaurant_id": rest["id"],
+            "restaurant_name": rest.get("name", "—"),
+            "week_start": ws, "week_end": we, "week_label": label,
+            "total_sales": 0.0, "order_count": 0, "_orders": set(),
+        })
+        # Restaurant orders already carry computed subtotal (items + sides);
+        # delivery_fee is excluded from commissionable revenue.
+        b["total_sales"] += float(o.get("subtotal") or 0)
+        b["_orders"].add(o["id"])
+
+    existing = {
+        (inv["seller_id"], inv["restaurant_id"], inv["week_start"]): inv
+        for inv in await db.restaurant_invoices.find({}, {"_id": 0}).to_list(5000)
+    }
+
+    await db.restaurant_invoices.delete_many({})
+    now = now_iso()
+    for (seller_id, restaurant_id, ws), b in buckets.items():
+        effective_rate = rate_for.get(restaurant_id, global_rate)
+        commission = round(b["total_sales"] * effective_rate, 2)
+        prev = existing.get((seller_id, restaurant_id, ws), {})
+        await db.restaurant_invoices.insert_one({
+            "id": prev.get("id", str(uuid.uuid4())),
+            "seller_id": seller_id,
+            "restaurant_id": restaurant_id,
+            "restaurant_name": b["restaurant_name"],
+            "week_start": ws,
+            "week_end": b["week_end"],
+            "week_label": b["week_label"],
+            "total_sales": round(b["total_sales"], 2),
+            "commission": commission,
+            "amount_owed": commission,
+            "order_count": len(b["_orders"]),
+            "commission_rate": effective_rate,
+            "status": prev.get("status", "Unpaid"),
+            "created_at": prev.get("created_at", now),
+            "updated_at": now,
+        })
+
+
+@api.post("/admin/restaurant-invoices/generate")
+async def admin_regenerate_restaurant_invoices(_: dict = Depends(require_role("admin"))):
+    await _rebuild_restaurant_invoices()
+    count = await db.restaurant_invoices.count_documents({})
+    return {"ok": True, "count": count}
+
+
+@api.get("/admin/restaurant-invoices")
+async def admin_list_restaurant_invoices(status: Optional[str] = None, _: dict = Depends(require_role("admin"))):
+    q: dict = {}
+    if status in {"Paid", "Unpaid"}:
+        q["status"] = status
+    return await db.restaurant_invoices.find(q, {"_id": 0}).sort("week_start", -1).to_list(1000)
+
+
+@api.put("/admin/restaurant-invoices/{invoice_id}/status")
+async def admin_set_restaurant_invoice_status(
+    invoice_id: str, body: InvoiceStatusIn, _: dict = Depends(require_role("admin"))
+):
+    inv = await db.restaurant_invoices.find_one({"id": invoice_id})
+    if not inv:
+        raise HTTPException(404, "Restaurant invoice not found")
+    await db.restaurant_invoices.update_one(
+        {"id": invoice_id},
+        {"$set": {"status": body.status, "updated_at": now_iso()}},
+    )
+
+    sid = inv.get("seller_id")
+    amount = float(inv.get("commission") or inv.get("amount_owed") or 0)
+    label = inv.get("week_label") or inv.get("restaurant_name") or ""
+    if sid:
+        if body.status == "Paid":
+            await create_notification(
+                user_id=sid,
+                message=f"Your restaurant commission invoice has been marked paid (USD {amount:.2f}) — {label}.",
+                ntype="commission",
+                meta={"restaurant_invoice_id": invoice_id, "paid": True},
+            )
+        elif body.status == "Overdue":
+            await create_notification(
+                user_id=sid,
+                message=f"Your restaurant commission invoice is overdue (USD {amount:.2f}) — {label}.",
+                ntype="commission",
+                meta={"restaurant_invoice_id": invoice_id},
+            )
+    return await db.restaurant_invoices.find_one({"id": invoice_id}, {"_id": 0})
+
+
+@api.get("/seller/restaurant-invoices")
+async def seller_list_restaurant_invoices(user: dict = Depends(require_role("seller", "admin"))):
+    return await db.restaurant_invoices.find(
+        {"seller_id": user["id"]}, {"_id": 0}
+    ).sort("week_start", -1).to_list(500)
+
+
+
+
+# ----------------------------------------------------------------------------
 # Seeding (production: only settings + a single admin account)
 # ----------------------------------------------------------------------------
 async def seed_production():
@@ -3662,6 +3963,8 @@ async def seed_production():
     await db.blocked_emails.create_index("email", unique=True)
     await db.favorites.create_index([("user_id", 1), ("target_type", 1), ("target_id", 1)])
     await db.invoices.create_index("id", unique=True)
+    await db.restaurant_invoices.create_index("id", unique=True)
+    await db.restaurant_invoices.create_index([("seller_id", 1), ("week_start", -1)])
     await db.reviews.create_index([("product_id", 1)])
     await db.reviews.create_index("id", unique=True)
     await db.notifications.create_index("id", unique=True)
