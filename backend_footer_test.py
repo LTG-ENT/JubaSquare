@@ -10,7 +10,7 @@ import time
 from typing import Optional
 
 # Backend URL from frontend/.env
-BASE_URL = "https://user-admin-center.preview.emergentagent.com/api"
+BASE_URL = "https://category-bulletproof.preview.emergentagent.com/api"
 
 # Admin credentials
 ADMIN_EMAIL = "ltg-general-trading@hotmail.com"
