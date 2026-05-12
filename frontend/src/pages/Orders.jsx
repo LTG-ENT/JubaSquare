@@ -104,15 +104,28 @@ function ReviewModal({ item, onClose, onSubmitted }) {
 }
 
 export default function Orders() {
-  const [orders, setOrders] = useState([]);
+  const [marketplaceOrders, setMarketplaceOrders] = useState([]);
+  const [restaurantOrders, setRestaurantOrders] = useState([]);
   const [searchParams] = useSearchParams();
   const newId = searchParams.get("new");
   const [reviewItem, setReviewItem] = useState(null);
   const [reviewedIds, setReviewedIds] = useState(new Set()); // session-only set of product_ids the user reviewed via this page
+  const [activeTab, setActiveTab] = useState("all"); // "all", "marketplace", "restaurant"
 
   useEffect(() => {
-    api.get("/orders/mine?limit=200").then((r) => setOrders(r.data));
+    // Fetch marketplace orders
+    api.get("/orders/mine?limit=200").then((r) => setMarketplaceOrders(r.data)).catch(() => setMarketplaceOrders([]));
+    // Fetch restaurant orders
+    api.get("/restaurant-orders").then((r) => setRestaurantOrders(r.data)).catch(() => setRestaurantOrders([]));
   }, []);
+
+  const allOrders = [...marketplaceOrders, ...restaurantOrders].sort((a, b) => 
+    new Date(b.created_at) - new Date(a.created_at)
+  );
+
+  const displayOrders = activeTab === "all" ? allOrders :
+                        activeTab === "marketplace" ? marketplaceOrders :
+                        restaurantOrders;
 
   const onReviewSubmitted = (productId) => {
     setReviewedIds((prev) => {
@@ -127,9 +140,43 @@ export default function Orders() {
       <Header />
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full flex-1">
         <h1 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">My orders</h1>
-        <p className="text-sm text-[#5C5C5C] mt-1">{orders.length} order{orders.length !== 1 && "s"}</p>
+        <p className="text-sm text-[#5C5C5C] mt-1">{allOrders.length} order{allOrders.length !== 1 && "s"}</p>
+        
+        {/* Order Type Tabs */}
+        <div className="flex gap-2 mt-6 mb-6">
+          <button
+            onClick={() => setActiveTab("all")}
+            className={`px-4 py-2 rounded-full text-sm font-semibold transition ${
+              activeTab === "all"
+                ? "bg-[#C84B31] text-white"
+                : "bg-[var(--js-subtle)] text-[var(--js-text)] hover:bg-[var(--js-border)]"
+            }`}
+          >
+            All ({allOrders.length})
+          </button>
+          <button
+            onClick={() => setActiveTab("marketplace")}
+            className={`px-4 py-2 rounded-full text-sm font-semibold transition ${
+              activeTab === "marketplace"
+                ? "bg-[#C84B31] text-white"
+                : "bg-[var(--js-subtle)] text-[var(--js-text)] hover:bg-[var(--js-border)]"
+            }`}
+          >
+            Marketplace ({marketplaceOrders.length})
+          </button>
+          <button
+            onClick={() => setActiveTab("restaurant")}
+            className={`px-4 py-2 rounded-full text-sm font-semibold transition ${
+              activeTab === "restaurant"
+                ? "bg-[#C84B31] text-white"
+                : "bg-[var(--js-subtle)] text-[var(--js-text)] hover:bg-[var(--js-border)]"
+            }`}
+          >
+            Restaurants ({restaurantOrders.length})
+          </button>
+        </div>
 
-        {orders.length === 0 ? (
+        {displayOrders.length === 0 ? (
           <div className="mt-12 text-center py-20 bg-white rounded-3xl border border-[#E2E2D9]" data-testid="empty-orders">
             <Package className="w-12 h-12 mx-auto text-[#A3A39E]" />
             <p className="font-display font-semibold text-xl text-[#1A1A1A] mt-4">No orders yet</p>
@@ -137,7 +184,60 @@ export default function Orders() {
           </div>
         ) : (
           <div className="mt-8 space-y-4">
-            {orders.map((o) => {
+            {displayOrders.map((o) => {
+              // Check if this is a restaurant order
+              const isRestaurant = !!o.restaurant_id;
+              
+              if (isRestaurant) {
+                // Restaurant order display
+                const STATUS_CONFIG = {
+                  pending: { label: "Pending", bg: "bg-yellow-500" },
+                  accepted: { label: "Accepted", bg: "bg-blue-500" },
+                  cooking: { label: "Cooking", bg: "bg-orange-500" },
+                  ready: { label: "Ready", bg: "bg-green-500" },
+                  completed: { label: "Completed", bg: "bg-gray-500" },
+                };
+                const config = STATUS_CONFIG[o.status] || STATUS_CONFIG.pending;
+                const canReview = o.status === "completed";
+                
+                return (
+                  <div key={o.id} className="bg-white border border-[#E2E2D9] rounded-3xl p-5 sm:p-6">
+                    <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-[0.18em] text-[#5C5C5C] font-bold">RESTAURANT</p>
+                        <p className="font-display font-semibold text-lg text-[#1A1A1A]">{o.restaurant_name}</p>
+                        <p className="text-xs text-[#5C5C5C] mt-0.5">{new Date(o.created_at).toLocaleString()}</p>
+                      </div>
+                      <div className={`${config.bg} ${s.text || "text-white"} px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1`}>
+                        {config.label}
+                      </div>
+                    </div>
+                    
+                    <div className="border-t border-[#E2E2D9] pt-4 space-y-2">
+                      {o.items.map((item, idx) => (
+                        <div key={idx} className="flex justify-between text-sm">
+                          <span className="text-[#5C5C5C]">{item.quantity}x {item.name}</span>
+                          <span className="font-medium text-[#1A1A1A]">{formatUSD(item.price_usd * item.quantity)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    <div className="flex items-center justify-between mt-4 pt-4 border-t border-[#E2E2D9]">
+                      <div className="font-bold text-lg text-[#1A1A1A]">Total: {formatUSD(o.total)}</div>
+                      {canReview && (
+                        <button
+                          onClick={() => {/* TODO: open review modal for restaurant */}}
+                          className="bg-[#E9C46A] hover:bg-[#D4B05A] text-[#0E1A2B] text-sm font-semibold px-4 py-2 rounded-full flex items-center gap-1"
+                        >
+                          <Star className="w-4 h-4" /> Write Review
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+              
+              // Marketplace order display (original code)
               const s = STATUS_STYLES[o.status] || STATUS_STYLES.Pending;
               const Icon = s.icon;
               const isNew = o.id === newId;
