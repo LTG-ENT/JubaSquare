@@ -55,6 +55,75 @@
     border-color: var(--js-border);
 }
 
+/* ---------------------------------------------------------------------------
+ * Dark mode: auto-invert hardcoded dark text colors so they stay readable.
+ * These cover the most common hex values used across the app.
+ * ------------------------------------------------------------------------- */
+[data-theme="dark"] .text-\[\#1A1A1A\],
+[data-theme="dark"] .text-\[\#1a1a1a\],
+[data-theme="dark"] .text-\[\#0E1A2B\],
+[data-theme="dark"] .text-\[\#0B1426\],
+[data-theme="dark"] .text-black,
+[data-theme="dark"] .text-gray-900,
+[data-theme="dark"] .text-gray-800,
+[data-theme="dark"] .text-slate-900,
+[data-theme="dark"] .text-slate-800,
+[data-theme="dark"] .text-neutral-900,
+[data-theme="dark"] .text-zinc-900 {
+    color: var(--js-text) !important;
+}
+
+[data-theme="dark"] .text-\[\#5C5C5C\],
+[data-theme="dark"] .text-\[\#5c5c5c\],
+[data-theme="dark"] .text-gray-700,
+[data-theme="dark"] .text-gray-600,
+[data-theme="dark"] .text-gray-500,
+[data-theme="dark"] .text-slate-700,
+[data-theme="dark"] .text-slate-600,
+[data-theme="dark"] .text-neutral-700,
+[data-theme="dark"] .text-neutral-600,
+[data-theme="dark"] .text-zinc-700,
+[data-theme="dark"] .text-zinc-600 {
+    color: var(--js-text-secondary) !important;
+}
+
+[data-theme="dark"] .text-\[\#A3A39E\],
+[data-theme="dark"] .text-\[\#a3a39e\],
+[data-theme="dark"] .text-gray-400,
+[data-theme="dark"] .text-gray-300,
+[data-theme="dark"] .text-slate-400,
+[data-theme="dark"] .text-neutral-400,
+[data-theme="dark"] .text-zinc-400 {
+    color: var(--js-text-disabled) !important;
+}
+
+/* Soft surfaces (off-white tints) should pick up dark paper in dark mode */
+[data-theme="dark"] .bg-\[\#F9F9F6\],
+[data-theme="dark"] .bg-\[\#F2EBE5\],
+[data-theme="dark"] .bg-\[\#FAF8F4\],
+[data-theme="dark"] .bg-\[\#FAFAF7\],
+[data-theme="dark"] .bg-gray-50,
+[data-theme="dark"] .bg-gray-100,
+[data-theme="dark"] .bg-slate-50,
+[data-theme="dark"] .bg-slate-100,
+[data-theme="dark"] .bg-neutral-50,
+[data-theme="dark"] .bg-neutral-100,
+[data-theme="dark"] .bg-zinc-50,
+[data-theme="dark"] .bg-zinc-100 {
+    background-color: var(--js-paper) !important;
+    color: var(--js-text);
+}
+
+/* Hard light-tinted borders look harsh on dark — soften them */
+[data-theme="dark"] .border-\[\#E2E2D9\],
+[data-theme="dark"] .border-gray-200,
+[data-theme="dark"] .border-gray-100,
+[data-theme="dark"] .border-slate-200,
+[data-theme="dark"] .border-neutral-200,
+[data-theme="dark"] .border-zinc-200 {
+    border-color: var(--js-border) !important;
+}
+
 html, body, #root {
     background: var(--js-bg);
     color: var(--js-text);
