@@ -13,12 +13,13 @@ const STATUS_CONFIG = {
   cooking: { label: "Cooking", color: "bg-orange-500", icon: ChefHat },
   ready: { label: "Ready", color: "bg-green-500", icon: Package },
   completed: { label: "Completed", color: "bg-gray-500", icon: CheckCircle },
+  cancellations: { label: "Cancellations", color: "bg-red-500", icon: XCircle },
   cancel_requested: { label: "Cancel Pending", color: "bg-yellow-600", icon: XCircle },
   cancel_approved: { label: "Cancelled (admin)", color: "bg-red-500", icon: XCircle },
   cancelled: { label: "Cancelled", color: "bg-red-500", icon: XCircle },
 };
 
-const PRIMARY_STATUSES = ["pending", "accepted", "cooking", "ready", "completed"];
+const PRIMARY_STATUSES = ["pending", "accepted", "cooking", "ready", "completed", "cancellations"];
 const CANCEL_STATUSES = ["cancel_requested", "cancel_approved", "cancelled"];
 
 export default function KitchenDashboard() {
@@ -218,6 +219,7 @@ export default function KitchenDashboard() {
     cooking: orders.filter(o => o.status === "cooking"),
     ready: orders.filter(o => o.status === "ready"),
     completed: orders.filter(o => o.status === "completed"),
+    cancellations: orders.filter(o => CANCEL_STATUSES.includes(o.status)),
     cancel_requested: orders.filter(o => o.status === "cancel_requested"),
     cancel_approved: orders.filter(o => o.status === "cancel_approved"),
     cancelled: orders.filter(o => o.status === "cancelled"),
@@ -225,6 +227,8 @@ export default function KitchenDashboard() {
   
   const filteredOrders = activeFilter === "all" 
     ? orders 
+    : activeFilter === "cancellations"
+    ? orders.filter(o => CANCEL_STATUSES.includes(o.status))
     : orders.filter(o => o.status === activeFilter);
   
   if (loading) {
@@ -282,12 +286,9 @@ export default function KitchenDashboard() {
           )}
         </div>
         
-        {/* Stats — primary lifecycle + any cancellation buckets that have orders */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-          {[
-            ...PRIMARY_STATUSES,
-            ...CANCEL_STATUSES.filter((s) => (ordersByStatus[s] || []).length > 0),
-          ].map((status) => {
+        {/* Stats — primary lifecycle including Cancellations tab */}
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
+          {PRIMARY_STATUSES.map((status) => {
             const config = STATUS_CONFIG[status];
             if (!config) return null;
             const Icon = config.icon;
