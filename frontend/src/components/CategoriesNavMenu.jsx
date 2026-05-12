@@ -4,10 +4,25 @@ import api from "@/lib/api";
 import { LayoutGrid, ChevronDown } from "lucide-react";
 
 const GROUPS = [
-  { id: "retail", label: "Retail", linkBase: "/marketplace?category=" },
-  { id: "wholesale", label: "Wholesale", linkBase: "/marketplace?view=wholesale&category=" },
-  { id: "restaurant", label: "Restaurants", linkBase: "/restaurants?category=" },
+  { id: "retail", label: "Retail" },
+  { id: "wholesale", label: "Wholesale" },
+  { id: "restaurant", label: "Restaurants" },
 ];
+
+/**
+ * Build a deep-link for a category click in the mega-menu.
+ *  - Restaurant categories use `category_id` (single source of truth: DB).
+ *  - Retail/wholesale still use the name-based `category` query for now.
+ */
+function buildHref(groupId, cat) {
+  if (groupId === "restaurant") {
+    return `/restaurants?category_id=${encodeURIComponent(cat.id)}`;
+  }
+  if (groupId === "wholesale") {
+    return `/marketplace?view=wholesale&category=${encodeURIComponent(cat.name)}`;
+  }
+  return `/marketplace?category=${encodeURIComponent(cat.name)}`;
+}
 
 /**
  * Categories nav button with a hover-triggered mega-menu dropdown.
@@ -57,11 +72,7 @@ export default function CategoriesNavMenu({ active, onNavigate, trigger }) {
     setOpen(true);
   };
 
-  const buildHref = (groupId, name) => {
-    const g = GROUPS.find((x) => x.id === groupId);
-    if (!g) return "/marketplace";
-    return `${g.linkBase}${encodeURIComponent(name)}`;
-  };
+  const buildHrefFor = (groupId, cat) => buildHref(groupId, cat);
 
   const groupHasItems = (gid) => (data[gid] || []).length > 0;
   const totalCount = Object.values(data).reduce(
@@ -145,7 +156,7 @@ export default function CategoriesNavMenu({ active, onNavigate, trigger }) {
                     return (
                       <div key={parent.id} className="min-w-0">
                         <Link
-                          to={buildHref(activeGroup, parent.name)}
+                          to={buildHrefFor(activeGroup, parent)}
                           onClick={() => {
                             setOpen(false);
                             onNavigate?.();
@@ -178,7 +189,7 @@ export default function CategoriesNavMenu({ active, onNavigate, trigger }) {
                               return (
                                 <li key={sub.id}>
                                   <Link
-                                    to={buildHref(activeGroup, sub.name)}
+                                    to={buildHrefFor(activeGroup, sub)}
                                     onClick={() => {
                                       setOpen(false);
                                       onNavigate?.();

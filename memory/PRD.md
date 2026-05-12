@@ -74,6 +74,11 @@ Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode fo
 - Restaurant filtering on click: `restaurants.filter(r => menuItems.some(m => m.restaurant_id === r.id && m.food_category === selected))`.
 - Auto-sync: admin `POST/PUT/DELETE /api/admin/categories` already calls `cache_invalidate("cat:")`, so any new admin category (e.g., adding "BBQ") appears on next page mount without redeploy.
 
+### Iter 6.4 (Feb 2026) — Header dropdown navigates by category_id
+- `CategoriesNavMenu.jsx`: restaurant-group links now use `/restaurants?category_id=<uuid>` instead of `/restaurants?category=<name>`. Retail/wholesale still use name-based params (separate concern).
+- `Restaurants.jsx`: rewrote state to be keyed by category id. Reads `category_id` from URL first; falls back to legacy `category=name` if present. Resolves id → category name (using the live DB list) to filter menu items. Active chip syncs reliably regardless of how the URL was reached.
+- Result: clicking any admin-defined category from the Header mega-menu opens `/restaurants?category_id=<id>` and the matching chip becomes active and filters correctly. Verified for Drinks (1 card), Local Food (empty state), and the newly-added admin category "test" appeared automatically.
+
 ## Backlog (P1 / P2)
 - **P1** Unread message badge polling / realtime updates on Messages tab
 - **P1** COD-only checkout enforcement on `/shop/:shop_id` order flow (currently only banner)

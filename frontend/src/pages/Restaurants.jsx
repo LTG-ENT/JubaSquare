@@ -7,52 +7,103 @@ import RestaurantCard from "@/components/RestaurantCard";
 import AreaSelector from "@/components/AreaSelector";
 import { useCart } from "@/context/CartContext";
 
+/**
+ * Restaurants page — fully DB-driven categories.
+ *
+ * Routing contract (single source of truth = DB `categories` collection):
+ *   /restaurants?category_id=<uuid>   →  primary (used by Header mega-menu)
+ *   /restaurants?category=<name>      →  legacy fallback, still accepted
+ *
+ * Category state inside the page is always keyed by category id so the active
+ * chip stays in sync regardless of how the URL was reached.
+ */
 export default function Restaurants() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [restaurants, setRestaurants] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
-  // Admin-managed restaurant categories — the SINGLE SOURCE OF TRUTH.
+  // Admin-managed restaurant categories — full objects so we can map id ↔ name.
   const [dbCategories, setDbCategories] = useState([]);
-  const [activeCat, setActiveCat] = useState(searchParams.get("category") || "All");
+  // `activeCatId === "all"` means show every restaurant. Otherwise it is the
+  // DB category id whose menu items the user wants to filter by.
+  const [activeCatId, setActiveCatId] = useState("all");
   const [sortBy, setSortBy] = useState("recommended");
   const { area, setArea } = useCart();
 
+  // Fetch all data on mount. Auto-syncs on revisit because backend invalidates
+  // its 60s `cat:` cache on every admin write.
   useEffect(() => {
     api.get("/restaurants?limit=200").then((r) => setRestaurants(r.data));
     api.get("/menu-items?limit=200").then((r) => {
       setMenuItems(Array.isArray(r.data) ? r.data : []);
     });
-    // Fetch admin-defined top-level restaurant categories. /categories/tree
-    // already filters to active categories and returns them grouped.
-    api.get("/categories/tree?group=restaurant").then((r) => {
-      const tree = Array.isArray(r.data) ? r.data : [];
-      setDbCategories(tree.map((c) => c.name));
-    }).catch(() => setDbCategories([]));
+    api
+      .get("/categories/tree?group=restaurant")
+      .then((r) => {
+        const tree = Array.isArray(r.data) ? r.data : [];
+        // Keep id + name only — that is all the page needs.
+        setDbCategories(tree.map((c) => ({ id: c.id, name: c.name })));
+      })
+      .catch(() => setDbCategories([]));
   }, []);
 
-  // Update activeCat when URL params change
+  // Resolve activeCatId from the URL whenever it changes OR whenever the
+  // category list arrives. We support both `category_id` (preferred) and
+  // `category` (legacy name match) so old bookmarks still work.
   useEffect(() => {
-    const cat = searchParams.get("category");
-    if (cat) setActiveCat(cat);
-  }, [searchParams]);
+    const id = searchParams.get("category_id");
+    const name = searchParams.get("category");
+    if (id) {
+      setActiveCatId(id);
+      // eslint-disable-next-line no-console
+      console.debug("[Restaurants] activeCatId from URL category_id:", id);
+      return;
+    }
+    if (name && dbCategories.length > 0) {
+      const match = dbCategories.find(
+        (c) => c.name.toLowerCase() === name.toLowerCase(),
+      );
+      if (match) {
+        setActiveCatId(match.id);
+        // eslint-disable-next-line no-console
+        console.debug("[Restaurants] activeCatId resolved from name:", name, "→", match.id);
+        return;
+      }
+    }
+    setActiveCatId("all");
+  }, [searchParams, dbCategories]);
 
-  // Chips: "All" + ALL admin-defined restaurant categories (DB source of truth).
-  // Categories are shown regardless of whether they currently have menu items.
-  // The empty state for a clicked-but-unused category renders below the chips.
-  const cats = useMemo(() => ["All", ...dbCategories], [dbCategories]);
+  // Resolve active id → name for menu-item filtering (menu_items.food_category
+  // is stored by name). When the id doesn't match anything (e.g., stale link
+  // after admin deleted a category), the filter returns no restaurants and the
+  // empty state renders.
+  const activeCatName = useMemo(() => {
+    if (activeCatId === "all") return "All";
+    return dbCategories.find((c) => c.id === activeCatId)?.name || "";
+  }, [activeCatId, dbCategories]);
 
-  // Filter restaurants: show only those whose menu items match the selected DB category.
+  // Chips = "All" + every admin-defined top-level restaurant category.
+  const chips = useMemo(
+    () => [{ id: "all", name: "All" }, ...dbCategories],
+    [dbCategories],
+  );
+
+  // Filter restaurants: keep only those whose menu_items.food_category matches
+  // the selected category name. Equivalent SQL semantics:
+  //   SELECT DISTINCT r.* FROM restaurants r
+  //   WHERE EXISTS (SELECT 1 FROM menu_items m
+  //                 WHERE m.restaurant_id = r.id
+  //                   AND m.food_category = :selected_name)
   const filtered = useMemo(() => {
-    if (activeCat === "All") return restaurants;
+    if (activeCatId === "all" || !activeCatName) return restaurants;
     const restaurantIds = new Set(
       menuItems
-        .filter((m) => m.food_category === activeCat)
+        .filter((m) => m.food_category === activeCatName)
         .map((m) => m.restaurant_id),
     );
     return restaurants.filter((r) => restaurantIds.has(r.id));
-  }, [activeCat, restaurants, menuItems]);
+  }, [activeCatId, activeCatName, restaurants, menuItems]);
 
-  // Backend already sorts verified-first. Apply client sort options.
+  // Backend already sorts verified-first; apply client sort on top.
   const sorted = useMemo(() => {
     const arr = [...filtered];
     if (sortBy === "name_asc") arr.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
@@ -60,6 +111,16 @@ export default function Restaurants() {
     else if (sortBy === "rating") arr.sort((a, b) => (b.rating || 0) - (a.rating || 0));
     return arr;
   }, [filtered, sortBy]);
+
+  const onChipClick = (chip) => {
+    if (chip.id === "all") {
+      setActiveCatId("all");
+      setSearchParams({});
+    } else {
+      setActiveCatId(chip.id);
+      setSearchParams({ category_id: chip.id });
+    }
+  };
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -77,27 +138,25 @@ export default function Restaurants() {
         </div>
 
         <div className="flex flex-wrap gap-2 mb-8 items-center">
-          {cats.map((c) => (
-            <button
-              key={c}
-              onClick={() => {
-                setActiveCat(c);
-                if (c === "All") {
-                  setSearchParams({});
-                } else {
-                  setSearchParams({ category: c });
-                }
-              }}
-              data-testid={`restaurant-cat-${c.replace(/\s+/g, "-").toLowerCase()}`}
-              className={`px-4 py-2 rounded-full text-sm font-semibold transition ${
-                activeCat === c
-                  ? "bg-[#C84B31] text-white"
-                  : "bg-white border border-[#E2E2D9] text-[#1A1A1A] hover:border-[#C84B31]"
-              }`}
-            >
-              {c}
-            </button>
-          ))}
+          {chips.map((chip) => {
+            const slug = chip.name.replace(/\s+/g, "-").toLowerCase();
+            const isActive = activeCatId === chip.id;
+            return (
+              <button
+                key={chip.id}
+                onClick={() => onChipClick(chip)}
+                data-testid={`restaurant-cat-${slug}`}
+                data-category-id={chip.id}
+                className={`px-4 py-2 rounded-full text-sm font-semibold transition ${
+                  isActive
+                    ? "bg-[#C84B31] text-white"
+                    : "bg-white border border-[#E2E2D9] text-[#1A1A1A] hover:border-[#C84B31]"
+                }`}
+              >
+                {chip.name}
+              </button>
+            );
+          })}
 
           <div className="ml-auto flex items-center gap-2">
             <label className="text-xs font-semibold text-[#5C5C5C]">Sort by</label>
@@ -116,7 +175,9 @@ export default function Restaurants() {
         </div>
 
         {sorted.length === 0 ? (
-          <div className="text-center py-20 text-[#5C5C5C]">No restaurants in this category.</div>
+          <div className="text-center py-20 text-[#5C5C5C]" data-testid="restaurants-empty">
+            No restaurants in this category.
+          </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {sorted.map((r) => <RestaurantCard key={r.id} restaurant={r} />)}
