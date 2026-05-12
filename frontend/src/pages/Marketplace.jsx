@@ -33,7 +33,9 @@ export default function Marketplace() {
   const selectedShop = searchParams.get("shop") || "";
 
   useEffect(() => {
-    api.get("/shops?limit=200").then((r) => setShops(r.data));
+    api.get("/shops?limit=200")
+      .then((r) => setShops(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setShops([]));
     // Pull retail tree (with sub-categories) for the sidebar.
     api
       .get("/categories/tree?group=retail")
@@ -54,28 +56,39 @@ export default function Marketplace() {
     if (selectedShop) params.shop_id = selectedShop;
     if (typeFilter === "retail") params.is_wholesale = false;
     if (typeFilter === "wholesale") params.is_wholesale = true;
-    api.get("/products", { params: { ...params, limit: 200 } }).then((r) => setProducts(r.data));
+    api.get("/products", { params: { ...params, limit: 200 } })
+      .then((r) => setProducts(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setProducts([]));
   }, [selectedCategoryId, selectedCategoryLegacy, selectedShop, typeFilter]);
 
-  const categories = useMemo(
-    () => [...new Set(products.map((p) => p.category))].filter(Boolean),
-    [products],
-  );
+  const categories = useMemo(() => {
+    try {
+      return [...new Set(products.map((p) => p.category).filter(Boolean))];
+    } catch (err) {
+      console.error("Error processing categories:", err);
+      return [];
+    }
+  }, [products]);
 
   // Merge categories from products with the admin-managed tree:
   //   - Use the tree as the primary source (so admin order + sub-categories are respected)
   //   - Also include any product categories that exist but aren't yet in the tree (legacy/unknown)
   const sidebarCats = useMemo(() => {
-    const treeNames = new Set();
-    categoryTree.forEach((c) => {
-      treeNames.add(c.name);
-      (c.children || []).forEach((s) => treeNames.add(s.name));
-    });
-    const orphans = categories.filter((c) => c && !treeNames.has(c));
-    return [
-      ...categoryTree.map((c) => ({ ...c, _kind: "tree" })),
-      ...orphans.map((name) => ({ id: `orphan-${name}`, name, children: [], _kind: "orphan" })),
-    ];
+    try {
+      const treeNames = new Set();
+      categoryTree.forEach((c) => {
+        treeNames.add(c.name);
+        (c.children || []).forEach((s) => treeNames.add(s.name));
+      });
+      const orphans = categories.filter((c) => c && !treeNames.has(c));
+      return [
+        ...categoryTree.map((c) => ({ ...c, _kind: "tree" })),
+        ...orphans.map((name) => ({ id: `orphan-${name}`, name, children: [], _kind: "orphan" })),
+      ];
+    } catch (err) {
+      console.error("Error processing sidebar categories:", err);
+      return categoryTree || [];
+    }
   }, [categoryTree, categories]);
 
   const toggleCatExpanded = (id) =>
