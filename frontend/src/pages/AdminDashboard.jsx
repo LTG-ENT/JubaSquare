@@ -76,18 +76,23 @@ function AdminShopsTab() {
   const [shops, setShops] = useState([]);
   const [detail, setDetail] = useState(null);
   const [commissionDraft, setCommissionDraft] = useState("");
+  const [invoiceFrequencyDraft, setInvoiceFrequencyDraft] = useState("");
   const [globalRate, setGlobalRate] = useState(0.10);
+  const [globalFrequency, setGlobalFrequency] = useState("weekly");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const load = async () => {
     const [s, g] = await Promise.all([api.get("/shops?limit=200"), api.get("/admin/settings")]);
     setShops(s.data);
     setGlobalRate(g.data.commission_rate || 0.10);
+    setGlobalFrequency(g.data.invoice_frequency || "weekly");
   };
   useEffect(() => { load(); }, []);
 
   const openDetail = (s) => {
     setDetail(s);
     setCommissionDraft(s.commission_rate != null ? String(s.commission_rate) : "");
+    setInvoiceFrequencyDraft(s.invoice_frequency || "");
   };
 
   const verify = async (id) => { await api.put(`/admin/shops/${id}/verify`); toast.success("Verified"); load(); if (detail?.id === id) setDetail({ ...detail, verification: "Verified" }); };
@@ -106,11 +111,36 @@ function AdminShopsTab() {
     }
   };
 
+  const saveInvoiceFrequency = async () => {
+    const freq = invoiceFrequencyDraft === "" ? null : invoiceFrequencyDraft;
+    try {
+      const { data } = await api.put(`/admin/shops/${detail.id}/invoice-frequency`, { frequency: freq });
+      toast.success(freq === null ? "Invoice frequency reset to global" : `Invoice frequency set to ${freq}`);
+      setDetail(data);
+      load();
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail));
+    }
+  };
+
+  const filteredShops = shops.filter(s => 
+    s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    s.area.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   const counts = {
     Verified: shops.filter((s) => s.verification === "Verified").length,
     Pending: shops.filter((s) => s.verification === "Pending").length,
     Rejected: shops.filter((s) => s.verification === "Rejected").length,
   };
+
+  const frequencyOptions = [
+    { value: "daily", label: "Daily" },
+    { value: "weekly", label: "Weekly" },
+    { value: "monthly", label: "Monthly" },
+    { value: "quarterly", label: "Quarterly" },
+    { value: "yearly", label: "Yearly" },
+  ];
 
   return (
     <div>
@@ -118,6 +148,17 @@ function AdminShopsTab() {
         <Stat label="Verified" value={counts.Verified} color="#2D6A4F" />
         <Stat label="Pending" value={counts.Pending} color="#E9C46A" />
         <Stat label="Rejected" value={counts.Rejected} color="#D90429" />
+      </div>
+
+      {/* Search Bar */}
+      <div className="mb-4">
+        <input
+          type="text"
+          placeholder="Search shops by name or area..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full px-4 py-3 border border-[var(--js-border)] rounded-xl text-sm focus:outline-none focus:border-[#C84B31]"
+        />
       </div>
 
       <div className="bg-white border border-[var(--js-border)] rounded-2xl overflow-hidden">
@@ -133,7 +174,7 @@ function AdminShopsTab() {
               </tr>
             </thead>
             <tbody>
-              {shops.map((s) => (
+              {filteredShops.map((s) => (
                 <tr key={s.id} className="border-t border-[var(--js-border)] hover:bg-[var(--js-bg)] cursor-pointer" onClick={() => openDetail(s)} data-testid={`admin-shop-row-${s.id}`}>
                   <td className="p-4">
                     <div className="flex items-center gap-3">
@@ -160,7 +201,11 @@ function AdminShopsTab() {
                   </td>
                 </tr>
               ))}
-              {shops.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-[var(--js-text-secondary)]">No shops.</td></tr>}
+              {filteredShops.length === 0 && (
+                <tr><td colSpan={5} className="p-8 text-center text-[var(--js-text-secondary)]">
+                  {searchQuery ? `No shops found matching "${searchQuery}"` : "No shops."}
+                </td></tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -210,6 +255,35 @@ function AdminShopsTab() {
                   <button onClick={() => { setCommissionDraft(""); }} className="bg-white border border-[var(--js-border)] text-[var(--js-text)] text-sm font-semibold px-3 py-2 rounded-full">Reset</button>
                 </div>
                 <p className="text-[10px] text-[var(--js-text-secondary)] mt-2">Saving will automatically regenerate invoices for this shop.</p>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
+                <h3 className="font-display font-semibold text-sm mb-1 text-blue-900">Invoice Frequency Override</h3>
+                <p className="text-xs text-blue-700 mb-3">
+                  Set custom invoice frequency for this shop. Leave unset to use global frequency ({globalFrequency}).
+                </p>
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  {frequencyOptions.map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setInvoiceFrequencyDraft(opt.value)}
+                      className={`px-2 py-2 rounded-lg text-xs font-semibold transition border-2 ${
+                        invoiceFrequencyDraft === opt.value
+                          ? "border-blue-600 bg-blue-100 text-blue-900"
+                          : "border-blue-200 text-blue-700 hover:border-blue-400"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={saveInvoiceFrequency} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 rounded-full transition">Save frequency</button>
+                  <button onClick={() => { setInvoiceFrequencyDraft(""); }} className="bg-white border border-blue-200 text-blue-700 text-sm font-semibold px-3 py-2 rounded-full">Use global</button>
+                </div>
+                <p className="text-[10px] text-blue-600 mt-2">
+                  Current: {detail.invoice_frequency ? <strong>{detail.invoice_frequency}</strong> : <span>using global ({globalFrequency})</span>}
+                </p>
               </div>
             </div>
           </div>
