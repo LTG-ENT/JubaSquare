@@ -3,16 +3,18 @@ import api, { formatUSD, formatDetail } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import AdminAnalytics from "@/components/AdminAnalytics";
+import PerformanceMonitor from "@/components/PerformanceMonitor";
 import AdminIntegrations from "@/components/AdminIntegrations";
 import AdminPagesTab from "@/components/AdminPagesTab";
 import AdminSettingsTab from "@/components/AdminSettingsTab";
 import AdminFooterTab from "@/components/AdminFooterTab";
 import AdminCategoriesTab from "@/components/AdminCategoriesTab";
-import { Store, Mail, ShoppingBag, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Percent, Eye, X, BarChart3, Settings as SettingsIcon, BookOpen, Sliders, PanelBottom, FolderTree, Ban } from "lucide-react";
+import { Store, Mail, ShoppingBag, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Percent, Eye, X, BarChart3, Settings as SettingsIcon, BookOpen, Sliders, PanelBottom, FolderTree, Ban, Activity } from "lucide-react";
 import { toast } from "sonner";
 
 const TABS = [
   { id: "analytics", label: "Analytics", icon: BarChart3 },
+  { id: "performance", label: "Performance", icon: Activity },
   { id: "shops", label: "Shops", icon: Store },
   { id: "categories", label: "Categories", icon: FolderTree },
   { id: "invoices", label: "Invoices", icon: FileText },
@@ -55,6 +57,7 @@ export default function AdminDashboard() {
 
         <div className="mt-8">
           {tab === "analytics" && <AdminAnalytics />}
+          {tab === "performance" && <PerformanceMonitor />}
           {tab === "shops" && <AdminShopsTab />}
           {tab === "categories" && <AdminCategoriesTab />}
           {tab === "invoices" && <AdminInvoicesPane />}
