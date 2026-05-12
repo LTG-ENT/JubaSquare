@@ -1077,6 +1077,13 @@ function PasswordResetModal({ user, onClose, onSuccess }) {
                   {loading ? "Generating..." : "Generate Temporary Password"}
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
 // Global Invoice Frequency Component
 function GlobalInvoiceFrequency() {
