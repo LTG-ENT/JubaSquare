@@ -561,39 +561,58 @@ function ProductsTab() {
   };
   useEffect(() => { loadAll(); }, [user?.id]); // eslint-disable-line
 
+  // Auto-initialize category_id when form is open but category_id is empty
+  useEffect(() => {
+    if (showForm && !editing) {
+      // For products (marketplace/wholesale)
+      if (mode !== "restaurant" && !form.category_id) {
+        const isWholesale = mode === "wholesale";
+        const categoriesMap = isWholesale ? wholesaleCategoriesMap : retailCategoriesMap;
+        const firstParentId = Object.keys(categoriesMap)[0];
+        const firstParent = categoriesMap[firstParentId];
+        
+        if (firstParent) {
+          const firstChild = firstParent.children[0];
+          const newCatId = firstChild ? firstChild.id : firstParent.id;
+          const newCatName = firstChild ? `${firstParent.name} > ${firstChild.name}` : firstParent.name;
+          setForm(prev => ({ ...prev, category_id: newCatId, category: newCatName }));
+        }
+      }
+      // For menu items (restaurant)
+      else if (mode === "restaurant" && !form.category_id_menu) {
+        const firstParentId = Object.keys(restaurantCategoriesMap)[0];
+        const firstParent = restaurantCategoriesMap[firstParentId];
+        
+        if (firstParent) {
+          setForm(prev => ({ 
+            ...prev, 
+            category_id_menu: firstParent.id,
+            food_category: firstParent.name
+          }));
+        }
+      }
+    }
+  }, [showForm, mode, editing, form.category_id, form.category_id_menu, retailCategoriesMap, wholesaleCategoriesMap, restaurantCategoriesMap]);
+
   const retailShops = shops.filter((s) => s.kind !== "wholesale");
   const wholesaleShops = shops.filter((s) => s.kind === "wholesale");
 
   const openNew = () => {
     setEditing(null);
     const next = defaultForm();
-    // Default to first shop, if any
+    
+    // Set default shop or restaurant
     if (shops.length > 0) {
       next.shop_id = shops[0].id;
-      // Use first retail category (ID) from database
-      const firstParentId = Object.keys(retailCategoriesMap)[0];
-      const firstParent = retailCategoriesMap[firstParentId];
-      if (firstParent) {
-        const firstChild = firstParent.children[0];
-        // Set category_id (primary) - use child if exists, otherwise parent
-        next.category_id = firstChild ? firstChild.id : firstParent.id;
-        // Set category name (for display only)
-        next.category = firstChild ? `${firstParent.name} > ${firstChild.name}` : firstParent.name;
-      }
       setMode("marketplace");
     } else if (restaurants.length > 0) {
       next.restaurant_id = restaurants[0].id;
-      // Default to first restaurant category ID from database
-      const firstParentId = Object.keys(restaurantCategoriesMap)[0];
-      const firstParent = restaurantCategoriesMap[firstParentId];
-      if (firstParent) {
-        next.category_id_menu = firstParent.id;
-        next.food_category = firstParent.name;
-      }
       setMode("restaurant");
     }
+    
     setForm(next);
     setShowForm(true);
+    // Note: category_id will be auto-set by useEffect when categories are loaded
   };
 
   const openEditProduct = (p) => {
