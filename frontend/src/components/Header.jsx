@@ -13,11 +13,11 @@ import CategoriesNavMenu from "@/components/CategoriesNavMenu";
 import GlobalSearch from "@/components/GlobalSearch";
 
 const Brand = () => (
-  <Link to="/" className="flex items-center gap-3" data-testid="brand-logo">
-    <Logo size={64} />
-    <div className="flex flex-col leading-tight">
-      <span className="font-display font-bold text-xl text-white">JubaSquare</span>
-      <span className="text-[10px] uppercase tracking-[0.18em] text-white/60 -mt-0.5">by L.T.G Enterprise</span>
+  <Link to="/" className="flex items-center gap-3 shrink-0" data-testid="brand-logo">
+    <Logo size={48} className="sm:w-14 sm:h-14" />
+    <div className="flex flex-col leading-tight min-w-0">
+      <span className="font-display font-bold text-lg sm:text-xl text-white whitespace-nowrap">JubaSquare</span>
+      <span className="hidden sm:inline text-[10px] uppercase tracking-[0.18em] text-white/60 -mt-0.5 whitespace-nowrap">by L.T.G Enterprise</span>
     </div>
   </Link>
 );
