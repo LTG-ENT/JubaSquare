@@ -5,7 +5,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ImageUpload from "@/components/ImageUpload";
 import AreaSelectField from "@/components/AreaSelectField";
-import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle, ExternalLink, MessageCircle, Mail, Phone } from "lucide-react";
+import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle, ExternalLink, MessageCircle, Mail, Phone, ChefHat } from "lucide-react";
 import { useSearchParams, Link } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -386,6 +386,17 @@ function ShopsTab() {
                 <button onClick={() => onEdit(s, s._kind)} data-testid={`edit-shop-${s.id}`} className="flex-1 bg-[var(--js-subtle)] text-[var(--js-text)] text-xs font-semibold py-2 rounded-full inline-flex items-center justify-center gap-1"><Edit2 className="w-3 h-3" /> Quick edit</button>
                 <button onClick={() => onDelete(s, s._kind)} data-testid={`delete-shop-${s.id}`} className="flex-1 bg-[#D90429]/10 text-[#D90429] text-xs font-semibold py-2 rounded-full inline-flex items-center justify-center gap-1"><Trash2 className="w-3 h-3" /> Delete</button>
               </div>
+              {s._kind === "restaurant" && (
+                <div className="mt-2">
+                  <Link
+                    to={`/kitchen/${s.id}`}
+                    data-testid={`kitchen-dashboard-${s.id}`}
+                    className="w-full bg-[#C84B31] hover:bg-[#A83A23] text-white text-sm font-bold py-3 rounded-full inline-flex items-center justify-center gap-2"
+                  >
+                    <ChefHat className="w-4 h-4" /> Open Kitchen Dashboard
+                  </Link>
+                </div>
+              )}
               {s._kind !== "restaurant" && (
                 <div className="mt-2 flex gap-2">
                   <Link

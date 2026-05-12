@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import { toast } from "react-hot-toast";
+import { toast } from "sonner";
 
 const CartContext = createContext(null);
 const KEY = "js_cart_v1";

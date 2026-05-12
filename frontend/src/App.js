@@ -32,6 +32,7 @@ const ShopPage = lazy(() => import("@/pages/ShopPage"));
 const ProductDetail = lazy(() => import("@/pages/ProductDetail"));
 const Restaurants = lazy(() => import("@/pages/Restaurants"));
 const RestaurantCheckout = lazy(() => import("@/pages/RestaurantCheckout"));
+const KitchenDashboard = lazy(() => import("@/pages/KitchenDashboard"));
 const Cart = lazy(() => import("@/pages/Cart"));
 const Orders = lazy(() => import("@/pages/Orders"));
 const Favorites = lazy(() => import("@/pages/Favorites"));
@@ -72,6 +73,7 @@ export default function App() {
                   <Route path="/wholesale" element={<Navigate to="/marketplace?view=wholesale" replace />} />
                   <Route path="/restaurants" element={<Restaurants />} />
                   <Route path="/restaurant-checkout" element={<ProtectedRoute><RestaurantCheckout /></ProtectedRoute>} />
+                  <Route path="/kitchen/:restaurantId" element={<ProtectedRoute><KitchenDashboard /></ProtectedRoute>} />
                   <Route path="/cart" element={<Cart />} />
                   <Route path="/orders" element={<ProtectedRoute><Orders /></ProtectedRoute>} />
                   <Route path="/favorites" element={<ProtectedRoute><Favorites /></ProtectedRoute>} />
