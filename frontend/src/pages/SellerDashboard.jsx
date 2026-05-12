@@ -193,11 +193,12 @@ function ShopsTab() {
     }
   };
 
-  const toggleOpen = async (r, next) => {
+  const toggleOpen = async (r) => {
     try {
-      await api.patch(`/restaurants/${r.id}/status`, { is_open: next });
-      setRestaurants((prev) => prev.map((x) => (x.id === r.id ? { ...x, is_open: next } : x)));
-      toast.success(next ? "Restaurant is now open" : "Restaurant closed");
+      const response = await api.put(`/restaurants/${r.id}/toggle-open`);
+      const newState = response.data.is_open;
+      setRestaurants((prev) => prev.map((x) => (x.id === r.id ? { ...x, is_open: newState } : x)));
+      toast.success(newState ? "Restaurant is now open" : "Restaurant closed");
     } catch (err) {
       toast.error(formatDetail(err.response?.data?.detail) || "Failed to update status");
     }
@@ -372,7 +373,7 @@ function ShopsTab() {
                     type="button"
                     role="switch"
                     aria-checked={s.is_open !== false}
-                    onClick={() => toggleOpen(s, !s.is_open)}
+                    onClick={() => toggleOpen(s)}
                     data-testid={`toggle-restaurant-open-${s.id}`}
                     className={`relative inline-flex h-6 w-11 items-center rounded-full transition shrink-0 ${
                       s.is_open !== false ? "bg-[#2D6A4F]" : "bg-[#A3A39E]"
