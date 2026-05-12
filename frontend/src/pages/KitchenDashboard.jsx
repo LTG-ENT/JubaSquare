@@ -14,13 +14,14 @@ const STATUS_CONFIG = {
   ready: { label: "Ready", color: "bg-green-500", icon: Package },
   completed: { label: "Completed", color: "bg-gray-500", icon: CheckCircle },
   cancellations: { label: "Cancellations", color: "bg-red-500", icon: XCircle },
-  cancel_requested: { label: "Cancel Pending", color: "bg-yellow-600", icon: XCircle },
-  cancel_approved: { label: "Cancelled (admin)", color: "bg-red-500", icon: XCircle },
+  cancel_requested: { label: "Cancellation pending for review", color: "bg-yellow-600", icon: XCircle },
+  cancel_denied: { label: "Cancellation Denied", color: "bg-orange-600", icon: XCircle },
+  cancel_approved: { label: "Cancelled", color: "bg-red-500", icon: XCircle },
   cancelled: { label: "Cancelled", color: "bg-red-500", icon: XCircle },
 };
 
 const PRIMARY_STATUSES = ["pending", "accepted", "cooking", "ready", "completed", "cancellations"];
-const CANCEL_STATUSES = ["cancel_requested", "cancel_approved", "cancelled"];
+const CANCEL_STATUSES = ["cancel_requested", "cancel_denied", "cancel_approved", "cancelled"];
 
 export default function KitchenDashboard() {
   const { restaurantId } = useParams();
@@ -221,6 +222,7 @@ export default function KitchenDashboard() {
     completed: orders.filter(o => o.status === "completed"),
     cancellations: orders.filter(o => CANCEL_STATUSES.includes(o.status)),
     cancel_requested: orders.filter(o => o.status === "cancel_requested"),
+    cancel_denied: orders.filter(o => o.status === "cancel_denied"),
     cancel_approved: orders.filter(o => o.status === "cancel_approved"),
     cancelled: orders.filter(o => o.status === "cancelled"),
   };
@@ -529,9 +531,9 @@ export default function KitchenDashboard() {
 
                   {selectedOrder.status === "cancel_requested" && (
                     <div className="rounded-xl bg-yellow-50 border border-yellow-300 p-4 text-sm text-yellow-800" data-testid="cancel-pending-banner">
-                      <div className="font-bold mb-1">Cancellation pending admin review</div>
+                      <div className="font-bold mb-1">Cancellation pending for review</div>
                       <div className="text-xs">
-                        Previous status: <span className="font-semibold">{selectedOrder.previous_status || "—"}</span>
+                        Cancelled from: <span className="font-semibold">{selectedOrder.previous_status || "—"}</span>
                       </div>
                       {selectedOrder.cancel_reason && (
                         <div className="text-xs mt-1">Reason: {selectedOrder.cancel_reason}</div>
@@ -539,9 +541,53 @@ export default function KitchenDashboard() {
                     </div>
                   )}
 
+                  {selectedOrder.status === "cancel_denied" && (
+                    <div className="space-y-3">
+                      <div className="rounded-xl bg-orange-50 border border-orange-300 p-4 text-sm text-orange-800">
+                        <div className="font-bold mb-1">Cancellation Denied</div>
+                        <div className="text-xs">
+                          Was cancelled from: <span className="font-semibold">{selectedOrder.previous_status || "—"}</span>
+                        </div>
+                        {selectedOrder.cancel_rejected_note && (
+                          <div className="text-xs mt-2 p-2 bg-white rounded border border-orange-200">
+                            <span className="font-semibold">Reason: </span>{selectedOrder.cancel_rejected_note}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await api.post(`/restaurant-orders/${selectedOrder.id}/return-to-previous`);
+                            toast.success("Order returned to previous status");
+                            loadOrders();
+                          } catch (err) {
+                            toast.error(err.response?.data?.detail || "Failed to return order");
+                          }
+                        }}
+                        className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 rounded-xl transition"
+                      >
+                        Return to {selectedOrder.previous_status || "Previous Status"}
+                      </button>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await api.post(`/restaurant-orders/${selectedOrder.id}/mark-received`);
+                            toast.success("Order marked as received by customer");
+                            loadOrders();
+                          } catch (err) {
+                            toast.error(err.response?.data?.detail || "Failed to mark order");
+                          }
+                        }}
+                        className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-xl transition"
+                      >
+                        Order Received By Customer
+                      </button>
+                    </div>
+                  )}
+
                   {(selectedOrder.status === "cancel_approved" || selectedOrder.status === "cancelled") && (
                     <div className="rounded-xl bg-red-50 border border-red-300 p-4 text-sm text-red-700 text-center font-semibold">
-                      Order cancelled
+                      Order Cancelled
                     </div>
                   )}
                 </div>

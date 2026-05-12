@@ -2430,18 +2430,17 @@ async def admin_approve_cancel(order_id: str, _: dict = Depends(require_role("ad
 
 @api.post("/admin/cancel-requests/{order_id}/reject")
 async def admin_reject_cancel(order_id: str, body: CancelRejectIn, _: dict = Depends(require_role("admin"))):
-    """Admin rejects cancellation → order reverts to previous_status and customer is notified."""
+    """Admin rejects cancellation → order status becomes cancel_denied and seller can take action."""
     order = await db.restaurant_orders.find_one({"id": order_id})
     if not order:
         raise HTTPException(404, "Order not found")
     if order.get("status") != "cancel_requested":
         raise HTTPException(400, "No pending cancellation request")
 
-    previous = order.get("previous_status") or "accepted"
     await db.restaurant_orders.update_one(
         {"id": order_id},
         {"$set": {
-            "status": previous,
+            "status": "cancel_denied",
             "cancel_outcome": "rejected",
             "cancel_decided_at": now_iso(),
             "cancel_rejected_note": body.admin_note or "",
@@ -2454,24 +2453,76 @@ async def admin_reject_cancel(order_id: str, body: CancelRejectIn, _: dict = Dep
         await create_notification(
             user_id=customer_id,
             message=(
-                f"Cancellation request for your order #{order_id[:8]} was rejected — "
-                f"the restaurant will fulfil it. Status restored to '{previous}'."
+                f"Cancellation request for your order #{order_id[:8]} was rejected. "
+                f"The restaurant will continue processing your order."
             ),
             ntype="order",
-            meta={"order_id": order_id, "kind": "restaurant", "cancel_rejected": True, "restored_status": previous},
+            meta={"order_id": order_id, "kind": "restaurant", "cancel_rejected": True},
         )
     # Notify seller
     restaurant = await db.restaurants.find_one({"id": order.get("restaurant_id")})
     seller_id = restaurant.get("seller_id") if restaurant else None
     if seller_id:
-        msg = f"Cancellation rejected for order #{order_id[:8]}. Order restored to '{previous}'."
+        msg = f"Cancellation rejected for order #{order_id[:8]}."
         if body.admin_note:
-            msg += f" Admin note: {body.admin_note}"
+            msg += f" Reason: {body.admin_note}"
         await create_notification(
             user_id=seller_id, message=msg, ntype="order",
-            meta={"order_id": order_id, "kind": "restaurant", "cancel_rejected": True, "restored_status": previous},
+            meta={"order_id": order_id, "kind": "restaurant", "cancel_rejected": True},
         )
+    return {"ok": True, "status": "cancel_denied"}
+
+
+@api.post("/restaurant-orders/{order_id}/return-to-previous")
+async def return_to_previous_status(order_id: str, user: dict = Depends(require_role("seller", "admin"))):
+    """Seller returns denied cancellation order back to its previous status."""
+    order = await db.restaurant_orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(404, "Order not found")
+    if order.get("status") != "cancel_denied":
+        raise HTTPException(400, "Order is not in cancel_denied status")
+    
+    # Verify seller owns the restaurant
+    if user["role"] != "admin":
+        restaurant = await db.restaurants.find_one({"id": order["restaurant_id"]})
+        if not restaurant or restaurant["seller_id"] != user["id"]:
+            raise HTTPException(403, "Forbidden")
+    
+    previous = order.get("previous_status") or "accepted"
+    await db.restaurant_orders.update_one(
+        {"id": order_id},
+        {"$set": {"status": previous, "updated_at": now_iso()}},
+    )
     return {"ok": True, "status": previous}
+
+
+@api.post("/restaurant-orders/{order_id}/mark-received")
+async def mark_order_received_by_customer(order_id: str, user: dict = Depends(require_role("seller", "admin"))):
+    """Seller marks that customer received order (denied cancellation) → goes to completed."""
+    order = await db.restaurant_orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(404, "Order not found")
+    if order.get("status") != "cancel_denied":
+        raise HTTPException(400, "Order is not in cancel_denied status")
+    
+    # Verify seller owns the restaurant
+    if user["role"] != "admin":
+        restaurant = await db.restaurants.find_one({"id": order["restaurant_id"]})
+        if not restaurant or restaurant["seller_id"] != user["id"]:
+            raise HTTPException(403, "Forbidden")
+    
+    await db.restaurant_orders.update_one(
+        {"id": order_id},
+        {"$set": {"status": "completed", "updated_at": now_iso()}},
+    )
+    
+    # Trigger invoice rebuild
+    try:
+        await _rebuild_restaurant_invoices()
+    except Exception as e:
+        print(f"Invoice rebuild error: {e}")
+    
+    return {"ok": True, "status": "completed"}
 
 
 # ----------------------------------------------------------------------------
