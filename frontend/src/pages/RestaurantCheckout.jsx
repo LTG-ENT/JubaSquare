@@ -4,6 +4,7 @@ import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import AreaSelectField from "@/components/AreaSelectField";
 import { Star, Truck, MapPin, Phone, User, CreditCard, Clock } from "lucide-react";
 import api, { formatPrice } from "@/lib/api";
 import { toast } from "sonner";
@@ -22,6 +23,7 @@ export default function RestaurantCheckout() {
   const [customerName, setCustomerName] = useState(user?.name || "");
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerAddress, setCustomerAddress] = useState("");
+  const [deliveryArea, setDeliveryArea] = useState("Munuki");
   const [paymentMethod, setPaymentMethod] = useState("cash");
   const [note, setNote] = useState("");
   
@@ -66,17 +68,12 @@ export default function RestaurantCheckout() {
     } else if (pricing.type === "fixed") {
       setDeliveryFee(pricing.fixed_fee || 0);
     } else if (pricing.type === "per_area") {
-      // Match area in address
+      // Use selected area from dropdown
       const area_fees = pricing.area_fees || [];
-      let matched = false;
-      for (const af of area_fees) {
-        if (customerAddress.toLowerCase().includes(af.area.toLowerCase())) {
-          setDeliveryFee(af.fee || 0);
-          matched = true;
-          break;
-        }
-      }
-      if (!matched) {
+      const areaFee = area_fees.find(af => af.area === deliveryArea);
+      if (areaFee) {
+        setDeliveryFee(areaFee.fee || 0);
+      } else {
         // Default to first area fee or 0
         setDeliveryFee(area_fees.length > 0 ? area_fees[0].fee : 0);
       }
@@ -87,7 +84,7 @@ export default function RestaurantCheckout() {
     if (restaurant) {
       calculateDeliveryFee(restaurant);
     }
-  }, [deliveryType, customerAddress]); // eslint-disable-line
+  }, [deliveryType, deliveryArea]); // eslint-disable-line
   
   const total = subtotalUSD + deliveryFee;
   
@@ -257,16 +254,31 @@ export default function RestaurantCheckout() {
                   />
                 </div>
                 {deliveryType === "delivery" && (
-                  <div>
-                    <label className="block text-sm font-semibold text-[var(--js-text)] mb-2">Delivery Address</label>
-                    <textarea
-                      value={customerAddress}
-                      onChange={(e) => setCustomerAddress(e.target.value)}
-                      placeholder="Enter your full delivery address (include area/district)"
-                      rows={3}
-                      className="w-full px-4 py-3 rounded-xl border border-[var(--js-border)] bg-[var(--js-background)] text-[var(--js-text)] focus:outline-none focus:ring-2 focus:ring-[#C84B31] resize-none"
-                    />
-                  </div>
+                  <>
+                    <div>
+                      <label className="block text-sm font-semibold text-[var(--js-text)] mb-2">Delivery Area</label>
+                      <AreaSelectField 
+                        value={deliveryArea} 
+                        onChange={setDeliveryArea}
+                        testId="checkout-delivery-area"
+                      />
+                      {restaurant?.delivery_pricing?.type === "per_area" && (
+                        <p className="text-xs text-[var(--js-text-secondary)] mt-1">
+                          Delivery fee varies by area
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-[var(--js-text)] mb-2">Delivery Address</label>
+                      <textarea
+                        value={customerAddress}
+                        onChange={(e) => setCustomerAddress(e.target.value)}
+                        placeholder="Enter your full delivery address (street, building, etc.)"
+                        rows={3}
+                        className="w-full px-4 py-3 rounded-xl border border-[var(--js-border)] bg-[var(--js-background)] text-[var(--js-text)] focus:outline-none focus:ring-2 focus:ring-[#C84B31] resize-none"
+                      />
+                    </div>
+                  </>
                 )}
                 <div>
                   <label className="block text-sm font-semibold text-[var(--js-text)] mb-2">Note (Optional)</label>
