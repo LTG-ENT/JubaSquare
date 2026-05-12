@@ -26,7 +26,10 @@ export default function Marketplace() {
   const [sortBy, setSortBy] = useState("recommended");
   const { area, setArea } = useCart();
 
-  const selectedCategory = searchParams.get("category") || "";
+  // PRIMARY: Use category_id (UUID) for filtering
+  // LEGACY: Also support category (name) for backward compatibility
+  const selectedCategoryId = searchParams.get("category_id") || "";
+  const selectedCategoryLegacy = searchParams.get("category") || "";
   const selectedShop = searchParams.get("shop") || "";
 
   useEffect(() => {
@@ -40,12 +43,19 @@ export default function Marketplace() {
 
   useEffect(() => {
     const params = {};
-    if (selectedCategory) params.category = selectedCategory;
+    // PRIMARY: Use category_id for filtering
+    if (selectedCategoryId) {
+      params.category_id = selectedCategoryId;
+    } 
+    // LEGACY: Fall back to category name if category_id not present
+    else if (selectedCategoryLegacy) {
+      params.category = selectedCategoryLegacy;
+    }
     if (selectedShop) params.shop_id = selectedShop;
     if (typeFilter === "retail") params.is_wholesale = false;
     if (typeFilter === "wholesale") params.is_wholesale = true;
     api.get("/products", { params: { ...params, limit: 200 } }).then((r) => setProducts(r.data));
-  }, [selectedCategory, selectedShop, typeFilter]);
+  }, [selectedCategoryId, selectedCategoryLegacy, selectedShop, typeFilter]);
 
   const categories = useMemo(
     () => [...new Set(products.map((p) => p.category))].filter(Boolean),
@@ -89,9 +99,16 @@ export default function Marketplace() {
   const shopForProduct = (p) => shops.find((s) => s.id === p.shop_id);
   const activeShop = selectedShop ? shops.find((s) => s.id === selectedShop) : null;
 
-  const setCategory = (cat) => {
+  // Update to use category_id instead of category name
+  const setCategory = (catId) => {
     const next = new URLSearchParams(searchParams);
-    if (cat) next.set("category", cat); else next.delete("category");
+    if (catId) {
+      next.set("category_id", catId);
+      next.delete("category"); // Remove legacy param
+    } else {
+      next.delete("category_id");
+      next.delete("category");
+    }
     next.delete("shop");
     setSearchParams(next);
   };
@@ -173,19 +190,19 @@ export default function Marketplace() {
                   onClick={() => setCategory("")}
                   data-testid="category-all"
                   className={`text-left px-3 py-2 rounded-xl text-sm font-medium transition ${
-                    !selectedCategory ? "bg-[#1A1A1A] text-white" : "text-[var(--js-text)] hover:bg-[var(--js-subtle)]"
+                    !selectedCategoryId && !selectedCategoryLegacy ? "bg-[#1A1A1A] text-white" : "text-[var(--js-text)] hover:bg-[var(--js-subtle)]"
                   }`}
                 >All categories</button>
                 {sidebarCats.map((c) => {
                   const slug = c.name.replace(/\s+/g, "-").toLowerCase();
                   const hasKids = (c.children || []).length > 0;
-                  const isOpen = !!expandedCats[c.id] || c.children?.some((k) => k.name === selectedCategory);
-                  const isSelected = selectedCategory === c.name;
+                  const isOpen = !!expandedCats[c.id] || c.children?.some((k) => k.id === selectedCategoryId);
+                  const isSelected = selectedCategoryId === c.id;
                   return (
                     <div key={c.id}>
                       <div className="flex items-center">
                         <button
-                          onClick={() => setCategory(c.name)}
+                          onClick={() => setCategory(c.id)}
                           data-testid={`category-filter-${slug}`}
                           className={`flex-1 text-left px-3 py-2 rounded-xl text-sm font-medium transition ${
                             isSelected ? "bg-[#1A1A1A] text-white" : "text-[var(--js-text)] hover:bg-[var(--js-subtle)]"
@@ -206,11 +223,11 @@ export default function Marketplace() {
                         <div className="mt-1 ml-3 pl-3 border-l border-[var(--js-border)] flex flex-col gap-1">
                           {c.children.map((sub) => {
                             const subSlug = sub.name.replace(/\s+/g, "-").toLowerCase();
-                            const subSelected = selectedCategory === sub.name;
+                            const subSelected = selectedCategoryId === sub.id;
                             return (
                               <button
                                 key={sub.id}
-                                onClick={() => setCategory(sub.name)}
+                                onClick={() => setCategory(sub.id)}
                                 data-testid={`subcategory-filter-${subSlug}`}
                                 className={`text-left px-3 py-1.5 rounded-lg text-xs font-medium transition ${
                                   subSelected

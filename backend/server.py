@@ -387,7 +387,8 @@ class ShopCommissionIn(BaseModel):
 class ProductIn(BaseModel):
     shop_id: str
     name: str
-    category: str
+    category_id: str  # PRIMARY: UUID from categories.id (required)
+    category: Optional[str] = ""  # DEPRECATED: backward compatibility only, NOT used for filtering
     price_usd: float
     image_url: Optional[str] = ""
     description: Optional[str] = ""
@@ -419,7 +420,8 @@ class MenuItemIn(BaseModel):
     price_usd: float
     image_url: Optional[str] = ""
     description: Optional[str] = ""
-    food_category: Optional[str] = ""
+    category_id: str  # PRIMARY: UUID from categories.id (required, group=restaurant)
+    food_category: Optional[str] = ""  # DEPRECATED: backward compatibility only, NOT used for filtering
     side_items: List[SideItem] = Field(default_factory=list)
 
 
@@ -1290,6 +1292,137 @@ async def admin_reorder_categories(body: CategoryReorderIn, user: dict = Depends
 
 
 # ----------------------------------------------------------------------------
+# Admin Category Data Integrity Tool
+# ----------------------------------------------------------------------------
+@api.get("/admin/categories/integrity")
+async def check_category_integrity(user: dict = Depends(require_role("admin"))):
+    """
+    Admin debug tool: detect products/menu_items with missing or invalid category_id.
+    
+    Returns:
+    - products_without_category_id: products that have no category_id field
+    - products_with_invalid_category_id: products with category_id that doesn't exist
+    - menu_items_without_category_id: menu items with no category_id field
+    - menu_items_with_invalid_category_id: menu items with invalid category_id
+    - orphan_products: products where category was deleted
+    - orphan_menu_items: menu items where category was deleted
+    """
+    # Get all valid category IDs
+    all_cats = await db.categories.find({}, {"_id": 0, "id": 1}).to_list(10000)
+    valid_cat_ids = {c["id"] for c in all_cats}
+    
+    # Check products
+    all_products = await db.products.find({}, {"_id": 0}).to_list(10000)
+    products_without_category_id = []
+    products_with_invalid_category_id = []
+    
+    for p in all_products:
+        if "category_id" not in p or not p.get("category_id"):
+            products_without_category_id.append({
+                "id": p.get("id"),
+                "name": p.get("name"),
+                "shop_id": p.get("shop_id"),
+                "legacy_category": p.get("category", "N/A"),
+            })
+        elif p["category_id"] not in valid_cat_ids:
+            products_with_invalid_category_id.append({
+                "id": p.get("id"),
+                "name": p.get("name"),
+                "shop_id": p.get("shop_id"),
+                "category_id": p["category_id"],
+                "legacy_category": p.get("category", "N/A"),
+            })
+    
+    # Check menu items
+    all_menu_items = await db.menu_items.find({}, {"_id": 0}).to_list(10000)
+    menu_items_without_category_id = []
+    menu_items_with_invalid_category_id = []
+    
+    for m in all_menu_items:
+        if "category_id" not in m or not m.get("category_id"):
+            menu_items_without_category_id.append({
+                "id": m.get("id"),
+                "name": m.get("name"),
+                "restaurant_id": m.get("restaurant_id"),
+                "legacy_food_category": m.get("food_category", "N/A"),
+            })
+        elif m["category_id"] not in valid_cat_ids:
+            menu_items_with_invalid_category_id.append({
+                "id": m.get("id"),
+                "name": m.get("name"),
+                "restaurant_id": m.get("restaurant_id"),
+                "category_id": m["category_id"],
+                "legacy_food_category": m.get("food_category", "N/A"),
+            })
+    
+    return {
+        "summary": {
+            "total_products": len(all_products),
+            "total_menu_items": len(all_menu_items),
+            "total_categories": len(valid_cat_ids),
+            "products_with_issues": len(products_without_category_id) + len(products_with_invalid_category_id),
+            "menu_items_with_issues": len(menu_items_without_category_id) + len(menu_items_with_invalid_category_id),
+        },
+        "products_without_category_id": products_without_category_id,
+        "products_with_invalid_category_id": products_with_invalid_category_id,
+        "menu_items_without_category_id": menu_items_without_category_id,
+        "menu_items_with_invalid_category_id": menu_items_with_invalid_category_id,
+    }
+
+
+class CategoryIdUpdateIn(BaseModel):
+    category_id: str
+
+
+@api.put("/admin/products/{product_id}/category-id")
+async def reassign_product_category(
+    product_id: str,
+    body: CategoryIdUpdateIn,
+    user: dict = Depends(require_role("admin"))
+):
+    """Admin tool: manually reassign a product's category_id."""
+    # Validate category exists
+    cat = await db.categories.find_one({"id": body.category_id})
+    if not cat:
+        raise HTTPException(400, f"Invalid category_id: {body.category_id}. Category does not exist.")
+    
+    # Update product
+    result = await db.products.update_one(
+        {"id": product_id},
+        {"$set": {"category_id": body.category_id}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "Product not found")
+    
+    return {"ok": True, "product_id": product_id, "new_category_id": body.category_id}
+
+
+@api.put("/admin/menu-items/{item_id}/category-id")
+async def reassign_menu_item_category(
+    item_id: str,
+    body: CategoryIdUpdateIn,
+    user: dict = Depends(require_role("admin"))
+):
+    """Admin tool: manually reassign a menu item's category_id."""
+    # Validate category exists and is a restaurant category
+    cat = await db.categories.find_one({"id": body.category_id})
+    if not cat:
+        raise HTTPException(400, f"Invalid category_id: {body.category_id}. Category does not exist.")
+    if cat.get("group") != "restaurant":
+        raise HTTPException(400, f"Invalid category_id: {body.category_id}. Must be a restaurant/food category (group=restaurant).")
+    
+    # Update menu item
+    result = await db.menu_items.update_one(
+        {"id": item_id},
+        {"$set": {"category_id": body.category_id}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "Menu item not found")
+    
+    return {"ok": True, "menu_item_id": item_id, "new_category_id": body.category_id}
+
+
+# ----------------------------------------------------------------------------
 # Shops
 # ----------------------------------------------------------------------------
 def _sort_shops(shops, verified_first: bool):
@@ -1525,13 +1658,22 @@ async def delete_message(message_id: str, user: dict = Depends(require_role("sel
 # Products
 # ----------------------------------------------------------------------------
 @api.get("/products")
-async def list_products(category: Optional[str] = None, area: Optional[str] = None,
-                        shop_id: Optional[str] = None, kind: Optional[str] = None,
-                        is_wholesale: Optional[bool] = None,
+async def list_products(category_id: Optional[str] = None, category: Optional[str] = None,
+                        area: Optional[str] = None, shop_id: Optional[str] = None,
+                        kind: Optional[str] = None, is_wholesale: Optional[bool] = None,
                         limit: Optional[int] = None, skip: Optional[int] = None):
+    """
+    List products with filtering.
+    PRIMARY FILTER: category_id (UUID from categories table)
+    DEPRECATED: category (string name, kept for backward compat only)
+    """
     lim, off = clamp_pagination(limit, skip)
     q: dict = {}
-    if category:
+    # PRIMARY: filter by category_id (single source of truth)
+    if category_id:
+        q["category_id"] = category_id
+    # DEPRECATED: legacy category name filter (backward compat only)
+    elif category:
         q["category"] = category
     if shop_id:
         q["shop_id"] = shop_id
@@ -1616,6 +1758,12 @@ async def create_product(body: ProductIn, user: dict = Depends(require_role("sel
         raise HTTPException(404, "Shop not found")
     if user["role"] != "admin" and shop["seller_id"] != user["id"]:
         raise HTTPException(403, "Forbidden")
+    
+    # VALIDATION: category_id must exist in categories collection
+    cat = await db.categories.find_one({"id": body.category_id})
+    if not cat:
+        raise HTTPException(400, f"Invalid category_id: {body.category_id}. Category does not exist.")
+    
     product = {
         "id": str(uuid.uuid4()),
         "seller_id": shop["seller_id"],
@@ -1635,6 +1783,12 @@ async def update_product(product_id: str, body: ProductIn, user: dict = Depends(
         raise HTTPException(404, "Product not found")
     if user["role"] != "admin" and p["seller_id"] != user["id"]:
         raise HTTPException(403, "Forbidden")
+    
+    # VALIDATION: category_id must exist in categories collection
+    cat = await db.categories.find_one({"id": body.category_id})
+    if not cat:
+        raise HTTPException(400, f"Invalid category_id: {body.category_id}. Category does not exist.")
+    
     await db.products.update_one({"id": product_id}, {"$set": body.model_dump()})
     return await db.products.find_one({"id": product_id}, {"_id": 0})
 
@@ -1654,19 +1808,60 @@ async def delete_product(product_id: str, user: dict = Depends(require_role("sel
 # Restaurants & menu items
 # ----------------------------------------------------------------------------
 @api.get("/restaurants")
-async def list_restaurants(area: Optional[str] = None, category: Optional[str] = None,
+async def list_restaurants(area: Optional[str] = None, category_id: Optional[str] = None,
+                           category: Optional[str] = None,
                            limit: Optional[int] = None, skip: Optional[int] = None):
+    """
+    List restaurants with filtering.
+    
+    PRIMARY FILTER: category_id (UUID from categories table, group=restaurant)
+    - When category_id is provided, returns restaurants that have menu_items with that category_id
+    - Equivalent to: SELECT DISTINCT r.* FROM restaurants r
+                     JOIN menu_items m ON m.restaurant_id = r.id
+                     WHERE m.category_id = :category_id
+    
+    DEPRECATED: category (string name on restaurant doc, kept for backward compat only)
+    """
     lim, off = clamp_pagination(limit, skip)
-    q: dict = {"is_deleted": {"$ne": True}}  # Filter out soft-deleted restaurants
-    if area:
-        q["area"] = area
-    if category:
-        q["category"] = category
-    rests = await db.restaurants.find(q, {"_id": 0}).to_list(MAX_PAGE_LIMIT + off + lim)
+    
+    # PRIMARY: Filter by category_id through menu_items (database-driven)
+    if category_id:
+        # Get all menu items with this category_id
+        menu_items = await db.menu_items.find(
+            {"category_id": category_id}, 
+            {"_id": 0, "restaurant_id": 1}
+        ).to_list(MAX_PAGE_LIMIT)
+        
+        restaurant_ids = list({m["restaurant_id"] for m in menu_items})
+        
+        if not restaurant_ids:
+            return []  # No restaurants have items in this category
+        
+        # Fetch restaurants that have menu items in this category
+        q: dict = {
+            "id": {"$in": restaurant_ids},
+            "is_deleted": {"$ne": True}
+        }
+        if area:
+            q["area"] = area
+            
+        rests = await db.restaurants.find(q, {"_id": 0}).to_list(MAX_PAGE_LIMIT + off + lim)
+    else:
+        # No category filter or legacy category filter
+        q: dict = {"is_deleted": {"$ne": True}}
+        if area:
+            q["area"] = area
+        # DEPRECATED: legacy category name filter (backward compat only)
+        if category:
+            q["category"] = category
+        rests = await db.restaurants.find(q, {"_id": 0}).to_list(MAX_PAGE_LIMIT + off + lim)
+    
+    # Verified-first sort
     s = await get_settings()
     if s.get("verified_first", True):
         order = {"Verified": 0, "Pending": 1, "Rejected": 2}
         rests.sort(key=lambda r: order.get(r.get("verification", "Pending"), 1))
+    
     return rests[off : off + lim]
 
 
@@ -1686,17 +1881,28 @@ async def get_menu(restaurant_id: str, limit: Optional[int] = None, skip: Option
 
 @api.get("/menu-items")
 async def list_menu_items(
+    category_id: Optional[str] = None,
     food_category: Optional[str] = None,
     restaurant_id: Optional[str] = None,
     limit: Optional[int] = None,
     skip: Optional[int] = None,
 ):
-    """Global list of restaurant menu items, used by the Restaurants page to
-    derive which restaurants have items in a given food_category."""
+    """
+    Global list of restaurant menu items.
+    
+    PRIMARY FILTER: category_id (UUID from categories table, group=restaurant)
+    DEPRECATED: food_category (string name, kept for backward compat only)
+    """
     lim, off = clamp_pagination(limit, skip)
     q: dict = {}
-    if food_category:
+    
+    # PRIMARY: filter by category_id (single source of truth)
+    if category_id:
+        q["category_id"] = category_id
+    # DEPRECATED: legacy food_category name filter (backward compat only)
+    elif food_category:
         q["food_category"] = food_category
+        
     if restaurant_id:
         q["restaurant_id"] = restaurant_id
     # Hide menu items belonging to soft-deleted restaurants
@@ -1794,6 +2000,14 @@ async def create_menu_item(body: MenuItemIn, user: dict = Depends(require_role("
         raise HTTPException(404, "Restaurant not found")
     if user["role"] != "admin" and r["seller_id"] != user["id"]:
         raise HTTPException(403, "Forbidden")
+    
+    # VALIDATION: category_id must exist in categories collection (group=restaurant)
+    cat = await db.categories.find_one({"id": body.category_id})
+    if not cat:
+        raise HTTPException(400, f"Invalid category_id: {body.category_id}. Category does not exist.")
+    if cat.get("group") != "restaurant":
+        raise HTTPException(400, f"Invalid category_id: {body.category_id}. Must be a restaurant/food category (group=restaurant).")
+    
     item = {
         "id": str(uuid.uuid4()),
         "seller_id": r["seller_id"],
@@ -1812,6 +2026,14 @@ async def update_menu_item(item_id: str, body: MenuItemIn, user: dict = Depends(
         raise HTTPException(404, "Item not found")
     if user["role"] != "admin" and item["seller_id"] != user["id"]:
         raise HTTPException(403, "Forbidden")
+    
+    # VALIDATION: category_id must exist in categories collection (group=restaurant)
+    cat = await db.categories.find_one({"id": body.category_id})
+    if not cat:
+        raise HTTPException(400, f"Invalid category_id: {body.category_id}. Category does not exist.")
+    if cat.get("group") != "restaurant":
+        raise HTTPException(400, f"Invalid category_id: {body.category_id}. Must be a restaurant/food category (group=restaurant).")
+    
     await db.menu_items.update_one({"id": item_id}, {"$set": body.model_dump()})
     return await db.menu_items.find_one({"id": item_id}, {"_id": 0})
 

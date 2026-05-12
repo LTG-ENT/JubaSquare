@@ -29,13 +29,29 @@ export default function Restaurants() {
   const [sortBy, setSortBy] = useState("recommended");
   const { area, setArea } = useCart();
 
-  // Fetch all data on mount. Auto-syncs on revisit because backend invalidates
-  // its 60s `cat:` cache on every admin write.
+  // Fetch all data on mount OR when activeCatId changes.
+  // NEW: Use backend filtering with category_id for better performance.
   useEffect(() => {
-    api.get("/restaurants?limit=200").then((r) => setRestaurants(r.data));
-    api.get("/menu-items?limit=200").then((r) => {
+    // Fetch restaurants with category_id filter (if not "all")
+    const restaurantsUrl = activeCatId && activeCatId !== "all"
+      ? `/restaurants?limit=200&category_id=${activeCatId}`
+      : "/restaurants?limit=200";
+    
+    api.get(restaurantsUrl).then((r) => setRestaurants(r.data));
+    
+    // Menu items are only used for empty state detection now (not for filtering)
+    // But we still need them to detect if a category has ANY menu items
+    const menuUrl = activeCatId && activeCatId !== "all"
+      ? `/menu-items?limit=200&category_id=${activeCatId}`
+      : "/menu-items?limit=200";
+    
+    api.get(menuUrl).then((r) => {
       setMenuItems(Array.isArray(r.data) ? r.data : []);
     });
+  }, [activeCatId]); // Re-fetch when category changes
+
+  // Fetch categories once on mount
+  useEffect(() => {
     api
       .get("/categories/tree?group=restaurant")
       .then((r) => {
@@ -72,10 +88,7 @@ export default function Restaurants() {
     setActiveCatId("all");
   }, [searchParams, dbCategories]);
 
-  // Resolve active id → name for menu-item filtering (menu_items.food_category
-  // is stored by name). When the id doesn't match anything (e.g., stale link
-  // after admin deleted a category), the filter returns no restaurants and the
-  // empty state renders.
+  // Resolve active id → name for display purposes only
   const activeCatName = useMemo(() => {
     if (activeCatId === "all") return "All";
     return dbCategories.find((c) => c.id === activeCatId)?.name || "";
@@ -87,21 +100,9 @@ export default function Restaurants() {
     [dbCategories],
   );
 
-  // Filter restaurants: keep only those whose menu_items.food_category matches
-  // the selected category name. Equivalent SQL semantics:
-  //   SELECT DISTINCT r.* FROM restaurants r
-  //   WHERE EXISTS (SELECT 1 FROM menu_items m
-  //                 WHERE m.restaurant_id = r.id
-  //                   AND m.food_category = :selected_name)
-  const filtered = useMemo(() => {
-    if (activeCatId === "all" || !activeCatName) return restaurants;
-    const restaurantIds = new Set(
-      menuItems
-        .filter((m) => m.food_category === activeCatName)
-        .map((m) => m.restaurant_id),
-    );
-    return restaurants.filter((r) => restaurantIds.has(r.id));
-  }, [activeCatId, activeCatName, restaurants, menuItems]);
+  // NO FILTERING NEEDED - backend already filtered by category_id
+  // We just use restaurants directly
+  const filtered = restaurants;
 
   // Backend already sorts verified-first; apply client sort on top.
   const sorted = useMemo(() => {

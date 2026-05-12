@@ -11,17 +11,17 @@ const GROUPS = [
 
 /**
  * Build a deep-link for a category click in the mega-menu.
- *  - Restaurant categories use `category_id` (single source of truth: DB).
- *  - Retail/wholesale still use the name-based `category` query for now.
+ *  - ALL groups now use category_id (single source of truth: DB).
  */
 function buildHref(groupId, cat) {
   if (groupId === "restaurant") {
     return `/restaurants?category_id=${encodeURIComponent(cat.id)}`;
   }
   if (groupId === "wholesale") {
-    return `/marketplace?view=wholesale&category=${encodeURIComponent(cat.name)}`;
+    return `/marketplace?view=wholesale&category_id=${encodeURIComponent(cat.id)}`;
   }
-  return `/marketplace?category=${encodeURIComponent(cat.name)}`;
+  // retail
+  return `/marketplace?category_id=${encodeURIComponent(cat.id)}`;
 }
 
 /**
