@@ -4,9 +4,9 @@ import { useCart } from "@/context/CartContext";
 import { useSystem } from "@/context/SystemContext";
 import {
   ShoppingCart, LogOut, Home as HomeIcon, LayoutGrid, Store, UtensilsCrossed,
-  LayoutDashboard, Menu, X, User as UserIcon, ClipboardList,
+  LayoutDashboard, Menu, X, User as UserIcon, ClipboardList, Settings as SettingsIcon, Package,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Logo } from "@/components/Logo";
 import NotificationBell from "@/components/NotificationBell";
 import CategoriesNavMenu from "@/components/CategoriesNavMenu";
@@ -47,6 +47,92 @@ function CurrencyToggle() {
   );
 }
 
+// Role-based quick menu opened from the Profile icon.
+// Renders a small overlay panel anchored under the trigger button.
+function ProfileQuickMenu({ user }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  const navigate = useNavigate();
+
+  // Close on outside click + ESC.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  // Build options per role. Order matters.
+  const role = user?.role;
+  const items = [];
+  if (role === "customer") {
+    items.push({ key: "orders", label: "Orders", to: "/orders", Icon: Package });
+    items.push({ key: "settings", label: "Settings", to: "/settings", Icon: SettingsIcon });
+  } else if (role === "seller") {
+    items.push({ key: "dashboard", label: "Dashboard", to: "/seller", Icon: LayoutDashboard });
+    items.push({ key: "settings", label: "Settings", to: "/settings", Icon: SettingsIcon });
+  } else if (role === "admin") {
+    items.push({ key: "dashboard", label: "Dashboard", to: "/admin", Icon: LayoutDashboard });
+    items.push({ key: "settings", label: "Settings", to: "/settings", Icon: SettingsIcon });
+  }
+
+  const go = (to) => {
+    setOpen(false);
+    navigate(to);
+  };
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="true"
+        aria-expanded={open}
+        data-testid="nav-profile"
+        className={`flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium transition-all ${
+          open ? "bg-[#E9C46A] text-[#0E1A2B]" : "text-white/85 hover:bg-white/10 hover:text-white"
+        }`}
+      >
+        <UserIcon className="w-4 h-4" />
+        <span>Profile</span>
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          data-testid="profile-quick-menu"
+          className="absolute right-0 mt-2 w-56 bg-white border border-[#E2E2D9] rounded-2xl shadow-xl py-2 z-50 fade-up"
+        >
+          <div className="px-4 pt-1 pb-2 border-b border-[#E2E2D9] mb-1">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-[#5C5C5C] font-bold">Signed in as</p>
+            <p className="text-sm font-semibold text-[#1A1A1A] truncate">{user?.name || user?.email || "Guest"}</p>
+            <p className="text-[11px] text-[#5C5C5C] capitalize">{role}</p>
+          </div>
+          {items.map(({ key, label, to, Icon }) => (
+            <button
+              key={key}
+              onClick={() => go(to)}
+              data-testid={`profile-quick-${key}`}
+              role="menuitem"
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-[#1A1A1A] hover:bg-[#F2EBE5] transition text-left"
+            >
+              <Icon className="w-4 h-4 text-[#C84B31]" />
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Header() {
   const { user, logout } = useAuth();
   const { count } = useCart();
@@ -73,7 +159,6 @@ export default function Header() {
   };
 
   const dashboardPath = user?.role === "admin" ? "/admin" : user?.role === "seller" ? "/seller" : null;
-  const profilePath = user ? "/settings" : "/login";
 
   return (
     <header className="sticky top-0 z-50 bg-[#0E1A2B] border-b border-white/10 shadow-md">
@@ -120,16 +205,7 @@ export default function Header() {
 
             {user ? (
               <div className="hidden sm:flex items-center gap-1">
-                <Link
-                  to={profilePath}
-                  data-testid="nav-profile"
-                  className={`flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium transition-all ${
-                    location.pathname === profilePath ? "bg-[#E9C46A] text-[#0E1A2B]" : "text-white/85 hover:bg-white/10 hover:text-white"
-                  }`}
-                >
-                  <UserIcon className="w-4 h-4" />
-                  <span>Profile</span>
-                </Link>
+                <ProfileQuickMenu user={user} />
                 <button
                   onClick={async () => { await logout(); navigate("/login"); }}
                   data-testid="logout-button"
@@ -162,7 +238,14 @@ export default function Header() {
             {settings.module_restaurants && navLink("/restaurants", "Restaurants", UtensilsCrossed)}
             {user?.role === "customer" && navLink("/orders", "Orders", ClipboardList)}
             {dashboardPath && navLink(dashboardPath, "Dashboard", LayoutDashboard)}
-            {user && navLink(profilePath, "Profile", UserIcon)}
+            {user && (
+              <div className="mt-1 pt-2 border-t border-white/10 flex flex-col gap-1" data-testid="mobile-profile-menu">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-white/50 font-bold px-3 pt-1">Profile</p>
+                {user.role === "customer" && navLink("/orders", "Orders", Package)}
+                {(user.role === "seller" || user.role === "admin") && dashboardPath && navLink(dashboardPath, "Dashboard", LayoutDashboard)}
+                {navLink("/settings", "Settings", SettingsIcon)}
+              </div>
+            )}
             {!user && (
               <Link to="/login" onClick={() => setMobileOpen(false)} className="bg-[#C84B31] text-white text-sm font-semibold px-4 py-2.5 rounded-full text-center" data-testid="mobile-login-link">
                 Sign In
