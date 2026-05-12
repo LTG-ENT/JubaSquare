@@ -156,9 +156,6 @@ export default function AdminSettingsTab({ onGoToShop }) {
         </div>
       </div>
 
-      {/* Invoice Frequency Settings */}
-      <InvoiceFrequencySettings onReload={load} shops={shops} />
-
       {/* Per-shop overrides */}
       <div className="bg-white border border-[var(--js-border)] rounded-2xl p-5 sm:p-6">
         <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
@@ -630,40 +627,42 @@ function UserRow({ user, selected, onToggleSelect, onToggleStatus, onDelete, onE
       <td className="p-3 hidden sm:table-cell text-xs text-[var(--js-text-secondary)]">
         {formatDate(user.created_at)}
       </td>
-      <td className="p-3 text-right relative">
-        <button
-          onClick={handleMenuToggle}
-          className="p-1.5 rounded-lg hover:bg-[var(--js-bg)]"
-        >
-          <MoreVertical className="w-4 h-4" />
-        </button>
-        
-        {showMenu && (
-          <>
-            <div className="fixed inset-0 z-[100]" onClick={() => setShowMenu(false)} />
-            <div 
-              className="fixed bg-white border border-[var(--js-border)] rounded-xl shadow-lg z-[101] py-1 w-48"
-              style={{
-                top: `${menuPosition.top}px`,
-                left: `${menuPosition.left}px`,
-              }}
-            >
-              <button onClick={() => { onEdit(); setShowMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--js-bg)] flex items-center gap-2">
-                <Edit className="w-4 h-4" /> Edit details
-              </button>
-              <button onClick={() => { onPassword(); setShowMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--js-bg)] flex items-center gap-2">
-                <Key className="w-4 h-4" /> Reset password
-              </button>
-              <button onClick={() => { onToggleStatus(user); setShowMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--js-bg)] flex items-center gap-2">
-                <Power className="w-4 h-4" /> {user.is_active === false ? "Enable" : "Disable"} account
-              </button>
-              <hr className="my-1 border-[var(--js-border)]" />
-              <button onClick={() => { onDelete(user); setShowMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-red-50 text-[#D90429] flex items-center gap-2">
-                <Trash2 className="w-4 h-4" /> Delete user
-              </button>
-            </div>
-          </>
-        )}
+      <td className="p-3 text-right">
+        <div className="relative">
+          <button
+            onClick={handleMenuToggle}
+            className="p-1.5 rounded-lg hover:bg-[var(--js-bg)]"
+          >
+            <MoreVertical className="w-4 h-4" />
+          </button>
+          
+          {showMenu && (
+            <>
+              <div className="fixed inset-0 z-[100]" onClick={() => setShowMenu(false)} />
+              <div 
+                className="fixed bg-white border border-[var(--js-border)] rounded-xl shadow-2xl z-[101] py-1 w-48"
+                style={{
+                  top: `${menuPosition.top}px`,
+                  left: `${menuPosition.left}px`,
+                }}
+              >
+                <button onClick={() => { onEdit(); setShowMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--js-bg)] flex items-center gap-2">
+                  <Edit className="w-4 h-4" /> Edit details
+                </button>
+                <button onClick={() => { onPassword(); setShowMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--js-bg)] flex items-center gap-2">
+                  <Key className="w-4 h-4" /> Reset password
+                </button>
+                <button onClick={() => { onToggleStatus(user); setShowMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--js-bg)] flex items-center gap-2">
+                  <Power className="w-4 h-4" /> {user.is_active === false ? "Enable" : "Disable"} account
+                </button>
+                <hr className="my-1 border-[var(--js-border)]" />
+                <button onClick={() => { onDelete(user); setShowMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-red-50 text-[#D90429] flex items-center gap-2">
+                  <Trash2 className="w-4 h-4" /> Delete user
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </td>
     </tr>
   );
@@ -1077,228 +1076,6 @@ function PasswordResetModal({ user, onClose, onSuccess }) {
           </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-
-// Invoice Frequency Settings Component
-function InvoiceFrequencySettings({ onReload, shops }) {
-  const [globalFrequency, setGlobalFrequency] = useState("weekly");
-  const [selectedShop, setSelectedShop] = useState(null);
-  const [shopFrequency, setShopFrequency] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  const frequencyOptions = [
-    { value: "daily", label: "Daily" },
-    { value: "weekly", label: "Weekly" },
-    { value: "monthly", label: "Monthly" },
-    { value: "quarterly", label: "Quarterly (3 months)" },
-    { value: "yearly", label: "Yearly" },
-  ];
-
-  useEffect(() => {
-    const loadFrequency = async () => {
-      try {
-        const { data } = await api.get("/admin/settings");
-        setGlobalFrequency(data.invoice_frequency || "weekly");
-      } catch (err) {
-        console.error("Failed to load invoice frequency", err);
-      }
-    };
-    loadFrequency();
-  }, []);
-
-  const saveGlobalFrequency = async (freq) => {
-    setSaving(true);
-    try {
-      await api.put("/admin/invoice-frequency", { frequency: freq });
-      setGlobalFrequency(freq);
-      toast.success(`Global invoice frequency set to ${freq}`);
-    } catch (err) {
-      toast.error(formatDetail(err.response?.data?.detail) || "Failed to save");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const saveShopFrequency = async (shopId, freq) => {
-    setSaving(true);
-    try {
-      await api.put(`/admin/shops/${shopId}/invoice-frequency`, { frequency: freq });
-      toast.success(`Shop invoice frequency updated`);
-      setSelectedShop(null);
-      onReload();
-    } catch (err) {
-      toast.error(formatDetail(err.response?.data?.detail) || "Failed to save");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const shopsWithCustomFrequency = shops.filter(s => s.invoice_frequency);
-
-  return (
-    <div className="bg-white border border-[var(--js-border)] rounded-2xl p-5 sm:p-6">
-      <div className="flex items-start gap-4">
-        <div className="w-11 h-11 rounded-xl bg-blue-500/10 text-blue-600 flex items-center justify-center flex-shrink-0">
-          <DollarSign className="w-5 h-5" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">Invoicing</p>
-          <h2 className="font-display font-bold text-lg text-[var(--js-text)] mt-0.5">Invoice Frequency</h2>
-          <p className="text-xs text-[var(--js-text-secondary)] mt-1 leading-relaxed">
-            Control how often automatic invoices are generated and sent to sellers for commission collection.
-          </p>
-
-          {/* Global Frequency Selector */}
-          <div className="mt-4">
-            <label className="block text-xs font-semibold text-[var(--js-text)] mb-2">
-              Global Invoice Frequency
-            </label>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-              {frequencyOptions.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => saveGlobalFrequency(opt.value)}
-                  disabled={saving}
-                  className={`px-4 py-2 rounded-xl text-sm font-semibold transition border-2 ${
-                    globalFrequency === opt.value
-                      ? "border-blue-500 bg-blue-50 text-blue-700"
-                      : "border-[var(--js-border)] text-[var(--js-text)] hover:border-blue-300"
-                  } disabled:opacity-50`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-[var(--js-text-secondary)] mt-2">
-              Current: <span className="font-bold text-blue-600">{frequencyOptions.find(o => o.value === globalFrequency)?.label}</span>
-            </p>
-          </div>
-
-          {/* Per-Shop Override Section */}
-          <div className="mt-6 pt-6 border-t border-[var(--js-border)]">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h3 className="font-semibold text-sm text-[var(--js-text)]">Per-Shop Frequency Override</h3>
-                <p className="text-xs text-[var(--js-text-secondary)] mt-0.5">
-                  {shopsWithCustomFrequency.length} shop(s) have custom invoice frequency
-                </p>
-              </div>
-              <button
-                onClick={() => {
-                  setSelectedShop({});
-                  setShopFrequency("");
-                }}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-500 text-white hover:bg-blue-600"
-              >
-                <Plus className="w-3 h-3" /> Set Shop Frequency
-              </button>
-            </div>
-
-            {/* List of shops with custom frequency */}
-            {shopsWithCustomFrequency.length > 0 && (
-              <div className="space-y-2 mb-4">
-                {shopsWithCustomFrequency.map((shop) => (
-                  <div key={shop.id} className="flex items-center justify-between p-3 bg-[var(--js-subtle)] rounded-xl">
-                    <div className="flex items-center gap-2">
-                      <Store className="w-4 h-4 text-[var(--js-text-secondary)]" />
-                      <span className="font-semibold text-sm text-[var(--js-text)]">{shop.name}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-blue-600">
-                        {frequencyOptions.find(o => o.value === shop.invoice_frequency)?.label || shop.invoice_frequency}
-                      </span>
-                      <button
-                        onClick={() => saveShopFrequency(shop.id, null)}
-                        className="p-1 hover:bg-red-50 rounded text-red-600"
-                        title="Remove custom frequency"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Shop Frequency Modal */}
-      {selectedShop && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setSelectedShop(null)}>
-          <div className="bg-white rounded-2xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
-            <h3 className="font-display font-bold text-xl text-[var(--js-text)] mb-4">
-              Set Shop Invoice Frequency
-            </h3>
-            
-            <div className="mb-4">
-              <label className="block text-sm font-semibold text-[var(--js-text)] mb-2">
-                Select Shop
-              </label>
-              <select
-                value={selectedShop.id || ""}
-                onChange={(e) => {
-                  const shop = shops.find(s => s.id === e.target.value);
-                  setSelectedShop(shop || {});
-                  setShopFrequency(shop?.invoice_frequency || "");
-                }}
-                className="w-full px-3 py-2 border border-[var(--js-border)] rounded-xl text-sm focus:outline-none focus:border-blue-500"
-              >
-                <option value="">-- Select a shop --</option>
-                {shops.map((shop) => (
-                  <option key={shop.id} value={shop.id}>
-                    {shop.name} {shop.invoice_frequency ? `(Currently: ${shop.invoice_frequency})` : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {selectedShop.id && (
-              <>
-                <div className="mb-4">
-                  <label className="block text-sm font-semibold text-[var(--js-text)] mb-2">
-                    Invoice Frequency
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {frequencyOptions.map((opt) => (
-                      <button
-                        key={opt.value}
-                        onClick={() => setShopFrequency(opt.value)}
-                        className={`px-3 py-2 rounded-lg text-xs font-semibold transition border-2 ${
-                          shopFrequency === opt.value
-                            ? "border-blue-500 bg-blue-50 text-blue-700"
-                            : "border-[var(--js-border)] text-[var(--js-text)] hover:border-blue-300"
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setSelectedShop(null)}
-                    className="flex-1 px-4 py-2 border border-[var(--js-border)] rounded-xl font-semibold hover:bg-[var(--js-bg)]"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => shopFrequency && saveShopFrequency(selectedShop.id, shopFrequency)}
-                    disabled={!shopFrequency || saving}
-                    className="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-semibold disabled:opacity-50"
-                  >
-                    {saving ? "Saving..." : "Save"}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
