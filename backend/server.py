@@ -1684,6 +1684,34 @@ async def get_menu(restaurant_id: str, limit: Optional[int] = None, skip: Option
     return await db.menu_items.find({"restaurant_id": restaurant_id}, {"_id": 0}).skip(off).to_list(lim)
 
 
+@api.get("/menu-items")
+async def list_menu_items(
+    food_category: Optional[str] = None,
+    restaurant_id: Optional[str] = None,
+    limit: Optional[int] = None,
+    skip: Optional[int] = None,
+):
+    """Global list of restaurant menu items, used by the Restaurants page to
+    derive which restaurants have items in a given food_category."""
+    lim, off = clamp_pagination(limit, skip)
+    q: dict = {}
+    if food_category:
+        q["food_category"] = food_category
+    if restaurant_id:
+        q["restaurant_id"] = restaurant_id
+    # Hide menu items belonging to soft-deleted restaurants
+    hidden_rest = {
+        r["id"]
+        for r in await db.restaurants.find(
+            {"is_deleted": True}, {"_id": 0, "id": 1}
+        ).to_list(MAX_PAGE_LIMIT)
+    }
+    items = await db.menu_items.find(q, {"_id": 0}).skip(off).to_list(lim)
+    if hidden_rest:
+        items = [m for m in items if m.get("restaurant_id") not in hidden_rest]
+    return items
+
+
 @api.post("/restaurants")
 async def create_restaurant(body: RestaurantIn, user: dict = Depends(require_role("seller", "admin"))):
     s = await get_settings()

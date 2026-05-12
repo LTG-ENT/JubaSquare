@@ -17,11 +17,11 @@ export default function Restaurants() {
 
   useEffect(() => {
     api.get("/restaurants?limit=200").then((r) => setRestaurants(r.data));
-    // Fetch all menu items to determine restaurant categories
-    api.get("/products?limit=1000").then((r) => {
-      // Filter only restaurant menu items (food_category field exists)
-      const menuData = r.data.filter(p => p.food_category);
-      setMenuItems(menuData);
+    // Fetch all restaurant menu items so we can: (a) list the food categories
+    // that actually have items in them, and (b) filter restaurants by which
+    // ones have a menu item in the selected category.
+    api.get("/menu-items?limit=200").then((r) => {
+      setMenuItems(Array.isArray(r.data) ? r.data : []);
     });
   }, []);
 
