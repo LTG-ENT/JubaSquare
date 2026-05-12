@@ -405,6 +405,13 @@ class SideItem(BaseModel):
     price_usd: float
 
 
+class DeliveryPricing(BaseModel):
+    """Delivery pricing configuration for restaurants"""
+    type: Literal["free", "fixed", "per_area"] = "fixed"
+    fixed_fee: Optional[float] = 0.0  # Used when type="fixed"
+    area_fees: List[dict] = Field(default_factory=list)  # [{"area": "Munuki", "fee": 5.0}]
+
+
 class RestaurantIn(BaseModel):
     name: str
     category: Optional[str] = ""
@@ -412,6 +419,9 @@ class RestaurantIn(BaseModel):
     image_url: Optional[str] = ""
     area: str
     is_open: bool = True
+    delivery_pricing: Optional[DeliveryPricing] = Field(
+        default_factory=lambda: DeliveryPricing(type="fixed", fixed_fee=2.0)
+    )
 
 
 class MenuItemIn(BaseModel):
@@ -444,6 +454,23 @@ class OrderIn(BaseModel):
     order_kind: Literal["marketplace", "restaurant", "wholesale"] = "marketplace"
 
 
+class RestaurantOrderIn(BaseModel):
+    """Restaurant-specific order model"""
+    restaurant_id: str
+    items: List[OrderItemIn]  # menu items with sides
+    delivery_type: Literal["delivery", "pickup"] = "delivery"
+    customer_name: str
+    customer_phone: str
+    customer_address: Optional[str] = ""  # Required for delivery
+    payment_method: Literal["cash", "mobile_money"] = "cash"
+    note: Optional[str] = ""
+
+
+class OrderStatusUpdate(BaseModel):
+    """Update order status in kitchen dashboard"""
+    status: Literal["pending", "accepted", "cooking", "ready", "completed", "cancelled"]
+
+
 class StatusIn(BaseModel):
     status: Literal["Pending", "In Progress", "Delivered"]
 
@@ -462,8 +489,17 @@ class FavoriteIn(BaseModel):
 
 
 class ReviewIn(BaseModel):
+    """Review/rating for restaurant after order completion"""
+    restaurant_id: str
+    order_id: str  # Link to completed order
     rating: int = Field(ge=1, le=5)
     comment: Optional[str] = ""
+
+
+class TrendingClickIn(BaseModel):
+    """Track clicks for trending system"""
+    target_type: Literal["restaurant", "product"]
+    target_id: str
 
 
 class SettingsIn(BaseModel):
@@ -1859,7 +1895,7 @@ async def list_restaurants(area: Optional[str] = None, category_id: Optional[str
         rests = await db.restaurants.find(q, {"_id": 0}).to_list(MAX_PAGE_LIMIT + off + lim)
         logger.info(f"[RESTAURANTS FILTER] Returning {len(rests)} restaurants after filtering")
     else:
-        logger.info(f"[RESTAURANTS FILTER] No category_id filter - returning all restaurants")
+        logger.info("[RESTAURANTS FILTER] No category_id filter - returning all restaurants")
         # No category filter or legacy category filter
         q: dict = {"is_deleted": {"$ne": True}}
         if area:
@@ -1962,7 +1998,7 @@ async def toggle_open(restaurant_id: str, user: dict = Depends(require_role("sel
 
 @api.put("/restaurants/{restaurant_id}")
 async def update_restaurant(restaurant_id: str, body: RestaurantIn, user: dict = Depends(require_role("seller", "admin"))):
-    """Update restaurant details (name, category, description, area, image)"""
+    """Update restaurant details (name, category, description, area, image, delivery_pricing)"""
     r = await db.restaurants.find_one({"id": restaurant_id})
     if not r:
         raise HTTPException(404, "Restaurant not found")
@@ -1976,6 +2012,7 @@ async def update_restaurant(restaurant_id: str, body: RestaurantIn, user: dict =
         "image_url": body.image_url or "",
         "area": body.area,
         "is_open": body.is_open,
+        "delivery_pricing": body.delivery_pricing.model_dump() if body.delivery_pricing else None,
     }
     await db.restaurants.update_one({"id": restaurant_id}, {"$set": update_data})
     return await db.restaurants.find_one({"id": restaurant_id}, {"_id": 0})
@@ -2060,6 +2097,391 @@ async def delete_menu_item(item_id: str, user: dict = Depends(require_role("sell
         raise HTTPException(403, "Forbidden")
     await db.menu_items.delete_one({"id": item_id})
     return {"ok": True}
+
+
+# ----------------------------------------------------------------------------
+# Restaurant Orders (separate from marketplace orders)
+# ----------------------------------------------------------------------------
+@api.post("/restaurant-orders")
+async def create_restaurant_order(body: RestaurantOrderIn, user: dict = Depends(get_current_user)):
+    """Create a restaurant order (food delivery/pickup)"""
+    # Validate restaurant exists
+    restaurant = await db.restaurants.find_one({"id": body.restaurant_id})
+    if not restaurant:
+        raise HTTPException(404, "Restaurant not found")
+    
+    # Calculate delivery fee
+    delivery_fee = 0.0
+    if body.delivery_type == "delivery":
+        delivery_pricing = restaurant.get("delivery_pricing", {})
+        pricing_type = delivery_pricing.get("type", "fixed")
+        
+        if pricing_type == "free":
+            delivery_fee = 0.0
+        elif pricing_type == "fixed":
+            delivery_fee = float(delivery_pricing.get("fixed_fee", 0.0))
+        elif pricing_type == "per_area":
+            # Find matching area fee
+            area_fees = delivery_pricing.get("area_fees", [])
+            # Extract area from address or use default
+            for area_fee in area_fees:
+                if area_fee.get("area") in body.customer_address:
+                    delivery_fee = float(area_fee.get("fee", 0.0))
+                    break
+    
+    # Calculate totals
+    subtotal = sum(item.price_usd * item.quantity for item in body.items)
+    # Add side item prices
+    for item in body.items:
+        for side in item.sides:
+            subtotal += side.price_usd * item.quantity
+    
+    total = subtotal + delivery_fee
+    
+    # Create order
+    order = {
+        "id": str(uuid.uuid4()),
+        "restaurant_id": body.restaurant_id,
+        "restaurant_name": restaurant.get("name"),
+        "customer_id": user["id"],
+        "customer_name": body.customer_name,
+        "customer_phone": body.customer_phone,
+        "customer_address": body.customer_address,
+        "items": [item.model_dump() for item in body.items],
+        "delivery_type": body.delivery_type,
+        "payment_method": body.payment_method,
+        "note": body.note,
+        "subtotal": subtotal,
+        "delivery_fee": delivery_fee,
+        "total": total,
+        "status": "pending",  # pending → accepted → cooking → ready → completed
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    
+    await db.restaurant_orders.insert_one(order)
+    order.pop("_id", None)
+    
+    # Track trending
+    await db.trending_stats.update_one(
+        {"target_type": "restaurant", "target_id": body.restaurant_id},
+        {"$inc": {"order_count": 1}, "$set": {"updated_at": now_iso()}},
+        upsert=True
+    )
+    
+    return order
+
+
+@api.get("/restaurant-orders")
+async def list_restaurant_orders(user: dict = Depends(get_current_user)):
+    """List user's restaurant orders"""
+    if user["role"] == "customer":
+        # Customer sees their own orders
+        orders = await db.restaurant_orders.find(
+            {"customer_id": user["id"]},
+            {"_id": 0}
+        ).sort("created_at", -1).to_list(100)
+    elif user["role"] in ["seller", "admin"]:
+        # Seller sees orders for their restaurants
+        restaurants = await db.restaurants.find(
+            {"seller_id": user["id"]},
+            {"_id": 0, "id": 1}
+        ).to_list(100)
+        restaurant_ids = [r["id"] for r in restaurants]
+        
+        if user["role"] == "admin":
+            # Admin sees all orders
+            orders = await db.restaurant_orders.find(
+                {},
+                {"_id": 0}
+            ).sort("created_at", -1).to_list(200)
+        else:
+            # Seller sees only their restaurant orders
+            orders = await db.restaurant_orders.find(
+                {"restaurant_id": {"$in": restaurant_ids}},
+                {"_id": 0}
+            ).sort("created_at", -1).to_list(200)
+    else:
+        orders = []
+    
+    return orders
+
+
+@api.get("/restaurant-orders/restaurant/{restaurant_id}")
+async def list_restaurant_orders_by_restaurant(
+    restaurant_id: str,
+    status: Optional[str] = None,
+    user: dict = Depends(require_role("seller", "admin"))
+):
+    """List orders for a specific restaurant (Kitchen Dashboard)"""
+    # Verify seller owns the restaurant
+    restaurant = await db.restaurants.find_one({"id": restaurant_id})
+    if not restaurant:
+        raise HTTPException(404, "Restaurant not found")
+    
+    if user["role"] != "admin" and restaurant["seller_id"] != user["id"]:
+        raise HTTPException(403, "Forbidden")
+    
+    query = {"restaurant_id": restaurant_id}
+    if status:
+        query["status"] = status
+    
+    orders = await db.restaurant_orders.find(
+        query,
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(200)
+    
+    return orders
+
+
+@api.get("/restaurant-orders/{order_id}")
+async def get_restaurant_order(order_id: str, user: dict = Depends(get_current_user)):
+    """Get single restaurant order"""
+    order = await db.restaurant_orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(404, "Order not found")
+    
+    # Check permissions
+    if user["role"] == "customer" and order["customer_id"] != user["id"]:
+        raise HTTPException(403, "Forbidden")
+    elif user["role"] == "seller":
+        restaurant = await db.restaurants.find_one({"id": order["restaurant_id"]})
+        if restaurant and restaurant["seller_id"] != user["id"]:
+            raise HTTPException(403, "Forbidden")
+    
+    return order
+
+
+@api.put("/restaurant-orders/{order_id}/status")
+async def update_restaurant_order_status(
+    order_id: str,
+    body: OrderStatusUpdate,
+    user: dict = Depends(require_role("seller", "admin"))
+):
+    """Update restaurant order status (Kitchen Dashboard)"""
+    order = await db.restaurant_orders.find_one({"id": order_id})
+    if not order:
+        raise HTTPException(404, "Order not found")
+    
+    # Verify seller owns the restaurant
+    if user["role"] != "admin":
+        restaurant = await db.restaurants.find_one({"id": order["restaurant_id"]})
+        if not restaurant or restaurant["seller_id"] != user["id"]:
+            raise HTTPException(403, "Forbidden")
+    
+    await db.restaurant_orders.update_one(
+        {"id": order_id},
+        {"$set": {"status": body.status, "updated_at": now_iso()}}
+    )
+    
+    return {"ok": True, "status": body.status}
+
+
+# ----------------------------------------------------------------------------
+# Reviews & Ratings
+# ----------------------------------------------------------------------------
+@api.post("/reviews")
+async def create_review(body: ReviewIn, user: dict = Depends(get_current_user)):
+    """Create a review for a restaurant (only after order completion)"""
+    # Verify order exists and is completed
+    order = await db.restaurant_orders.find_one({"id": body.order_id})
+    if not order:
+        raise HTTPException(404, "Order not found")
+    
+    if order["customer_id"] != user["id"]:
+        raise HTTPException(403, "You can only review your own orders")
+    
+    if order["status"] != "completed":
+        raise HTTPException(400, "You can only review completed orders")
+    
+    # Check if already reviewed
+    existing = await db.reviews.find_one({"order_id": body.order_id})
+    if existing:
+        raise HTTPException(400, "You have already reviewed this order")
+    
+    review = {
+        "id": str(uuid.uuid4()),
+        "restaurant_id": body.restaurant_id,
+        "order_id": body.order_id,
+        "user_id": user["id"],
+        "user_name": user.get("name", "Anonymous"),
+        "rating": body.rating,
+        "comment": body.comment,
+        "created_at": now_iso(),
+    }
+    
+    await db.reviews.insert_one(review)
+    
+    # Update restaurant average rating
+    all_reviews = await db.reviews.find({"restaurant_id": body.restaurant_id}, {"_id": 0, "rating": 1}).to_list(1000)
+    avg_rating = sum(r["rating"] for r in all_reviews) / len(all_reviews) if all_reviews else 0
+    review_count = len(all_reviews)
+    
+    await db.restaurants.update_one(
+        {"id": body.restaurant_id},
+        {"$set": {"average_rating": round(avg_rating, 1), "review_count": review_count}}
+    )
+    
+    review.pop("_id", None)
+    return review
+
+
+@api.get("/reviews")
+async def list_restaurant_reviews(restaurant_id: str, limit: Optional[int] = 20, skip: Optional[int] = 0):
+    """List reviews for a restaurant"""
+    lim, off = clamp_pagination(limit, skip)
+    reviews = await db.reviews.find(
+        {"restaurant_id": restaurant_id},
+        {"_id": 0}
+    ).sort("created_at", -1).skip(off).limit(lim).to_list(lim)
+    
+    return reviews
+
+
+# ----------------------------------------------------------------------------
+# Favorites
+# ----------------------------------------------------------------------------
+@api.post("/favorites")
+async def add_favorite(body: FavoriteIn, user: dict = Depends(get_current_user)):
+    """Add a restaurant/shop/product to favorites"""
+    # Check if already favorited
+    existing = await db.favorites.find_one({
+        "user_id": user["id"],
+        "target_type": body.target_type,
+        "target_id": body.target_id
+    })
+    
+    if existing:
+        return {"ok": True, "message": "Already in favorites", "id": existing["id"]}
+    
+    favorite = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "target_type": body.target_type,
+        "target_id": body.target_id,
+        "created_at": now_iso(),
+    }
+    
+    await db.favorites.insert_one(favorite)
+    favorite.pop("_id", None)
+    return favorite
+
+
+@api.delete("/favorites/{favorite_id}")
+async def remove_favorite(favorite_id: str, user: dict = Depends(get_current_user)):
+    """Remove from favorites"""
+    fav = await db.favorites.find_one({"id": favorite_id})
+    if not fav:
+        raise HTTPException(404, "Favorite not found")
+    
+    if fav["user_id"] != user["id"]:
+        raise HTTPException(403, "Forbidden")
+    
+    await db.favorites.delete_one({"id": favorite_id})
+    return {"ok": True}
+
+
+@api.get("/favorites")
+async def list_favorites(user: dict = Depends(get_current_user)):
+    """List user's favorites"""
+    favorites = await db.favorites.find(
+        {"user_id": user["id"]},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(200)
+    
+    # Enrich with actual data
+    enriched = []
+    for fav in favorites:
+        if fav["target_type"] == "restaurant":
+            item = await db.restaurants.find_one({"id": fav["target_id"]}, {"_id": 0})
+        elif fav["target_type"] == "shop":
+            item = await db.shops.find_one({"id": fav["target_id"]}, {"_id": 0})
+        elif fav["target_type"] == "product":
+            item = await db.products.find_one({"id": fav["target_id"]}, {"_id": 0})
+        else:
+            item = None
+        
+        if item:
+            enriched.append({
+                "favorite_id": fav["id"],
+                "target_type": fav["target_type"],
+                "created_at": fav["created_at"],
+                "item": item
+            })
+    
+    return enriched
+
+
+# ----------------------------------------------------------------------------
+# Trending System
+# ----------------------------------------------------------------------------
+@api.post("/trending/click")
+async def track_trending_click(body: TrendingClickIn):
+    """Track a click for trending statistics (no auth required)"""
+    await db.trending_stats.update_one(
+        {"target_type": body.target_type, "target_id": body.target_id},
+        {
+            "$inc": {"click_count": 1},
+            "$set": {"updated_at": now_iso()}
+        },
+        upsert=True
+    )
+    return {"ok": True}
+
+
+@api.get("/trending/restaurants")
+async def get_trending_restaurants(limit: Optional[int] = 10):
+    """Get trending restaurants (by clicks + orders)"""
+    # Get top trending restaurants
+    trending = await db.trending_stats.find(
+        {"target_type": "restaurant"},
+        {"_id": 0}
+    ).sort([("click_count", -1), ("order_count", -1)]).limit(limit).to_list(limit)
+    
+    # Enrich with restaurant data
+    restaurant_ids = [t["target_id"] for t in trending]
+    restaurants = await db.restaurants.find(
+        {"id": {"$in": restaurant_ids}, "is_deleted": {"$ne": True}},
+        {"_id": 0}
+    ).to_list(limit)
+    
+    # Sort by trending stats
+    restaurant_map = {r["id"]: r for r in restaurants}
+    result = []
+    for t in trending:
+        if t["target_id"] in restaurant_map:
+            r = restaurant_map[t["target_id"]]
+            r["trending_score"] = t.get("click_count", 0) + t.get("order_count", 0) * 2
+            result.append(r)
+    
+    return result
+
+
+@api.get("/trending/products")
+async def get_trending_products(limit: Optional[int] = 10):
+    """Get trending products (by clicks)"""
+    trending = await db.trending_stats.find(
+        {"target_type": "product"},
+        {"_id": 0}
+    ).sort("click_count", -1).limit(limit).to_list(limit)
+    
+    # Enrich with product data
+    product_ids = [t["target_id"] for t in trending]
+    products = await db.products.find(
+        {"id": {"$in": product_ids}},
+        {"_id": 0}
+    ).to_list(limit)
+    
+    # Sort by trending stats
+    product_map = {p["id"]: p for p in products}
+    result = []
+    for t in trending:
+        if t["target_id"] in product_map:
+            p = product_map[t["target_id"]]
+            p["trending_score"] = t.get("click_count", 0)
+            result.append(p)
+    
+    return result
 
 
 # ----------------------------------------------------------------------------
@@ -2254,44 +2676,6 @@ async def update_status(order_id: str, body: StatusIn, _: dict = Depends(require
         )
 
     return await db.orders.find_one({"id": order_id}, {"_id": 0})
-
-
-# ----------------------------------------------------------------------------
-# Favorites (customer)
-# ----------------------------------------------------------------------------
-@api.get("/favorites")
-async def list_favorites(
-    user: dict = Depends(get_current_user),
-    limit: Optional[int] = None,
-    skip: Optional[int] = None,
-):
-    lim, off = clamp_pagination(limit, skip)
-    return await db.favorites.find({"user_id": user["id"]}, {"_id": 0}).skip(off).to_list(lim)
-
-
-@api.post("/favorites")
-async def add_favorite(body: FavoriteIn, user: dict = Depends(get_current_user)):
-    existing = await db.favorites.find_one({
-        "user_id": user["id"], "target_type": body.target_type, "target_id": body.target_id,
-    })
-    if existing:
-        return {"ok": True, "already": True}
-    await db.favorites.insert_one({
-        "id": str(uuid.uuid4()),
-        "user_id": user["id"],
-        "target_type": body.target_type,
-        "target_id": body.target_id,
-        "created_at": now_iso(),
-    })
-    return {"ok": True}
-
-
-@api.delete("/favorites")
-async def remove_favorite(target_type: str, target_id: str, user: dict = Depends(get_current_user)):
-    await db.favorites.delete_one({
-        "user_id": user["id"], "target_type": target_type, "target_id": target_id,
-    })
-    return {"ok": True}
 
 
 # ----------------------------------------------------------------------------
@@ -3286,6 +3670,14 @@ async def seed_production():
     await db.email_verifications.create_index("user_id")
     await db.password_resets.create_index("token", unique=True)
     await db.password_resets.create_index("user_id")
+    
+    # New indexes for Phase 1
+    await db.restaurant_orders.create_index("id", unique=True)
+    await db.restaurant_orders.create_index([("restaurant_id", 1), ("status", 1)])
+    await db.restaurant_orders.create_index([("customer_id", 1), ("created_at", -1)])
+    await db.reviews.create_index([("restaurant_id", 1), ("created_at", -1)])
+    await db.reviews.create_index("order_id", unique=True)  # One review per order
+    await db.trending_stats.create_index([("target_type", 1), ("target_id", 1)], unique=True)
 
     # Global settings
     existing_s = await db.settings.find_one({"id": "system"})
