@@ -66,7 +66,7 @@ const FAILURE_REASONS = [
 
 export default function DriverDashboard() {
   const { user } = useAuth();
-  const { currency, exchangeRate } = useCart(); // Get currency and exchange rate
+  const { currency = "USD", exchangeRate = 1 } = useCart() || {}; // Get currency and exchange rate with defaults
   const [data, setData] = useState({ splits: [], restaurant_orders: [] });
   const [requests, setRequests] = useState({ splits: [], restaurant_orders: [] });
   const [filter, setFilter] = useState(""); // delivery_status filter

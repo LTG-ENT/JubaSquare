@@ -304,8 +304,8 @@ export default function Orders() {
   const [cancelTarget, setCancelTarget] = useState(null); // { order, kind }
   const [orderSplits, setOrderSplits] = useState({}); // { orderId: [splits] }
   
-  // Get currency and exchange rate from CartContext
-  const { currency, exchangeRate } = useCart();
+  // Get currency and exchange rate from CartContext with defaults
+  const { currency = "USD", exchangeRate = 1 } = useCart() || {};
 
   const refreshOrders = () => {
     api.get("/orders/mine?limit=200").then((r) => setMarketplaceOrders(r.data)).catch(() => setMarketplaceOrders([]));

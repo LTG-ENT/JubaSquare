@@ -34,7 +34,7 @@ const TABS = [
 
 export default function AdminDashboard() {
   const [tab, setTab] = useState("analytics");
-  const { currency, exchangeRate } = useCart(); // Get currency and exchange rate
+  const { currency = "USD", exchangeRate = 1 } = useCart() || {}; // Get currency and exchange rate with defaults
 
   return (
     <div className="min-h-screen flex flex-col bg-[var(--js-bg)]">

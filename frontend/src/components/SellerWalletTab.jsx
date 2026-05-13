@@ -76,8 +76,8 @@ export default function SellerWalletTab() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState("overview"); // overview | splits | payouts
   
-  // Get currency and exchange rate from CartContext
-  const { currency, exchangeRate } = useCart();
+  // Get currency and exchange rate from CartContext with defaults
+  const { currency = "USD", exchangeRate = 1 } = useCart() || {};
 
   const load = useCallback(async () => {
     setLoading(true);

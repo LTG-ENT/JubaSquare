@@ -33,7 +33,7 @@ const CATEGORIES = [
 
 export default function SellerDashboard() {
   const { user } = useAuth();
-  const { currency, exchangeRate } = useCart(); // Get currency and exchange rate
+  const { currency = "USD", exchangeRate = 1 } = useCart() || {}; // Get currency and exchange rate with defaults
   const [searchParams, setSearchParams] = useSearchParams();
   const initial = searchParams.get("tab") || "shops";
   const [tab, setTab] = useState(initial);
