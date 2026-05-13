@@ -348,7 +348,7 @@ export default function RestaurantCheckout() {
                       )}
                     </div>
                     <div className="font-semibold text-[var(--js-text)] whitespace-nowrap">
-                      {formatPrice(item.price_usd * item.quantity, currency, exchangeRate)}
+                      {formatPrice(item.price_usd * item.quantity, exchangeRate, currency)}
                     </div>
                   </div>
                 ))}
@@ -358,19 +358,19 @@ export default function RestaurantCheckout() {
                 <div className="flex justify-between text-sm">
                   <span className="text-[var(--js-text-secondary)]">Subtotal</span>
                   <span className="font-semibold text-[var(--js-text)]">
-                    {formatPrice(subtotalUSD, currency, exchangeRate)}
+                    {formatPrice(subtotalUSD, exchangeRate, currency)}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-[var(--js-text-secondary)]">Delivery Fee</span>
                   <span className="font-semibold text-[var(--js-text)]">
-                    {deliveryFee === 0 ? "FREE" : formatPrice(deliveryFee, currency, exchangeRate)}
+                    {deliveryFee === 0 ? "FREE" : formatPrice(deliveryFee, exchangeRate, currency)}
                   </span>
                 </div>
                 <div className="flex justify-between text-lg font-bold pt-2 border-t border-[var(--js-border)]">
                   <span className="text-[var(--js-text)]">Total</span>
                   <span className="text-[#C84B31]">
-                    {formatPrice(total, currency, exchangeRate)}
+                    {formatPrice(total, exchangeRate, currency)}
                   </span>
                 </div>
               </div>
