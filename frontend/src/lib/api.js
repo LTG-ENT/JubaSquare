@@ -19,6 +19,25 @@ api.interceptors.request.use((config) => {
 export default api;
 
 // ---------------------------------------------------------------------------
+// Error message extraction
+// ---------------------------------------------------------------------------
+// FastAPI returns `detail` as either:
+//   - a string  (custom HTTPException)
+//   - a list of objects (Pydantic 422 ValidationError)
+// React/JSX cannot render objects → if we pass the raw detail to toast or
+// JSX it triggers "Objects are not valid as a React child" and crashes the
+// tree via the ErrorBoundary. This helper always returns a printable string.
+export const extractErrorMessage = (err, fallback = "Something went wrong") => {
+  const d = err?.response?.data?.detail;
+  if (typeof d === "string") return d;
+  if (Array.isArray(d)) {
+    return d.map((e) => e?.msg || JSON.stringify(e)).join(", ") || fallback;
+  }
+  if (d && typeof d === "object") return JSON.stringify(d);
+  return err?.message || fallback;
+};
+
+// ---------------------------------------------------------------------------
 // Safe-array fallback layer
 // ---------------------------------------------------------------------------
 // Guarantees every consumer of a list endpoint gets an array — even if the

@@ -1,0 +1,38 @@
+{
+  "summary": "Iter8 retest of Customer Cancel UI on /orders after iter7 fixes (CancelBody at module scope in cod.py, extractErrorMessage helper in api.js, KitchenDashboard useParams fix). RESULT: ALL THREE iter7 critical bugs are RESOLVED. End-to-end cancel now works for BOTH marketplace and restaurant orders — verified live via Playwright on the deployed preview URL. Setup: customer testcust_1778675277@cancel.com placed two fresh orders via API — marketplace b675c250 (water $1) and restaurant 81845e46 (food $1) on restaurant c20c36c6. UI flow: clicked cancel-restaurant-order-{id}, typed reason, confirmed → toast 'Order cancelled' → modal closed → status changed to 'Cancelled' → cancel button disappeared → page did NOT trip the ErrorBoundary. Repeated for cancel-marketplace-order-{id} with the same passing result. Error-path also exercised: posting cancel on an already-cancelled order returns either {results:[{ok:false,error:...}]} (200, marketplace per-split shape) or {detail:'Too late to cancel ...'} (400, restaurant) — both render as a normal toast through extractErrorMessage; no React crash. Kitchen dashboard for restaurant c20c36c6-6909-467b-a486-b54ba8b7d617 loads cleanly for seller1 — NO 'Restaurant not found' toast, queue lanes render with order cards, customer phone +211900111222 and address 'Test Addr 1' are NOT present on the page (only customer name + area). Open/close toggle is present.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Kitchen dashboard header", "issues": ["Open/close toggle uses data-testid='kitchen-toggle-open' but the review request and downstream tests expect 'restaurant-open-toggle'. Functionality is correct; only the test-id name differs. Recommend either renaming or adding both attributes to keep external test suites green."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_8.json"
+  ],
+  "action_items": [
+    "[LOW] Align test-id on the kitchen open/close button: currently 'kitchen-toggle-open' in /app/frontend/src/pages/KitchenDashboard.jsx line 229 — review request expects 'restaurant-open-toggle'. Either rename or add both attributes."
+  ],
+  "critical_code_review_comments": [
+    "CancelBody now declared at module scope (per problem statement) — verified by 200 responses from /api/customer/orders/{id}/cancel and /api/customer/restaurant-orders/{id}/cancel.",
+    "extractErrorMessage in /app/frontend/src/lib/api.js correctly coerces FastAPI 422 list-of-dict detail and 400 string detail to a printable string — prevents React 'Objects are not valid as a React child' regression. Recommend reusing this helper everywhere a `.response?.data?.detail` is fed into JSX/toast (review request fixed Orders.jsx; other pages like SellerWalletTab still pass raw detail and remain potential 422 crash sites).",
+    "KitchenDashboard.jsx useParams now reads 'restaurantId' matching the route declaration — confirmed: the page loads the restaurant doc and renders queue without the prior 'Restaurant not found' toast.",
+    "Console logs show recurring React warning: 'An empty string was passed to the src attribute' — appears on /orders and /kitchen because order/menu items have empty image_url. Cosmetic but worth a defensive `src={img || undefined}` pass.",
+    "Marketplace cancel still uses array-style per-split results — frontend correctly distinguishes okCount==0 (error toast), partial (warning), full success (success). Good UX."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% on cancel endpoints (POST /api/customer/orders/{id}/cancel → 200, POST /api/customer/restaurant-orders/{id}/cancel → 200, already-cancelled retry → graceful 200 with per-split results or 400 with string detail).",
+    "frontend": "100% on /orders cancel UI end-to-end. Kitchen dashboard: page loads, no error toast, no PII leakage, toggle button present (different test-id name). Wallet PII not re-verified in this iter (no relevant code changed since iter7 which already passed)."
+  },
+  "test_credentials": "Customer testcust_1778675277@cancel.com / TestPass123! still valid. Seller seller1_1778671094@test.com / SellerPass123! still valid.",
+  "seed_data_creation": "Created fresh customer orders this iteration: marketplace b675c250-d842-4181-9136-2c7dd5d27afa and restaurant 81845e46-a4dd-4570-89e8-36e12dd4d3e5 — both now in Cancelled state after UI cancel flow.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter7 bug trio is fixed. If retest needed: place fresh orders for testcust_1778675277@cancel.com via POST /api/orders (marketplace) and POST /api/restaurant-orders (restaurant). For restaurant orders the payload requires item_type='menu_item', customer_name, customer_phone, payment_method='cash' (NOT 'cod'). For marketplace /api/orders the item payload must include name, price_usd, image_url, quantity. Customer JWT lives in /tmp/cust_token.txt (re-login if expired). Wallet PII regression on /seller route — Wallet tab text is duplicated in the seller dashboard (caused selector ambiguity); use a more specific selector e.g. data-testid='seller-tab-wallet' or [role='tab'][name='Wallet'].",
+  "rca of the issue": "N/A — no new bugs surfaced. Iter7 RCAs confirmed mitigated by direct curl + Playwright runs against the deployed URL."
+}

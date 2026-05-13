@@ -72,7 +72,7 @@ function ago(iso) {
 }
 
 export default function KitchenDashboard() {
-  const { restaurant_id: restaurantId } = useParams();
+  const { restaurantId } = useParams();
   const [restaurant, setRestaurant] = useState(null);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);

@@ -32,8 +32,17 @@ import secrets
 from datetime import datetime
 from typing import List, Optional, Literal, Any
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Body
 from pydantic import BaseModel, Field, EmailStr
+
+
+# ---------------------------------------------------------------------------
+# Module-level request body models (must NOT live inside route closures —
+# FastAPI's dependency-analyser fails to recognise closure-scoped BaseModel
+# subclasses as request bodies and treats them as query params instead).
+# ---------------------------------------------------------------------------
+class CancelBody(BaseModel):
+    reason: Optional[str] = ""
 
 
 # ---------------------------------------------------------------------------
@@ -1394,9 +1403,6 @@ def register_endpoints():
         except Exception:
             pass
         return await db.restaurant_orders.find_one({"id": o["id"]}, {"_id": 0})
-
-    class CancelBody(BaseModel):
-        reason: Optional[str] = ""
 
     # ---- Seller cancels ----
     @new_router.post("/seller/splits/{split_id}/cancel")

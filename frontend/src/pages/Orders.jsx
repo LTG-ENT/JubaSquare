@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import api, { formatUSD } from "@/lib/api";
+import api, { formatUSD, extractErrorMessage } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Package, MapPin, Phone, Truck, CheckCircle2, Clock, Star, X, XCircle } from "lucide-react";
@@ -53,7 +53,7 @@ function CancelOrderModal({ order, kind, onClose, onCancelled }) {
       onCancelled(order.id);
       onClose();
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Failed to cancel order");
+      toast.error(extractErrorMessage(err, "Failed to cancel order"));
     } finally {
       setSubmitting(false);
     }
