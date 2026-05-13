@@ -2503,35 +2503,45 @@ async def _calculate_delivery_fee(
             return float(rule["delivery_fee_usd"])
     
     # Try order type + area rule
-    rule = await db.delivery_pricing_rules.find_one({
+    query = {
         "order_type": order_type,
         "pickup_area": {"$regex": f"^{pickup_area}$", "$options": "i"},
         "delivery_area": {"$regex": f"^{delivery_area}$", "$options": "i"},
         "shop_id": None,
         "restaurant_id": None,
         "active": True
-    }, {"_id": 0})
+    }
+    log.info(f"[DELIVERY FEE] Searching order-type rule with query: {query}")
+    rule = await db.delivery_pricing_rules.find_one(query, {"_id": 0})
     if rule:
         log.info(f"[DELIVERY FEE] Found order-type rule: {rule['delivery_fee_usd']}")
         return float(rule["delivery_fee_usd"])
+    else:
+        log.warning(f"[DELIVERY FEE] No order-type rule found for {order_type}")
     
     # Try generic area rule (order_type = 'all')
-    rule = await db.delivery_pricing_rules.find_one({
+    query_all = {
         "order_type": "all",
         "pickup_area": {"$regex": f"^{pickup_area}$", "$options": "i"},
         "delivery_area": {"$regex": f"^{delivery_area}$", "$options": "i"},
         "shop_id": None,
         "restaurant_id": None,
         "active": True
-    }, {"_id": 0})
+    }
+    log.info(f"[DELIVERY FEE] Searching generic rule with query: {query_all}")
+    rule = await db.delivery_pricing_rules.find_one(query_all, {"_id": 0})
     if rule:
         log.info(f"[DELIVERY FEE] Found generic rule: {rule['delivery_fee_usd']}")
         return float(rule["delivery_fee_usd"])
+    else:
+        log.warning(f"[DELIVERY FEE] No generic (all) rule found")
     
     # Fallback to default
     log.warning(f"[DELIVERY FEE] No rule found, using default")
-    settings = await db.settings.find_one({"key": "default_delivery_fee_usd"}, {"_id": 0})
-    return float(settings.get("value", 2.0)) if settings else 2.0
+    settings = await db.settings.find_one({"id": "system"}, {"_id": 0})
+    default_fee = float(settings.get("default_delivery_fee_usd", 0.0)) if settings else 0.0
+    log.info(f"[DELIVERY FEE] Default fee: {default_fee}")
+    return default_fee
 
 
 # ---------------------------------------------------------------------------
