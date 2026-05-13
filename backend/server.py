@@ -2157,6 +2157,45 @@ async def delete_menu_item(item_id: str, user: dict = Depends(require_role("sell
 # ----------------------------------------------------------------------------
 # Restaurant Orders (separate from marketplace orders)
 # ----------------------------------------------------------------------------
+@api.post("/restaurant-orders/quote")
+async def quote_restaurant_order(body: RestaurantOrderIn, user: dict = Depends(get_current_user)):
+    """Calculate delivery fee preview for restaurant order without creating it."""
+    if body.delivery_type == "pickup":
+        return {"delivery_fee_usd": 0, "subtotal_usd": 0, "total_usd": 0}
+    
+    # Get restaurant area as pickup area
+    restaurant = await db.restaurants.find_one({"id": body.restaurant_id})
+    if not restaurant:
+        raise HTTPException(404, "Restaurant not found")
+    
+    pickup_area = restaurant.get("area", "")
+    delivery_area = body.customer_area if hasattr(body, 'customer_area') else user.get("area", "")
+    
+    # Calculate using admin rules
+    from cod import _calculate_delivery_fee
+    delivery_fee = await _calculate_delivery_fee(
+        pickup_area=pickup_area,
+        delivery_area=delivery_area,
+        order_type="restaurant",
+        shop_id=None,
+        restaurant_id=body.restaurant_id
+    )
+    
+    # Calculate subtotal from items
+    subtotal = sum(
+        it.price_usd * it.quantity + sum(sd.price_usd for sd in (it.sides or [])) * it.quantity 
+        for it in body.items
+    )
+    
+    return {
+        "delivery_fee_usd": round(delivery_fee, 2),
+        "subtotal_usd": round(subtotal, 2),
+        "total_usd": round(subtotal + delivery_fee, 2),
+        "pickup_area": pickup_area,
+        "delivery_area": delivery_area,
+    }
+
+
 @api.post("/restaurant-orders")
 async def create_restaurant_order(body: RestaurantOrderIn, user: dict = Depends(get_current_user)):
     """Create a restaurant order (food delivery/pickup)"""

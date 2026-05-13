@@ -55,36 +55,38 @@ export default function RestaurantCheckout() {
       });
   }, [restaurantId, user, navigate, items.length]);
   
-  const calculateDeliveryFee = (rest) => {
-    if (!rest || deliveryType === "pickup") {
-      setDeliveryFee(0);
-      return;
-    }
-    
-    const pricing = rest.delivery_pricing || { type: "fixed", fixed_fee: 2.0 };
-    
-    if (pricing.type === "free") {
-      setDeliveryFee(0);
-    } else if (pricing.type === "fixed") {
-      setDeliveryFee(pricing.fixed_fee || 0);
-    } else if (pricing.type === "per_area") {
-      // Use selected area from dropdown
-      const area_fees = pricing.area_fees || [];
-      const areaFee = area_fees.find(af => af.area === deliveryArea);
-      if (areaFee) {
-        setDeliveryFee(areaFee.fee || 0);
-      } else {
-        // Default to first area fee or 0
-        setDeliveryFee(area_fees.length > 0 ? area_fees[0].fee : 0);
-      }
-    }
-  };
-  
+  // Calculate delivery fee using backend API (admin pricing rules)
   useEffect(() => {
-    if (restaurant) {
-      calculateDeliveryFee(restaurant);
-    }
-  }, [deliveryType, deliveryArea]); // eslint-disable-line
+    const calculateFee = async () => {
+      if (!restaurant || deliveryType === "pickup" || !deliveryArea) {
+        setDeliveryFee(0);
+        return;
+      }
+      
+      try {
+        // Use COD delivery fee calculation endpoint
+        const { data } = await api.post("/restaurant-orders/quote", {
+          restaurant_id: restaurantId,
+          items: items.map(item => ({
+            item_type: item.item_type || "menu_item",
+            item_id: item.item_id,
+            name: item.name,
+            price_usd: item.price_usd,
+            quantity: item.quantity,
+            sides: item.sides || [],
+          })),
+          delivery_type: deliveryType,
+          customer_area: deliveryArea,
+        });
+        setDeliveryFee(data.delivery_fee_usd || 0);
+      } catch (err) {
+        console.error("Failed to calculate delivery fee:", err);
+        setDeliveryFee(0);
+      }
+    };
+    
+    calculateFee();
+  }, [restaurant, deliveryType, deliveryArea, restaurantId, items]);
   
   const total = subtotalUSD + deliveryFee;
   

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
-import api, { formatUSD, formatDetail } from "@/lib/api";
+import api, { formatUSD, formatDetail, formatPrice } from "@/lib/api";
+import { useCart } from "@/context/CartContext";
 import { toast } from "sonner";
 import {
   Truck,
