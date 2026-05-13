@@ -170,12 +170,38 @@ Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode fo
 ### Iter 10 hotfix (Feb 2026) — Seller Dashboard `MapPin` crash
 - **Bug**: `SellerDashboard.jsx` crashed with `ReferenceError: MapPin is not defined` at `DeliveryEditor` (line 1627) → React error boundary on Shops tab whenever a seller clicked Quick Edit / New Shop. Previous agent left the `MapPin` lucide icon usage after refactoring delivery pricing into the admin-controlled rules system but forgot to add the import.
 - **Fix** (`/app/frontend/src/pages/SellerDashboard.jsx` L11): added `MapPin` to the lucide-react named imports.
-- **Verified e2e** (Playwright, seller@demo.com):
-  - Seller Dashboard /seller loads without crash; 5 business cards render
-  - Quick Edit opens "Edit shop" modal; the `Delivery Pricing Controlled by Admin` notice with `MapPin` icon renders correctly
-  - Driver `/driver` and Admin `/admin` dashboards load without errors
-  - Zero `pageerror` events captured in browser
+- **Verified e2e** (Playwright, seller@demo.com): Seller Dashboard /seller loads without crash; Quick Edit opens "Edit shop" modal; "Delivery Pricing Controlled by Admin" notice with `MapPin` icon renders correctly; Driver `/driver` and Admin `/admin` dashboards load without errors; zero `pageerror` events captured in browser
 - **Credentials reset**: demo seller / customer accounts had unknown passwords. Reset via `/api/admin/users/{id}/reset-password` to `Demo1234!`. `test_credentials.md` updated.
+
+### Iter 10 — Driver `exchangeRate` crash + P1 UI improvements
+- **Bug 1 (P0)**: `DriverDashboard.jsx` → `DeliveryDetail` component crashed with `ReferenceError: exchangeRate is not defined` on every click to open a delivery. Root cause: `DeliveryDetail` referenced `exchangeRate` / `currency` but neither was in scope; plus a malformed paren on L402 (`it.price_usd * it.quantity, exchangeRate, currency` was being treated as a comma expression).
+- **Fix**: destructured `{ currency, exchangeRate }` from `useCart()` inside `DeliveryDetail` and fixed the broken paren grouping on the per-item price line.
+
+- **Feature (a) — Customer order timeline** (`/app/frontend/src/components/OrderStatusTimeline.jsx` — new):
+  - 4-step horizontal pipeline: Order placed → Preparing → Out for delivery → Delivered.
+  - Active step has pulsing red ring + `NOW` indicator; completed steps render in green with checkmarks; cancelled orders render a single "Order cancelled" red banner instead of the timeline.
+  - Wired into `Orders.jsx` for both restaurant orders (driven by `status` + `delivery_status`) and marketplace orders (driven by parent `status` + split `delivery_status`).
+
+- **Feature (b) — Admin alert badges + banner** (`/app/frontend/src/pages/AdminDashboard.jsx`):
+  - New backend endpoint `GET /api/admin/alerts` returns `{orders_needing_driver, cash_pending, payouts_ready, disputes_open, cancellations_open}` aggregated across `seller_order_splits`, `restaurant_orders`, and `seller_payouts`.
+  - Dashboard polls every 30s; renders red count pills on `Delivery & Payouts` and `Cancellation Requests` tabs.
+  - Below the tab strip, an `admin-alerts-banner` shows clickable pills (Needs driver / Cash pending / Payouts ready / Disputes open) that jump to the Delivery tab. Banner only shows when at least one count > 0.
+
+- **Feature (c) — Driver "Cash to hand over" summary** (`/app/frontend/src/pages/DriverDashboard.jsx`):
+  - New backend endpoint `GET /api/driver/cash-summary` returns `{pending_total_usd, pending_count, received_today_count, items}` aggregating across the driver's marketplace splits and restaurant orders.
+  - New 3-card row at the top of the dashboard: "Cash to hand over" (total in selected currency + order count), "Handed over today" (count of receipts received by admin today), and a helper note.
+  - Polled every 15s alongside delivery-requests.
+
+- **Feature (d) — Duplicate-action protection** (audit across admin + driver action buttons):
+  - Driver Accept/Reject (request cards): `actingRequestIds` Set guards both buttons; on click → disabled + label "Accepting…".
+  - Admin AssignmentsPane → `Assign driver` button uses `actingIds` Set; disabled while in-flight, label "Assigning…".
+  - Admin CashHandoversPane → `Mark received` button uses `actingIds`; disabled + "Receiving…" while in-flight.
+  - Admin PayoutsPane → `Generate payouts` button uses `generating` flag (button disabled + label "Generating…"); `Mark paid` uses `payingIds` Set per-payout (disabled + "Saving…").
+  - Existing in-flight protections (cancel order modal, DeliveryDetail action buttons) verified.
+
+- **Pre-existing bug fixed**: the entire Delivery Pricing Rules CRUD (`/admin/delivery-pricing-rules`, `…/default-fee`) was indented inside `backfill_existing_orders` (module-level code, never reached by FastAPI). Curl-tested: previously 404. Moved into `register_endpoints` next to the alerts block. Curl-tested after: 200 with full CRUD.
+
+- **Verified e2e (testing_agent_v3_fork, iter10)**: 9/9 backend pytest cases pass (admin/alerts schema, driver/cash-summary auth + schema, delivery-pricing CRUD, default-fee round-trip, cash-handovers + payouts regression, customer cancel routes). Frontend: customer `/orders` renders timelines with NOW indicator; cancelled orders correctly omit timeline. Driver `/driver` shows cash-summary card. Admin `/admin` shows 14 tabs incl. delivery-pricing (banner conditionally hidden when zero alerts). Seller Quick Edit modal renders MapPin icon. Zero React error boundaries.
 
 
 ## Backlog (P1 / P2)
