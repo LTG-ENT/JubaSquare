@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
-import api, { formatUSD, formatDetail } from "@/lib/api";
+import api, { formatUSD, formatPrice, formatDetail } from "@/lib/api";
+import { useCart } from "@/context/CartContext";
 import { toast } from "sonner";
 import {
   Wallet,
@@ -74,6 +75,9 @@ export default function SellerWalletTab() {
   const [returnOtp, setReturnOtp] = useState("");
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState("overview"); // overview | splits | payouts
+  
+  // Get currency and exchange rate from CartContext
+  const { currency, exchangeRate } = useCart();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -216,47 +220,47 @@ export default function SellerWalletTab() {
           <StatCard
             icon={Clock}
             label="Pending cash collection"
-            value={formatUSD(wallet.pending_cash_collection)}
+            value={formatPrice(wallet.pending_cash_collection, exchangeRate, currency)}
             sub="Orders out for delivery"
           />
           <StatCard
             icon={Truck}
             label="Cash with driver"
-            value={formatUSD(wallet.cash_with_driver)}
+            value={formatPrice(wallet.cash_with_driver, exchangeRate, currency)}
             sub="Driver hasn’t handed to admin yet"
             tone="warn"
           />
           <StatCard
             icon={Wallet}
             label="Ready for payout"
-            value={formatUSD(wallet.ready_for_payout)}
+            value={formatPrice(wallet.ready_for_payout, exchangeRate, currency)}
             sub="Awaiting admin to generate payout"
             tone="good"
           />
           <StatCard
             icon={Receipt}
             label="Pending payout"
-            value={formatUSD(wallet.pending_payout)}
+            value={formatPrice(wallet.pending_payout, exchangeRate, currency)}
             sub="Payout generated, not yet paid"
             tone="warn"
           />
           <StatCard
             icon={CheckCircle2}
             label="Paid total"
-            value={formatUSD(wallet.paid_total)}
+            value={formatPrice(wallet.paid_total, exchangeRate, currency)}
             sub="Lifetime"
             tone="good"
           />
           <StatCard
             icon={AlertTriangle}
             label="Commission deducted"
-            value={formatUSD(wallet.commission_deducted)}
+            value={formatPrice(wallet.commission_deducted, exchangeRate, currency)}
             sub="Platform fee on delivered orders"
           />
           <StatCard
             icon={RotateCcw}
             label="Returned / failed"
-            value={formatUSD(wallet.returned_or_failed)}
+            value={formatPrice(wallet.returned_or_failed, exchangeRate, currency)}
             sub="Not eligible for payout"
             tone="bad"
           />
@@ -300,7 +304,7 @@ export default function SellerWalletTab() {
                       <td className="px-3 py-2">
                         <div className="font-medium">{s.customer_name}</div>
                       </td>
-                      <td className="px-3 py-2 font-semibold">{formatUSD(s.order_total_usd)}</td>
+                      <td className="px-3 py-2 font-semibold">{formatPrice(s.order_total_usd, exchangeRate, currency)}</td>
                       <td className="px-3 py-2">
                         <Pill value={s.seller_preparation_status} mapping={{
                           pending: "bg-gray-100 text-gray-700",
@@ -358,8 +362,8 @@ export default function SellerWalletTab() {
                       <td className="px-3 py-2 font-mono text-xs">{p.id.slice(0, 8)}</td>
                       <td className="px-3 py-2 text-xs">{(p.created_at || "").slice(0, 16).replace("T", " ")}</td>
                       <td className="px-3 py-2">{(p.split_ids?.length || 0) + (p.restaurant_order_ids?.length || 0)}</td>
-                      <td className="px-3 py-2 font-semibold">{formatUSD(p.amount_usd)}</td>
-                      <td className="px-3 py-2">{formatUSD(p.commission_deducted_usd)}</td>
+                      <td className="px-3 py-2 font-semibold">{formatPrice(p.amount_usd, exchangeRate, currency)}</td>
+                      <td className="px-3 py-2">{formatPrice(p.commission_deducted_usd, exchangeRate, currency)}</td>
                       <td className="px-3 py-2"><Pill value={p.status} mapping={PAYOUT_PILL} /></td>
                       <td className="px-3 py-2 text-xs">{p.paid_at ? p.paid_at.slice(0, 16).replace("T", " ") : "—"}</td>
                     </tr>
@@ -396,11 +400,11 @@ export default function SellerWalletTab() {
                 </div>
                 <div>
                   <p className="text-xs text-[var(--js-text-secondary)]">Order total</p>
-                  <p className="font-semibold">{formatUSD(detail.order_total_usd)}</p>
+                  <p className="font-semibold">{formatPrice(detail.order_total_usd, exchangeRate, currency)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-[var(--js-text-secondary)]">Your earning</p>
-                  <p className="font-semibold text-emerald-700">{formatUSD(detail.seller_earning_usd)}</p>
+                  <p className="font-semibold text-emerald-700">{formatPrice(detail.seller_earning_usd, exchangeRate, currency)}</p>
                   <p className="text-[10px] text-[var(--js-text-secondary)]">
                     Commission {Math.round((detail.commission_rate || 0) * 100)}%
                   </p>
@@ -421,7 +425,7 @@ export default function SellerWalletTab() {
                   {(detail.items || detail.items_secure || []).map((it, i) => (
                     <li key={i} className="flex justify-between">
                       <span>{it.name} × {it.quantity}</span>
-                      <span className="font-medium">{formatUSD(it.line_total_usd || (it.price_usd * it.quantity))}</span>
+                      <span className="font-medium">{formatPrice(it.line_total_usd || (it.price_usd * it.quantity, exchangeRate, currency))}</span>
                     </li>
                   ))}
                 </ul>

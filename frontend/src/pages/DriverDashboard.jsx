@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
-import api, { formatUSD, formatDetail } from "@/lib/api";
+import { useCart } from "@/context/CartContext";
+import api, { formatUSD, formatPrice, formatDetail } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import SignaturePad from "@/components/SignaturePad";
@@ -65,6 +66,7 @@ const FAILURE_REASONS = [
 
 export default function DriverDashboard() {
   const { user } = useAuth();
+  const { currency, exchangeRate } = useCart(); // Get currency and exchange rate
   const [data, setData] = useState({ splits: [], restaurant_orders: [] });
   const [requests, setRequests] = useState({ splits: [], restaurant_orders: [] });
   const [filter, setFilter] = useState(""); // delivery_status filter
@@ -197,12 +199,12 @@ export default function DriverDashboard() {
                       </div>
                       <div className="flex items-center gap-2 text-[var(--js-text-secondary)]">
                         <Coins className="w-4 h-4 text-[#E9C46A]" />
-                        <span className="font-medium">Order total:</span> {formatUSD(req.order_total_usd || req.total)}
+                        <span className="font-medium">Order total:</span> {formatPrice(req.order_total_usd || req.total, exchangeRate, currency)}
                       </div>
                       {req.delivery_fee_usd > 0 && (
                         <div className="flex items-center gap-2 text-[var(--js-text-secondary)]">
                           <Truck className="w-4 h-4 text-[#264653]" />
-                          <span className="font-medium">Delivery fee:</span> {formatUSD(req.delivery_fee_usd)}
+                          <span className="font-medium">Delivery fee:</span> {formatPrice(req.delivery_fee_usd, exchangeRate, currency)}
                         </div>
                       )}
                     </div>
@@ -284,7 +286,7 @@ export default function DriverDashboard() {
                   </>
                 )}
                 <div className="mt-3 flex items-center justify-between">
-                  <span className="text-lg font-bold text-[var(--js-text)]">{formatUSD(r.order_total_usd)}</span>
+                  <span className="text-lg font-bold text-[var(--js-text)]">{formatPrice(r.order_total_usd, exchangeRate, currency)}</span>
                   <div className="flex gap-1">
                     <Pill value={r.payment_status} />
                   </div>
@@ -397,13 +399,13 @@ function DeliveryDetail({ row, reload, setOpen }) {
           {(r.items || r.items_secure || []).map((it, i) => (
             <li key={i} className="flex justify-between">
               <span>{it.name} × {it.quantity}</span>
-              <span className="font-medium">{formatUSD(it.line_total_usd || (it.price_usd * it.quantity))}</span>
+              <span className="font-medium">{formatPrice(it.line_total_usd || (it.price_usd * it.quantity, exchangeRate, currency))}</span>
             </li>
           ))}
         </ul>
         <div className="mt-3 pt-3 border-t border-[var(--js-border)] flex justify-between font-bold">
           <span>Total to collect (COD)</span>
-          <span className="text-xl">{formatUSD(r.order_total_usd)}</span>
+          <span className="text-xl">{formatPrice(r.order_total_usd, exchangeRate, currency)}</span>
         </div>
       </section>
 
@@ -492,7 +494,7 @@ function DeliveryDetail({ row, reload, setOpen }) {
         <div className="border-2 border-yellow-200 bg-yellow-50 rounded-xl p-4 space-y-2">
           {r.payment_status === "pending_collection" ? (
             <button onClick={() => post("cash-collected")} disabled={busy} className="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-semibold py-3 rounded-full flex items-center justify-center gap-2">
-              <Coins className="w-4 h-4" /> I collected cash from customer ({formatUSD(r.order_total_usd)})
+              <Coins className="w-4 h-4" /> I collected cash from customer ({formatPrice(r.order_total_usd, exchangeRate, currency)})
             </button>
           ) : (
             <p className="text-sm text-yellow-900">Cash collected — please hand it to admin. They’ll mark it received in the system.</p>

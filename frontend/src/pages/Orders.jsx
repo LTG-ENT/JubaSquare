@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import api, { formatUSD, extractErrorMessage } from "@/lib/api";
+import api, { formatUSD, formatPrice, extractErrorMessage } from "@/lib/api";
+import { useCart } from "@/context/CartContext";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Package, MapPin, Phone, Truck, CheckCircle2, Clock, Star, X, XCircle, KeyRound } from "lucide-react";
@@ -302,6 +303,9 @@ export default function Orders() {
   const [activeTab, setActiveTab] = useState("all"); // "all", "marketplace", "restaurant"
   const [cancelTarget, setCancelTarget] = useState(null); // { order, kind }
   const [orderSplits, setOrderSplits] = useState({}); // { orderId: [splits] }
+  
+  // Get currency and exchange rate from CartContext
+  const { currency, exchangeRate } = useCart();
 
   const refreshOrders = () => {
     api.get("/orders/mine?limit=200").then((r) => setMarketplaceOrders(r.data)).catch(() => setMarketplaceOrders([]));
@@ -531,13 +535,13 @@ export default function Orders() {
                       {o.items.map((item, idx) => (
                         <div key={idx} className="flex justify-between text-sm">
                           <span className="text-[#5C5C5C]">{item.quantity}x {item.name}</span>
-                          <span className="font-medium text-[#1A1A1A]">{formatUSD(item.price_usd * item.quantity)}</span>
+                          <span className="font-medium text-[#1A1A1A]">{formatPrice(item.price_usd * item.quantity, exchangeRate, currency)}</span>
                         </div>
                       ))}
                     </div>
 
                     <div className="flex items-center justify-between mt-4 pt-4 border-t border-[#E2E2D9]">
-                      <div className="font-bold text-lg text-[#1A1A1A]">Total: {formatUSD(o.total)}</div>
+                      <div className="font-bold text-lg text-[#1A1A1A]">Total: {formatPrice(o.total, exchangeRate, currency)}</div>
                       <div className="flex items-center gap-2">
                         {canCancel && (
                           <button
@@ -661,7 +665,7 @@ export default function Orders() {
                               </button>
                             )
                           )}
-                          <span className="font-semibold text-[#1A1A1A] tabular-nums">{formatUSD(i.price_usd * i.quantity)}</span>
+                          <span className="font-semibold text-[#1A1A1A] tabular-nums">{formatPrice(i.price_usd * i.quantity, exchangeRate, currency)}</span>
                         </div>
                       );
                     })}
@@ -682,7 +686,7 @@ export default function Orders() {
                           <XCircle className="w-3.5 h-3.5" /> Cancel
                         </button>
                       )}
-                      <p className="font-display font-bold text-lg text-[#1A1A1A]">{formatUSD(o.subtotal_usd)}</p>
+                      <p className="font-display font-bold text-lg text-[#1A1A1A]">{formatPrice(o.subtotal_usd, exchangeRate, currency)}</p>
                     </div>
                   </div>
                 </div>
