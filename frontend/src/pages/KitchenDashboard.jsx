@@ -86,6 +86,7 @@ export default function KitchenDashboard() {
   const [cancelReason, setCancelReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyOrders, setHistoryOrders] = useState([]);
 
   const loadRestaurant = useCallback(async () => {
     try {
@@ -107,12 +108,33 @@ export default function KitchenDashboard() {
     }
   }, [restaurantId]);
 
+  const loadHistory = useCallback(async () => {
+    try {
+      const { data } = await api.get(`/restaurant-orders/restaurant/${restaurantId}?include_history=true`);
+      // Filter to only include historical orders (handed to driver, cancelled, returned)
+      const historical = (data || []).filter(o => {
+        const isHandedToDriver = o.seller_preparation_status === "handed_to_driver";
+        const isCancelled = ["cancelled", "cancel_approved", "completed"].includes(o.status);
+        const isReturned = o.delivery_status === "returned_to_seller" || o.return_status === "returned";
+        return isHandedToDriver || isCancelled || isReturned;
+      });
+      setHistoryOrders(historical);
+    } catch (e) {
+      // Silently fail for history, main orders are more important
+      console.error("Failed to load history:", e);
+    }
+  }, [restaurantId]);
+
   useEffect(() => {
     loadRestaurant();
     loadOrders();
-    const t = setInterval(loadOrders, 15000); // poll every 15s
+    loadHistory();
+    const t = setInterval(() => {
+      loadOrders();
+      loadHistory();
+    }, 15000); // poll every 15s
     return () => clearInterval(t);
-  }, [loadRestaurant, loadOrders]);
+  }, [loadRestaurant, loadOrders, loadHistory]);
 
   const toggleOpen = async () => {
     if (!restaurant) return;
@@ -204,15 +226,10 @@ ${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}<
 
   // History: cancelled, returned, or delivered orders — kept in a collapsible
   // panel so the kitchen has visibility into what happened after handover
-  // without cluttering the live lanes.
+  // without cluttering the live lanes. Fetched separately with include_history=true.
   const history = useMemo(() => {
-    return orders.filter((o) => {
-      const cancelled = o.status === "cancelled" || o.status === "cancel_approved";
-      const returned = o.return_status === "returned" || o.return_status === "pending_return";
-      const delivered = o.delivery_status === "delivered";
-      return cancelled || returned || delivered;
-    }).sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
-  }, [orders]);
+    return historyOrders.sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
+  }, [historyOrders]);
 
   const totals = useMemo(() => ({
     inFlight: orders.filter(o => ["pending","accepted","preparing","ready_for_pickup"].includes(o.seller_preparation_status)).length,

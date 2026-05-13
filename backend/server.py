@@ -2293,9 +2293,15 @@ async def list_restaurant_orders(user: dict = Depends(get_current_user)):
 async def list_restaurant_orders_by_restaurant(
     restaurant_id: str,
     status: Optional[str] = None,
+    include_history: bool = False,
     user: dict = Depends(require_role("seller", "admin"))
 ):
-    """List orders for a specific restaurant (Kitchen Dashboard)"""
+    """List orders for a specific restaurant (Kitchen Dashboard).
+    
+    Args:
+        include_history: If True, includes orders that have been handed to driver,
+                        cancelled, or returned (for history panel)
+    """
     # Verify seller owns the restaurant
     restaurant = await db.restaurants.find_one({"id": restaurant_id})
     if not restaurant:
@@ -2307,6 +2313,13 @@ async def list_restaurant_orders_by_restaurant(
     query = {"restaurant_id": restaurant_id}
     if status:
         query["status"] = status
+    elif not include_history:
+        # Exclude historical orders by default (completed, cancelled, or handed to driver)
+        query["$and"] = [
+            {"seller_preparation_status": {"$nin": ["handed_to_driver"]}},
+            {"status": {"$nin": ["completed", "cancelled", "cancel_approved"]}},
+            {"delivery_status": {"$nin": ["delivered", "returned_to_seller"]}}
+        ]
     
     orders = await db.restaurant_orders.find(
         query,
@@ -4034,6 +4047,65 @@ async def admin_force_logout(_: dict = Depends(require_role("admin"))):
     new_tv = int(s.get("token_version", 1)) + 1
     await db.settings.update_one({"id": "system"}, {"$set": {"token_version": new_tv}}, upsert=True)
     return {"ok": True, "token_version": new_tv}
+
+
+@api.get("/admin/shops-and-restaurants")
+async def admin_list_shops_and_restaurants(
+    type_filter: Optional[str] = None,  # "shops", "restaurants", or None for all
+    verification: Optional[str] = None,  # Filter by verification status
+    limit: Optional[int] = None,
+    skip: Optional[int] = None,
+    _: dict = Depends(require_role("admin"))
+):
+    """Get both shops and restaurants for admin dashboard.
+    
+    Args:
+        type_filter: Filter by type ("shops" or "restaurants"). None returns both.
+        verification: Filter by verification status
+        limit/skip: Pagination
+    
+    Returns:
+        {
+            "shops": [...],
+            "restaurants": [...],
+            "total_shops": int,
+            "total_restaurants": int
+        }
+    """
+    lim, off = clamp_pagination(limit, skip)
+    
+    result = {
+        "shops": [],
+        "restaurants": [],
+        "total_shops": 0,
+        "total_restaurants": 0
+    }
+    
+    # Fetch shops if requested
+    if type_filter is None or type_filter == "shops":
+        shop_query = {"is_deleted": {"$ne": True}}
+        if verification:
+            shop_query["verification"] = verification
+        
+        result["shops"] = await db.shops.find(
+            shop_query,
+            {"_id": 0}
+        ).skip(off).limit(lim).sort("created_at", -1).to_list(lim)
+        result["total_shops"] = await db.shops.count_documents(shop_query)
+    
+    # Fetch restaurants if requested
+    if type_filter is None or type_filter == "restaurants":
+        rest_query = {}
+        if verification:
+            rest_query["verification"] = verification
+        
+        result["restaurants"] = await db.restaurants.find(
+            rest_query,
+            {"_id": 0}
+        ).skip(off).limit(lim).sort("created_at", -1).to_list(lim)
+        result["total_restaurants"] = await db.restaurants.count_documents(rest_query)
+    
+    return result
 
 
 @api.put("/admin/shops/{shop_id}/verify")

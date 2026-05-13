@@ -400,6 +400,7 @@ function PayoutsPane() {
   const [filter, setFilter] = useState("");
   const [generating, setGenerating] = useState(false);
   const [payingIds, setPayingIds] = useState(new Set());
+  const [otpModal, setOtpModal] = useState(null); // { payout, otp?, confirming? }
 
   const load = useCallback(async () => {
     try {
@@ -421,9 +422,38 @@ function PayoutsPane() {
     finally { setGenerating(false); }
   };
 
+  const initiatePayment = async (p) => {
+    try {
+      const r = await api.post(`/admin/payouts/${p.id}/generate-otp`);
+      setOtpModal({ payout: p, otp: r.data.otp, inputOtp: "", confirming: false });
+      toast.success("OTP generated! Show this to the seller.");
+    } catch (err) { 
+      toast.error(formatDetail(err.response?.data?.detail) || "Failed to generate OTP"); 
+    }
+  };
+
+  const confirmOTP = async () => {
+    if (!otpModal || otpModal.confirming) return;
+    const { payout, inputOtp } = otpModal;
+    if (!inputOtp || inputOtp.trim().length !== 4) {
+      toast.error("Please enter the 4-digit OTP");
+      return;
+    }
+    setOtpModal(prev => ({ ...prev, confirming: true }));
+    try {
+      await api.post(`/admin/payouts/${payout.id}/confirm-otp`, { otp: inputOtp.trim() });
+      toast.success("Payment confirmed!");
+      setOtpModal(null);
+      load();
+    } catch (err) { 
+      toast.error(formatDetail(err.response?.data?.detail) || "OTP verification failed"); 
+      setOtpModal(prev => ({ ...prev, confirming: false }));
+    }
+  };
+
   const markPaid = async (p) => {
     if (payingIds.has(p.id)) return;
-    if (!confirm(`Mark payout of ${formatUSD(p.amount_usd)} to ${p.seller_name} as paid?`)) return;
+    if (!confirm(`Mark payout of ${formatUSD(p.amount_usd)} to ${p.seller_name} as paid directly (no OTP)?`)) return;
     setPayingIds((prev) => { const n = new Set(prev); n.add(p.id); return n; });
     try {
       await api.post(`/admin/payouts/${p.id}/mark-paid`);
@@ -486,14 +516,23 @@ function PayoutsPane() {
                 <td className="px-3 py-2 text-right space-x-1">
                   <button onClick={() => open(p)} className="text-xs px-2 py-1 rounded-full hover:bg-gray-100"><Eye className="w-4 h-4 inline" /></button>
                   {p.status !== "paid" && (
-                    <button
-                      onClick={() => markPaid(p)}
-                      disabled={payingIds.has(p.id)}
-                      data-testid={`mark-paid-${p.id.slice(0,8)}`}
-                      className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-full"
-                    >
-                      {payingIds.has(p.id) ? "Saving…" : "Mark paid"}
-                    </button>
+                    <>
+                      <button
+                        onClick={() => initiatePayment(p)}
+                        data-testid={`initiate-payment-${p.id.slice(0,8)}`}
+                        className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-1 rounded-full"
+                      >
+                        Generate OTP
+                      </button>
+                      <button
+                        onClick={() => markPaid(p)}
+                        disabled={payingIds.has(p.id)}
+                        data-testid={`mark-paid-${p.id.slice(0,8)}`}
+                        className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-full"
+                      >
+                        {payingIds.has(p.id) ? "Saving…" : "Mark paid"}
+                      </button>
+                    </>
                   )}
                 </td>
               </tr>
@@ -535,6 +574,77 @@ function PayoutsPane() {
                     </li>
                   ))}
                 </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* OTP Modal for seller collection */}
+      {otpModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-lg">Seller Collection OTP</h3>
+              <button 
+                onClick={() => setOtpModal(null)} 
+                disabled={otpModal.confirming}
+                className="p-2 hover:bg-gray-100 rounded-full disabled:opacity-50"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              {/* Show OTP to admin */}
+              {otpModal.otp && (
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-center">
+                  <p className="text-xs uppercase tracking-wider font-bold text-blue-800 mb-2">
+                    Show this OTP to {otpModal.payout.seller_name}
+                  </p>
+                  <p className="text-5xl font-mono font-bold text-blue-700 tracking-widest mb-2">
+                    {otpModal.otp}
+                  </p>
+                  <p className="text-xs text-blue-800">
+                    Amount: {formatUSD(otpModal.payout.amount_usd)}
+                  </p>
+                </div>
+              )}
+
+              {/* OTP input for verification */}
+              <div>
+                <label className="block text-sm font-semibold mb-2">
+                  Enter OTP from seller
+                </label>
+                <input
+                  type="text"
+                  maxLength={4}
+                  value={otpModal.inputOtp || ""}
+                  onChange={(e) => setOtpModal(prev => ({ ...prev, inputOtp: e.target.value }))}
+                  disabled={otpModal.confirming}
+                  data-testid="otp-input"
+                  placeholder="____"
+                  className="w-full px-4 py-3 text-center text-2xl font-mono font-bold border-2 border-gray-300 rounded-lg focus:border-emerald-500 focus:outline-none disabled:bg-gray-100"
+                />
+              </div>
+
+              {/* Action buttons */}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setOtpModal(null)}
+                  disabled={otpModal.confirming}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-full font-semibold hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmOTP}
+                  disabled={otpModal.confirming || !otpModal.inputOtp || otpModal.inputOtp.length !== 4}
+                  data-testid="confirm-otp-btn"
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 disabled:cursor-not-allowed text-white font-semibold px-4 py-2 rounded-full"
+                >
+                  {otpModal.confirming ? "Confirming…" : "Confirm Payment"}
+                </button>
               </div>
             </div>
           </div>
