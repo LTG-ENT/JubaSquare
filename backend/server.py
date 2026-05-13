@@ -1953,7 +1953,21 @@ async def get_restaurant(restaurant_id: str):
 @api.get("/restaurants/{restaurant_id}/menu")
 async def get_menu(restaurant_id: str, limit: Optional[int] = None, skip: Optional[int] = None):
     lim, off = clamp_pagination(limit, skip)
-    return await db.menu_items.find({"restaurant_id": restaurant_id}, {"_id": 0}).skip(off).to_list(lim)
+    items = await db.menu_items.find({"restaurant_id": restaurant_id}, {"_id": 0}).skip(off).to_list(lim)
+    
+    # Embed per-seller exchange rate (same as products endpoint)
+    if items:
+        seller_ids = list({m["seller_id"] for m in items})
+        s = await get_settings()
+        global_rate = float(s.get("global_rate", 600.0))
+        rate_records = await db.exchange_rates.find(
+            {"seller_id": {"$in": seller_ids}}, {"_id": 0}).to_list(1000)
+        rate_by_seller = {r["seller_id"]: float(r.get("rate", global_rate)) for r in rate_records}
+        
+        for m in items:
+            m["exchange_rate_ssp"] = rate_by_seller.get(m["seller_id"], global_rate)
+    
+    return items
 
 
 @api.get("/menu-items")
@@ -1992,6 +2006,19 @@ async def list_menu_items(
     items = await db.menu_items.find(q, {"_id": 0}).skip(off).to_list(lim)
     if hidden_rest:
         items = [m for m in items if m.get("restaurant_id") not in hidden_rest]
+    
+    # Embed per-seller exchange rate (same as products endpoint)
+    if items:
+        seller_ids = list({m["seller_id"] for m in items})
+        s = await get_settings()
+        global_rate = float(s.get("global_rate", 600.0))
+        rate_records = await db.exchange_rates.find(
+            {"seller_id": {"$in": seller_ids}}, {"_id": 0}).to_list(1000)
+        rate_by_seller = {r["seller_id"]: float(r.get("rate", global_rate)) for r in rate_records}
+        
+        for m in items:
+            m["exchange_rate_ssp"] = rate_by_seller.get(m["seller_id"], global_rate)
+    
     return items
 
 
