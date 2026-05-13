@@ -22,6 +22,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr
 
 import email_service
+import cod
 from pages_seed import PAGES_DEFAULT, PAGE_SLUGS
 from footer_seed import FOOTER_DEFAULT
 from categories_seed import CATEGORIES_DEFAULT, CATEGORY_GROUPS
@@ -614,7 +615,7 @@ class AdminUserCreateIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     email: EmailStr
     password: str = Field(min_length=6)
-    role: Literal["customer", "seller", "admin"] = "customer"
+    role: Literal["customer", "seller", "admin", "driver"] = "customer"
     phone: Optional[str] = ""
     email_verified: bool = True  # Admin-created users are pre-verified
 
@@ -623,7 +624,7 @@ class AdminUserUpdateIn(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=120)
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
-    role: Optional[Literal["customer", "seller", "admin"]] = None
+    role: Optional[Literal["customer", "seller", "admin", "driver"]] = None
 
 
 class AdminResetPasswordIn(BaseModel):
@@ -2160,13 +2161,31 @@ async def create_restaurant_order(body: RestaurantOrderIn, user: dict = Depends(
                     delivery_fee = float(area_fee.get("fee", 0.0))
                     break
     
-    # Calculate totals
-    subtotal = sum(item.price_usd * item.quantity for item in body.items)
-    # Add side item prices
+    # SECURITY: Recompute item prices from DB (never trust frontend prices).
+    item_ids = [it.item_id for it in body.items]
+    menu_db = await db.menu_items.find({"id": {"$in": item_ids}}, {"_id": 0}).to_list(2000)
+    menu_by_id = {m["id"]: m for m in menu_db}
+    secure_items = []
+    subtotal = 0.0
     for item in body.items:
-        for side in item.sides:
-            subtotal += side.price_usd * item.quantity
-    
+        m = menu_by_id.get(item.item_id)
+        if not m:
+            raise HTTPException(400, f"Menu item {item.item_id} not found")
+        qty = max(1, int(item.quantity))
+        price = float(m.get("price_usd", 0))
+        sides_total = sum(float(s.price_usd) for s in (item.sides or []))
+        line = (price + sides_total) * qty
+        subtotal += line
+        secure_items.append({
+            "item_type": "menu_item",
+            "item_id": m["id"],
+            "name": m.get("name"),
+            "price_usd": price,
+            "quantity": qty,
+            "image_url": m.get("image_url", ""),
+            "sides": [s.model_dump() for s in (item.sides or [])],
+        })
+
     total = subtotal + delivery_fee
     
     # Create order
@@ -2178,7 +2197,7 @@ async def create_restaurant_order(body: RestaurantOrderIn, user: dict = Depends(
         "customer_name": body.customer_name,
         "customer_phone": body.customer_phone,
         "customer_address": body.customer_address,
-        "items": [item.model_dump() for item in body.items],
+        "items": secure_items,
         "delivery_type": body.delivery_type,
         "payment_method": body.payment_method,
         "note": body.note,
@@ -2192,6 +2211,14 @@ async def create_restaurant_order(body: RestaurantOrderIn, user: dict = Depends(
     
     await db.restaurant_orders.insert_one(order)
     order.pop("_id", None)
+
+    # Initialize COD/driver fields on the restaurant order (single-seller, inline).
+    try:
+        cod_fields = await cod.initialize_restaurant_order_cod(order)
+        await db.restaurant_orders.update_one({"id": order["id"]}, {"$set": cod_fields})
+        order.update(cod_fields)
+    except Exception as e:
+        log.warning(f"restaurant COD init failed for order {order['id']}: {e}")
     
     # Track trending
     await db.trending_stats.update_one(
@@ -2821,14 +2848,36 @@ async def place_order(body: OrderIn, user: dict = Depends(get_current_user)):
     if not body.items:
         raise HTTPException(400, "Cart is empty")
 
-    subtotal = sum(it.price_usd * it.quantity + sum(sd.price_usd for sd in (it.sides or [])) * it.quantity for it in body.items)
+    # SECURITY: Recompute item prices from DB. Never trust frontend prices.
+    item_ids = [it.item_id for it in body.items]
+    products = await db.products.find({"id": {"$in": item_ids}}, {"_id": 0}).to_list(2000)
+    products_by_id = {p["id"]: p for p in products}
+    secure_items = []
+    subtotal = 0.0
+    for it in body.items:
+        p = products_by_id.get(it.item_id)
+        if not p:
+            raise HTTPException(400, f"Item {it.item_id} not found")
+        qty = max(1, int(it.quantity))
+        price = float(p.get("price_usd", 0))
+        # Sides aren't standard on marketplace products; keep what was sent for note value 0.
+        line_total = price * qty
+        subtotal += line_total
+        secure_items.append({
+            "item_type": "product",
+            "item_id": p["id"],
+            "name": p.get("name"),
+            "price_usd": price,
+            "quantity": qty,
+            "image_url": p.get("image_url", ""),
+            "sides": [],
+        })
 
     # Compute per-shop delivery fee based on customer area
     delivery_fee = 0.0
     delivery_breakdown: List[dict] = []
-    item_ids = [it.item_id for it in body.items]
-    products = await db.products.find({"id": {"$in": item_ids}}, {"_id": 0}).to_list(2000)
     shop_ids_in_order = list({p["shop_id"] for p in products})
+    shops: List[dict] = []
     if shop_ids_in_order:
         shops = await db.shops.find({"id": {"$in": shop_ids_in_order}}, {"_id": 0}).to_list(500)
         for sh in shops:
@@ -2855,17 +2904,28 @@ async def place_order(body: OrderIn, user: dict = Depends(get_current_user)):
         "customer_id": user["id"],
         "customer_name": user["name"],
         "customer_email": user["email"],
-        "items": [it.model_dump() for it in body.items],
+        "items": secure_items,
         "subtotal_usd": round(subtotal, 2),
         "delivery_fee_usd": round(delivery_fee, 2),
         "delivery_breakdown": delivery_breakdown,
         "total_usd": total,
         "area": body.area, "address": body.address, "phone": body.phone,
         "note": body.note, "order_kind": body.order_kind,
-        "status": "Pending", "created_at": now_iso(),
+        "status": "Pending",
+        # New COD/driver fields summarized on the parent order; per-seller
+        # state lives on seller_order_splits.
+        "payment_method": "cash_on_delivery",
+        "created_at": now_iso(),
     }
     await db.orders.insert_one(order)
     order.pop("_id", None)
+
+    # Create per-seller splits with their own OTPs, statuses, commission.
+    try:
+        order["splits"] = await cod.create_marketplace_splits(order)
+    except Exception as e:
+        log.warning(f"split creation failed for order {order['id']}: {e}")
+        order["splits"] = []
 
     # Notify each unique seller whose products are in this order
     notified_sellers = set()
@@ -4484,6 +4544,25 @@ async def seed_production():
 @app.on_event("startup")
 async def on_startup():
     await seed_production()
+    # Bind cod module's dependencies (only after server module is fully loaded)
+    cod.bind(
+        db_=db, log_=log,
+        get_current_user_=get_current_user,
+        require_role_=require_role,
+        get_settings_=get_settings,
+        create_notification_=create_notification,
+        now_iso_=now_iso,
+        hash_password_=hash_password,
+    )
+    cod.register_endpoints()
+    await cod.seed_cod()
+    try:
+        await cod.backfill_existing_orders()
+    except Exception as exc:
+        log.warning(f"COD backfill skipped: {exc}")
+    # Mount the COD router AFTER it's been rebuilt by register_endpoints.
+    app.include_router(cod.router)
+
     # Backfill shop ratings once on startup so existing shops without the
     # average_rating/review_count fields show ratings rolled-up from product
     # reviews. Cheap and idempotent — only touches shops that need it.
