@@ -14,7 +14,7 @@ import pytest
 import requests
 
 BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL")
-            or "https://wallet-auto-refresh.preview.emergentagent.com").rstrip("/")
+            or "https://payout-otp.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
 ADMIN = {"email": "admin@LTG.com", "password": "Kokobleake1"}

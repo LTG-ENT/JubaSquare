@@ -9,7 +9,7 @@ import sys
 import json
 from typing import Optional
 
-BASE_URL = "https://wallet-auto-refresh.preview.emergentagent.com/api"
+BASE_URL = "https://payout-otp.preview.emergentagent.com/api"
 
 # Admin credentials
 ADMIN_EMAIL = "ltg-general-trading@hotmail.com"

@@ -11,7 +11,7 @@ import requests
 import json
 import sys
 
-BASE_URL = "https://wallet-auto-refresh.preview.emergentagent.com/api"
+BASE_URL = "https://payout-otp.preview.emergentagent.com/api"
 
 # Test credentials
 CUSTOMER_EMAIL = "customer@demo.com"
