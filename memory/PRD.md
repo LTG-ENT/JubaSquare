@@ -166,6 +166,18 @@ Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode fo
 - `Restaurants.jsx`: rewrote state to be keyed by category id. Reads `category_id` from URL first; falls back to legacy `category=name` if present. Resolves id → category name (using the live DB list) to filter menu items. Active chip syncs reliably regardless of how the URL was reached.
 - Result: clicking any admin-defined category from the Header mega-menu opens `/restaurants?category_id=<id>` and the matching chip becomes active and filters correctly. Verified for Drinks (1 card), Local Food (empty state), and the newly-added admin category "test" appeared automatically.
 
+
+### Iter 10 hotfix (Feb 2026) — Seller Dashboard `MapPin` crash
+- **Bug**: `SellerDashboard.jsx` crashed with `ReferenceError: MapPin is not defined` at `DeliveryEditor` (line 1627) → React error boundary on Shops tab whenever a seller clicked Quick Edit / New Shop. Previous agent left the `MapPin` lucide icon usage after refactoring delivery pricing into the admin-controlled rules system but forgot to add the import.
+- **Fix** (`/app/frontend/src/pages/SellerDashboard.jsx` L11): added `MapPin` to the lucide-react named imports.
+- **Verified e2e** (Playwright, seller@demo.com):
+  - Seller Dashboard /seller loads without crash; 5 business cards render
+  - Quick Edit opens "Edit shop" modal; the `Delivery Pricing Controlled by Admin` notice with `MapPin` icon renders correctly
+  - Driver `/driver` and Admin `/admin` dashboards load without errors
+  - Zero `pageerror` events captured in browser
+- **Credentials reset**: demo seller / customer accounts had unknown passwords. Reset via `/api/admin/users/{id}/reset-password` to `Demo1234!`. `test_credentials.md` updated.
+
+
 ## Backlog (P1 / P2)
 - **P1** Unread message badge polling / realtime updates on Messages tab
 - **P1** COD-only checkout enforcement on `/shop/:shop_id` order flow (currently only banner)
