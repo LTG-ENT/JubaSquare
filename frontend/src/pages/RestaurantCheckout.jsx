@@ -77,9 +77,11 @@ export default function RestaurantCheckout() {
           delivery_type: deliveryType,
           customer_area: deliveryArea,
         });
+        console.log("📦 Delivery fee response:", data);
         setDeliveryFee(data.delivery_fee_usd || 0);
       } catch (err) {
         console.error("Failed to calculate delivery fee:", err);
+        console.error("Error details:", err.response?.data);
         setDeliveryFee(0);
       }
     };
