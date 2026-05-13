@@ -9,7 +9,7 @@ import sys
 import json
 from typing import Optional
 
-BASE_URL = "https://logo-resize-update.preview.emergentagent.com/api"
+BASE_URL = "https://cash-delivery-flow.preview.emergentagent.com/api"
 
 # Admin credentials
 ADMIN_EMAIL = "ltg-general-trading@hotmail.com"

@@ -8,7 +8,7 @@ import sys
 from typing import Optional
 
 # Backend URL
-BASE_URL = "https://logo-resize-update.preview.emergentagent.com/api"
+BASE_URL = "https://cash-delivery-flow.preview.emergentagent.com/api"
 
 # Test credentials from /app/memory/test_credentials.md
 CUSTOMER_EMAIL = "test_customer_1778609646@example.com"

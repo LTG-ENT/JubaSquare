@@ -1182,7 +1182,7 @@ agent_communication:
         - Only minor flake was a timing-related "Sign In" assertion after logout (core auth works)
         Production-ready.
 
-        Tested all requested flows on production URL (https://logo-resize-update.preview.emergentagent.com):
+        Tested all requested flows on production URL (https://cash-delivery-flow.preview.emergentagent.com):
         
         ✅ PASSED TESTS:
         1. Home page - All elements verified (navbar with JubaSquare logo + "by L.T.G Enterprise", hero carousel with "Shop Everything in Juba", category grid, footer with legal links)
