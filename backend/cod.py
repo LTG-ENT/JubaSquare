@@ -115,6 +115,12 @@ DEFAULT_COD_FIELDS = {
     "driver_id": None,
     "driver_name": None,
     "assigned_at": None,
+    "assignment_status": "unassigned",  # unassigned | offered_to_driver | accepted_by_driver | rejected_by_driver | manually_assigned
+    "driver_response_status": None,  # pending | accepted | rejected
+    "driver_accepted_at": None,
+    "driver_rejected_at": None,
+    "driver_reject_reason": None,
+    "declined_driver_ids": [],  # List of driver IDs who rejected this delivery
 }
 
 
@@ -582,6 +588,21 @@ class DisputeOpenIn(BaseModel):
 
 class PayoutGenerateIn(BaseModel):
     seller_id: Optional[str] = None  # if None, generate for all eligible sellers
+
+
+class DriverAcceptRejectIn(BaseModel):
+    action: Literal["accept", "reject"]
+    reject_reason: Optional[str] = None
+
+
+class DeliveryPricingRuleIn(BaseModel):
+    pickup_area: str = Field(min_length=1, max_length=100)
+    delivery_area: str = Field(min_length=1, max_length=100)
+    order_type: Literal["marketplace", "restaurant", "all"] = "all"
+    shop_id: Optional[str] = None
+    restaurant_id: Optional[str] = None
+    delivery_fee_usd: float = Field(ge=0)
+    active: bool = True
 
 
 # ===========================================================================
