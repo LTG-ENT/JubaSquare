@@ -66,10 +66,13 @@ const FAILURE_REASONS = [
 export default function DriverDashboard() {
   const { user } = useAuth();
   const [data, setData] = useState({ splits: [], restaurant_orders: [] });
+  const [requests, setRequests] = useState({ splits: [], restaurant_orders: [] });
   const [filter, setFilter] = useState(""); // delivery_status filter
   const [open, setOpen] = useState(null); // { ...row, _kind }
   const [loading, setLoading] = useState(true);
+  const [requestsLoading, setRequestsLoading] = useState(false);
 
+  // Load accepted assignments
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -80,12 +83,56 @@ export default function DriverDashboard() {
     } finally { setLoading(false); }
   }, [filter]);
 
-  useEffect(() => { load(); }, [load]);
+  // Load pending delivery requests
+  const loadRequests = useCallback(async () => {
+    setRequestsLoading(true);
+    try {
+      const r = await api.get("/driver/delivery-requests");
+      setRequests(r.data || { splits: [], restaurant_orders: [] });
+    } catch (e) {
+      console.error("Failed to load delivery requests:", e);
+    } finally { setRequestsLoading(false); }
+  }, []);
+
+  useEffect(() => { 
+    load();
+    loadRequests();
+  }, [load, loadRequests]);
+
+  // Auto-refresh requests every 15 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadRequests();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [loadRequests]);
 
   const all = [
     ...(data.splits || []).map((s) => ({ ...s, _kind: "split" })),
     ...(data.restaurant_orders || []).map((r) => ({ ...r, _kind: "rest" })),
   ];
+
+  const allRequests = [
+    ...(requests.splits || []).map((s) => ({ ...s, _kind: "split" })),
+    ...(requests.restaurant_orders || []).map((r) => ({ ...r, _kind: "rest" })),
+  ];
+
+  // Handle accept/reject
+  const handleAcceptReject = async (item, action, rejectReason = null) => {
+    const endpoint = item._kind === "rest"
+      ? `/driver/restaurant-orders/${item.id}/${action === "accept" ? "accept-offer" : "decline-offer"}`
+      : `/driver/splits/${item.id}/${action === "accept" ? "accept-offer" : "decline-offer"}`;
+    
+    try {
+      const body = action === "reject" && rejectReason ? { action: "reject", reject_reason: rejectReason } : {};
+      await api.post(endpoint, body);
+      toast.success(action === "accept" ? "Delivery accepted!" : "Delivery rejected");
+      loadRequests(); // Refresh requests
+      load(); // Refresh assignments
+    } catch (e) {
+      toast.error(formatDetail(e.response?.data?.detail) || `Failed to ${action}`);
+    }
+  };
 
   if (open) {
     return (
@@ -110,7 +157,86 @@ export default function DriverDashboard() {
         <h1 className="font-display font-bold text-3xl text-[var(--js-text)]">My deliveries</h1>
         <p className="text-sm text-[var(--js-text-secondary)]">Hi {user?.name?.split(" ")?.[0]} — here are the orders assigned to you.</p>
 
-        <div className="mt-6 flex gap-2 flex-wrap items-center">
+        {/* New Delivery Requests Section */}
+        {allRequests.length > 0 && (
+          <div className="mt-6 bg-gradient-to-r from-[#C84B31] to-[#E9C46A] p-[2px] rounded-2xl">
+            <div className="bg-white rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="font-bold text-lg text-[var(--js-text)] flex items-center gap-2">
+                    <Package className="w-5 h-5 text-[#C84B31]" />
+                    New Delivery Requests
+                  </h2>
+                  <p className="text-sm text-[var(--js-text-secondary)]">
+                    {allRequests.length} delivery{allRequests.length !== 1 ? "s" : ""} need your response
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {allRequests.map((req) => (
+                  <div key={req.id} className="border-2 border-[#E9C46A] rounded-xl p-4 bg-[#FFF9F0]">
+                    <div className="flex items-start justify-between mb-3">
+                      <div>
+                        <p className="font-mono text-xs text-[var(--js-text-secondary)] mb-1">
+                          {req._kind === "rest" ? "🍽️ RESTAURANT" : "🛒 MARKETPLACE"}
+                        </p>
+                        <p className="font-bold text-[var(--js-text)]">{req.shop_name || req.restaurant_name}</p>
+                      </div>
+                      <Pill value="offered" />
+                    </div>
+
+                    <div className="space-y-2 text-sm mb-4">
+                      <div className="flex items-center gap-2 text-[var(--js-text-secondary)]">
+                        <MapPin className="w-4 h-4 text-[#C84B31]" />
+                        <span className="font-medium">Pickup:</span> {req.pickup_area || req.seller_area || "N/A"}
+                      </div>
+                      <div className="flex items-center gap-2 text-[var(--js-text-secondary)]">
+                        <MapPin className="w-4 h-4 text-[#2A9D8F]" />
+                        <span className="font-medium">Deliver to:</span> {req.delivery_area || req.customer_area || "N/A"}
+                      </div>
+                      <div className="flex items-center gap-2 text-[var(--js-text-secondary)]">
+                        <Coins className="w-4 h-4 text-[#E9C46A]" />
+                        <span className="font-medium">Order total:</span> {formatUSD(req.order_total_usd || req.total)}
+                      </div>
+                      {req.delivery_fee_usd > 0 && (
+                        <div className="flex items-center gap-2 text-[var(--js-text-secondary)]">
+                          <Truck className="w-4 h-4 text-[#264653]" />
+                          <span className="font-medium">Delivery fee:</span> {formatUSD(req.delivery_fee_usd)}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleAcceptReject(req, "accept")}
+                        className="flex-1 bg-[#2A9D8F] hover:bg-[#238276] text-white font-semibold py-2.5 rounded-lg transition flex items-center justify-center gap-1"
+                      >
+                        <CheckCircle2 className="w-4 h-4" /> Accept
+                      </button>
+                      <button
+                        onClick={() => {
+                          const reason = prompt("Reason for rejecting (optional):");
+                          if (reason !== null) handleAcceptReject(req, "reject", reason);
+                        }}
+                        className="flex-1 bg-white hover:bg-gray-50 text-[#D90429] border-2 border-[#D90429] font-semibold py-2.5 rounded-lg transition flex items-center justify-center gap-1"
+                      >
+                        <XCircle className="w-4 h-4" /> Reject
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* My Assignments Section Header */}
+        <div className="mt-8">
+          <h2 className="font-bold text-xl text-[var(--js-text)] mb-4">My Accepted Deliveries</h2>
+        </div>
+
+        <div className="flex gap-2 flex-wrap items-center">
           <select value={filter} onChange={(e) => setFilter(e.target.value)} data-testid="driver-filter" className="px-3 py-2 border border-[var(--js-border)] rounded-lg text-sm">
             <option value="">All my deliveries</option>
             <option value="offered">Offered (action needed)</option>
