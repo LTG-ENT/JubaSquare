@@ -6,7 +6,8 @@ import Footer from "@/components/Footer";
 import ImageUpload from "@/components/ImageUpload";
 import AreaSelectField from "@/components/AreaSelectField";
 import OrderChatButton from "@/components/OrderChatButton";
-import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle, ExternalLink, MessageCircle, Mail, Phone, ChefHat } from "lucide-react";
+import SellerWalletTab from "@/components/SellerWalletTab";
+import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle, ExternalLink, MessageCircle, Mail, Phone, ChefHat, Wallet } from "lucide-react";
 import { useSearchParams, Link } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -14,6 +15,7 @@ const TABS = [
   { id: "shops", label: "My Shops", icon: Store },
   { id: "products", label: "Products", icon: Package },
   { id: "orders", label: "Orders", icon: ShoppingBag },
+  { id: "wallet", label: "Wallet & Payouts", icon: Wallet },
   { id: "messages", label: "Messages", icon: MessageCircle },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "invoices", label: "Invoices", icon: FileText },
@@ -146,6 +148,7 @@ export default function SellerDashboard() {
           {tab === "shops" && <ShopsTab />}
           {tab === "products" && <ProductsTab />}
           {tab === "orders" && <OrdersTab />}
+          {tab === "wallet" && <SellerWalletTab />}
           {tab === "messages" && <MessagesTab onChange={(n) => setUnreadMessages(n)} />}
           {tab === "notifications" && <NotificationsTab />}
           {tab === "invoices" && <InvoicesTab />}

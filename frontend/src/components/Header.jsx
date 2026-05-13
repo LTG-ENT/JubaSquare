@@ -81,6 +81,9 @@ function ProfileQuickMenu({ user }) {
   } else if (role === "admin") {
     items.push({ key: "dashboard", label: "Dashboard", to: "/admin", Icon: LayoutDashboard });
     items.push({ key: "settings", label: "Settings", to: "/settings", Icon: SettingsIcon });
+  } else if (role === "driver") {
+    items.push({ key: "driver", label: "Driver", to: "/driver", Icon: LayoutDashboard });
+    items.push({ key: "settings", label: "Settings", to: "/settings", Icon: SettingsIcon });
   }
 
   const go = (to) => {
@@ -158,7 +161,7 @@ export default function Header() {
     );
   };
 
-  const dashboardPath = user?.role === "admin" ? "/admin" : user?.role === "seller" ? "/seller" : null;
+  const dashboardPath = user?.role === "admin" ? "/admin" : user?.role === "seller" ? "/seller" : user?.role === "driver" ? "/driver" : null;
 
   return (
     <header className="sticky top-0 z-50 bg-[#0E1A2B] border-b border-white/10 shadow-md">
@@ -249,7 +252,7 @@ export default function Header() {
               <div className="mt-1 pt-2 border-t border-white/10 flex flex-col gap-1" data-testid="mobile-profile-menu">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-white/50 font-bold px-3 pt-1">Profile</p>
                 {user.role === "customer" && navLink("/orders", "Orders", Package)}
-                {(user.role === "seller" || user.role === "admin") && dashboardPath && navLink(dashboardPath, "Dashboard", LayoutDashboard)}
+                {(user.role === "seller" || user.role === "admin" || user.role === "driver") && dashboardPath && navLink(dashboardPath, "Dashboard", LayoutDashboard)}
                 {navLink("/settings", "Settings", SettingsIcon)}
               </div>
             )}

@@ -9,7 +9,8 @@ import AdminPagesTab from "@/components/AdminPagesTab";
 import AdminSettingsTab from "@/components/AdminSettingsTab";
 import AdminFooterTab from "@/components/AdminFooterTab";
 import AdminCategoriesTab from "@/components/AdminCategoriesTab";
-import { Store, Mail, ShoppingBag, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Percent, Eye, X, BarChart3, Settings as SettingsIcon, BookOpen, Sliders, PanelBottom, FolderTree, Ban, Activity } from "lucide-react";
+import AdminDeliveryTab from "@/components/AdminDeliveryTab";
+import { Store, Mail, ShoppingBag, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Percent, Eye, X, BarChart3, Settings as SettingsIcon, BookOpen, Sliders, PanelBottom, FolderTree, Ban, Activity, Truck } from "lucide-react";
 import { toast } from "sonner";
 
 const TABS = [
@@ -17,6 +18,7 @@ const TABS = [
   { id: "performance", label: "Performance", icon: Activity },
   { id: "shops", label: "Shops", icon: Store },
   { id: "categories", label: "Categories", icon: FolderTree },
+  { id: "delivery", label: "Delivery & Payouts", icon: Truck },
   { id: "invoices", label: "Invoices", icon: FileText },
   { id: "cancellations", label: "Cancellation Requests", icon: Ban },
   { id: "emails", label: "Blocked Emails", icon: Mail },
@@ -60,6 +62,7 @@ export default function AdminDashboard() {
           {tab === "performance" && <PerformanceMonitor />}
           {tab === "shops" && <AdminShopsTab />}
           {tab === "categories" && <AdminCategoriesTab />}
+          {tab === "delivery" && <AdminDeliveryTab />}
           {tab === "invoices" && <AdminInvoicesPane />}
           {tab === "cancellations" && <AdminCancellationsTab />}
           {tab === "emails" && <AdminEmailsTab />}
