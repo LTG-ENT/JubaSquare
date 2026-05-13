@@ -2213,3 +2213,78 @@ agent_communication:
         **NO CRITICAL ISSUES FOUND.**
         
         All COD/Driver backend endpoints working correctly. Ready for frontend integration.
+
+    - agent: "main"
+      message: |
+        Iter 8 — Customer delivery OTP visibility fix.
+        
+        ISSUE: Customer-facing endpoints were exposing seller_pickup_otp and return_otp, which should only be visible to sellers/drivers.
+        
+        FIX APPLIED:
+        1. Added CUSTOMER_PRIVATE_KEYS constant in cod.py to define fields that must NOT reach customers
+        2. Added redact_for_customer() and redact_many_for_customer() helper functions
+        3. Updated GET /customer/orders/{order_id}/splits to redact seller OTPs before returning to customer
+        4. Updated GET /restaurant-orders to redact seller OTPs for customer role
+        
+        ENDPOINTS TO TEST:
+        1. GET /customer/orders/{order_id}/splits - should expose customer_delivery_otp but NOT seller_pickup_otp or return_otp
+        2. GET /restaurant-orders (as customer) - should expose customer_delivery_otp but NOT seller_pickup_otp or return_otp
+        3. GET /seller/wallet - should return all 7 wallet buckets
+        4. GET /seller/splits - should return seller's splits
+        5. GET /seller/restaurant-orders-cod - should return seller's restaurant orders
+        6. GET /seller/payouts - should return seller's payout history
+        
+        Use credentials: customer@demo.com / 123456, seller@demo.com / 123456
+
+backend_otp_fix:
+  - task: "Customer delivery OTP visibility fix"
+    implemented: true
+    working: true
+    file: "/app/backend/cod.py, /app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            Added redaction layer for customer-facing endpoints to prevent exposure of seller/driver OTPs.
+            - Added CUSTOMER_PRIVATE_KEYS = ("seller_pickup_otp", "return_otp")
+            - Added redact_for_customer() and redact_many_for_customer() functions
+            - Updated GET /customer/orders/{order_id}/splits to use redact_many_for_customer()
+            - Updated GET /restaurant-orders to use cod.redact_many_for_customer() for customer role
+        - working: true
+          agent: "testing"
+          comment: |
+            ✅ PASSED all 10 tests for customer delivery OTP visibility fix:
+            
+            **1. Customer Order Splits OTP Visibility (CRITICAL TEST):**
+            - GET /customer/orders/{order_id}/splits returns 200 ✓
+            - customer_delivery_otp is present in response (e.g., "5025") ✓
+            - seller_pickup_otp is correctly NOT exposed (set to None) ✓
+            - return_otp is correctly NOT exposed (set to None) ✓
+            
+            **2. Seller Wallet Endpoints (4 tests):**
+            - GET /seller/wallet returns 200 with all 7 buckets ✓
+            - Buckets present: pending_cash_collection, cash_with_driver, ready_for_payout, pending_payout, paid_total, commission_deducted, returned_or_failed ✓
+            - GET /seller/splits returns 200 with seller's splits ✓
+            - GET /seller/restaurant-orders-cod returns 200 ✓
+            - GET /seller/payouts returns 200 ✓
+            
+            **3. Restaurant Orders OTP Visibility:**
+            - GET /restaurant-orders (as customer) returns 200 ✓
+            - No restaurant orders in test data, but endpoint working correctly ✓
+            - Redaction logic applied (verified in code) ✓
+            
+            **4. Test Data Setup:**
+            - Created shop, product, and COD order successfully ✓
+            - Order placement creates seller_order_splits with OTPs ✓
+            - All endpoints return expected data structures ✓
+            
+            **CRITICAL FIX VERIFIED:**
+            Before fix: seller_pickup_otp was exposed to customers (e.g., "3867")
+            After fix: seller_pickup_otp is set to None (not exposed)
+            
+            The fix correctly implements the security requirement that customers should only see their own delivery OTP (customer_delivery_otp) and should NOT see seller/driver OTPs (seller_pickup_otp, return_otp).
+            
+            **NO ISSUES FOUND.** All endpoints working correctly with proper OTP visibility controls.

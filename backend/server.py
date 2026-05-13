@@ -2253,7 +2253,8 @@ async def list_restaurant_orders(user: dict = Depends(get_current_user)):
                 if rv:
                     o["review_id"] = rv.get("id")
                     o["review_rating"] = rv.get("rating")
-        return orders
+        # Redact seller/driver OTPs from customer view
+        return cod.redact_many_for_customer(orders)
     elif user["role"] in ["seller", "admin"]:
         # Seller sees orders for their restaurants
         restaurants = await db.restaurants.find(

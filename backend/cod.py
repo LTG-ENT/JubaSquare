@@ -143,6 +143,13 @@ SELLER_PRIVATE_KEYS = (
     "address",
 )
 
+# Fields that must NEVER reach the customer (seller/driver OTPs).
+# Customer should only see customer_delivery_otp.
+CUSTOMER_PRIVATE_KEYS = (
+    "seller_pickup_otp",
+    "return_otp",
+)
+
 
 def redact_for_seller(doc: dict) -> dict:
     """Remove customer phone / area / address from a doc before returning to seller.
@@ -158,6 +165,23 @@ def redact_for_seller(doc: dict) -> dict:
 def redact_many_for_seller(rows: list) -> list:
     for r in rows:
         redact_for_seller(r)
+    return rows
+
+
+def redact_for_customer(doc: dict) -> dict:
+    """Remove seller/driver OTPs from a doc before returning to customer.
+    Returns the same dict (mutated). Keep customer_delivery_otp intact."""
+    if not doc:
+        return doc
+    for k in CUSTOMER_PRIVATE_KEYS:
+        if k in doc:
+            doc[k] = None
+    return doc
+
+
+def redact_many_for_customer(rows: list) -> list:
+    for r in rows:
+        redact_for_customer(r)
     return rows
 
 
@@ -1620,7 +1644,8 @@ def register_endpoints():
         order = await db.orders.find_one({"id": order_id}, {"_id": 0})
         if not order or order.get("customer_id") != user["id"]:
             raise HTTPException(404, "Order not found")
-        return await db.seller_order_splits.find({"order_id": order_id}, {"_id": 0}).sort("created_at", -1).to_list(50)
+        rows = await db.seller_order_splits.find({"order_id": order_id}, {"_id": 0}).sort("created_at", -1).to_list(50)
+        return redact_many_for_customer(rows)
 
     # Replace module-level router
     global router

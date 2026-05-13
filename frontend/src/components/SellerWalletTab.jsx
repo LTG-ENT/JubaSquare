@@ -95,9 +95,37 @@ export default function SellerWalletTab() {
     }
   }, []);
 
+  // Silent refresh without loading spinner
+  const silentRefresh = useCallback(async () => {
+    try {
+      const [w, s, r, p] = await Promise.all([
+        api.get("/seller/wallet"),
+        api.get("/seller/splits"),
+        api.get("/seller/restaurant-orders-cod"),
+        api.get("/seller/payouts"),
+      ]);
+      setWallet(w.data);
+      setSplits(s.data || []);
+      setRestOrders(r.data || []);
+      setPayouts(p.data || []);
+    } catch (e) {
+      // Silent failure - don't show error toast on background refresh
+      console.error("Silent refresh failed:", e);
+    }
+  }, []);
+
   useEffect(() => {
     load();
   }, [load]);
+
+  // Auto-refresh every 12 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      silentRefresh();
+    }, 12000); // 12 seconds
+
+    return () => clearInterval(interval);
+  }, [silentRefresh]);
 
   const act = async (split, action) => {
     const isRest = split._kind === "rest";
@@ -105,13 +133,26 @@ export default function SellerWalletTab() {
     try {
       await api.post(`${base}/${action}`);
       toast.success("Updated");
-      load();
+      load(); // Immediately refresh after seller action
+      // If detail modal is open, update it from the refreshed seller data
       if (detail?.id === split.id) {
-        const r = await api.get(`/${isRest ? "admin/restaurant-orders-cod" : "admin/order-splits"}`).catch(() => null);
-        if (r) {
-          const updated = (r.data || []).find((x) => x.id === split.id);
-          if (updated) setDetail({ ...updated, _kind: isRest ? "rest" : "split" });
-        }
+        // Wait a bit for backend to update, then refresh
+        setTimeout(async () => {
+          try {
+            const [s, r] = await Promise.all([
+              api.get("/seller/splits"),
+              api.get("/seller/restaurant-orders-cod"),
+            ]);
+            const allItems = [
+              ...(s.data || []).map((x) => ({ ...x, _kind: "split" })),
+              ...(r.data || []).map((x) => ({ ...x, _kind: "rest" })),
+            ];
+            const updated = allItems.find((x) => x.id === split.id);
+            if (updated) setDetail(updated);
+          } catch (e) {
+            console.error("Failed to refresh detail:", e);
+          }
+        }, 500);
       }
     } catch (e) {
       toast.error(formatDetail(e.response?.data?.detail) || "Action failed");

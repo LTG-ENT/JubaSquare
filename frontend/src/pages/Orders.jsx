@@ -3,9 +3,8 @@ import { useSearchParams } from "react-router-dom";
 import api, { formatUSD, extractErrorMessage } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import { Package, MapPin, Phone, Truck, CheckCircle2, Clock, Star, X, XCircle } from "lucide-react";
+import { Package, MapPin, Phone, Truck, CheckCircle2, Clock, Star, X, XCircle, KeyRound } from "lucide-react";
 import { toast } from "sonner";
-import OrderChatButton from "@/components/OrderChatButton";
 
 const STATUS_STYLES = {
   Pending: { bg: "bg-[#E9C46A]", text: "text-[#1A1A1A]", icon: Clock },
@@ -302,15 +301,37 @@ export default function Orders() {
   const [reviewedOrderIds, setReviewedOrderIds] = useState(new Set()); // restaurant order ids reviewed in this session (merged with has_review from backend)
   const [activeTab, setActiveTab] = useState("all"); // "all", "marketplace", "restaurant"
   const [cancelTarget, setCancelTarget] = useState(null); // { order, kind }
+  const [orderSplits, setOrderSplits] = useState({}); // { orderId: [splits] }
 
   const refreshOrders = () => {
     api.get("/orders/mine?limit=200").then((r) => setMarketplaceOrders(r.data)).catch(() => setMarketplaceOrders([]));
     api.get("/restaurant-orders").then((r) => setRestaurantOrders(r.data)).catch(() => setRestaurantOrders([]));
   };
 
+  // Fetch splits for marketplace orders to show OTPs
+  const fetchOrderSplits = async (orderId) => {
+    try {
+      const { data } = await api.get(`/customer/orders/${orderId}/splits`);
+      setOrderSplits(prev => ({ ...prev, [orderId]: data }));
+    } catch (err) {
+      // Silently fail - splits may not exist yet or order may not be COD
+      setOrderSplits(prev => ({ ...prev, [orderId]: [] }));
+    }
+  };
+
   useEffect(() => {
     refreshOrders();
   }, []);
+
+  // Fetch splits for all marketplace orders
+  useEffect(() => {
+    marketplaceOrders.forEach(order => {
+      if (!orderSplits[order.id]) {
+        fetchOrderSplits(order.id);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marketplaceOrders]);
 
   const onOrderCancelled = () => {
     refreshOrders();
@@ -409,6 +430,9 @@ export default function Orders() {
                 const canReview = o.status === "completed";
                 const canCancel = CUSTOMER_CANCELLABLE_REST_STATUSES.has(o.status);
 
+                // Show delivery OTP if driver is out for delivery
+                const showDeliveryOtp = o.delivery_status === "out_for_delivery";
+
                 // Cancellation banner content for the customer.
                 let updateBanner = null;
                 if (o.status === "cancel_requested") {
@@ -482,6 +506,27 @@ export default function Orders() {
                       </div>
                     )}
 
+                    {/* Delivery OTP Display for Restaurant Orders */}
+                    {showDeliveryOtp && o.customer_delivery_otp && (
+                      <div
+                        data-testid={`restaurant-delivery-otp-${o.id}`}
+                        className="bg-[#E9C46A]/10 border-2 border-[#E9C46A] rounded-2xl p-4 mb-4"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="bg-[#E9C46A] rounded-full p-2">
+                            <KeyRound className="w-5 h-5 text-[#1A1A1A]" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-bold text-sm text-[#1A1A1A] mb-1">Your delivery OTP</p>
+                            <p className="text-2xl font-bold text-[#C84B31] tracking-wider mb-2">{o.customer_delivery_otp}</p>
+                            <p className="text-xs text-[#5C5C5C]">
+                              Give this code only to the driver when you receive your order.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="border-t border-[#E2E2D9] pt-4 space-y-2">
                       {o.items.map((item, idx) => (
                         <div key={idx} className="flex justify-between text-sm">
@@ -533,6 +578,11 @@ export default function Orders() {
               const isNew = o.id === newId;
               const isDelivered = o.status === "Delivered";
               const canCancelMp = CUSTOMER_CANCELLABLE_MP_STATUSES.has(o.status);
+              
+              // Get splits for this order to show OTPs
+              const splits = orderSplits[o.id] || [];
+              const splitsOutForDelivery = splits.filter(s => s.delivery_status === "out_for_delivery");
+
               return (
                 <div
                   key={o.id}
@@ -551,6 +601,36 @@ export default function Orders() {
                       <Icon className="w-3.5 h-3.5" /> {o.status}
                     </span>
                   </div>
+
+                  {/* Delivery OTP Display for Marketplace Splits */}
+                  {splitsOutForDelivery.length > 0 && (
+                    <div className="mb-4 space-y-2">
+                      {splitsOutForDelivery.map((split, idx) => (
+                        <div
+                          key={split.id}
+                          data-testid={`marketplace-delivery-otp-${split.id}`}
+                          className="bg-[#E9C46A]/10 border-2 border-[#E9C46A] rounded-2xl p-4"
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="bg-[#E9C46A] rounded-full p-2">
+                              <KeyRound className="w-5 h-5 text-[#1A1A1A]" />
+                            </div>
+                            <div className="flex-1">
+                              <p className="font-bold text-sm text-[#1A1A1A] mb-1">
+                                Delivery OTP - {split.shop_name || "Shop"}
+                              </p>
+                              <p className="text-2xl font-bold text-[#C84B31] tracking-wider mb-2">
+                                {split.customer_delivery_otp}
+                              </p>
+                              <p className="text-xs text-[#5C5C5C]">
+                                Give this code only to the driver when you receive items from this shop.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   <div className="space-y-2 mb-4">
                     {o.items.map((i, idx) => {
@@ -602,7 +682,6 @@ export default function Orders() {
                           <XCircle className="w-3.5 h-3.5" /> Cancel
                         </button>
                       )}
-                      <OrderChatButton orderId={o.id} />
                       <p className="font-display font-bold text-lg text-[#1A1A1A]">{formatUSD(o.subtotal_usd)}</p>
                     </div>
                   </div>
