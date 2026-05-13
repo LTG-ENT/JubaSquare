@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
-import api, { formatUSD, formatDetail } from "@/lib/api";
+import { useCart } from "@/context/CartContext";
+import api, { formatUSD, formatPrice, formatDetail } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ImageUpload from "@/components/ImageUpload";
@@ -32,6 +33,7 @@ const CATEGORIES = [
 
 export default function SellerDashboard() {
   const { user } = useAuth();
+  const { currency, exchangeRate } = useCart(); // Get currency and exchange rate
   const [searchParams, setSearchParams] = useSearchParams();
   const initial = searchParams.get("tab") || "shops";
   const [tab, setTab] = useState(initial);
@@ -144,12 +146,12 @@ export default function SellerDashboard() {
         </div>
 
         <div className="mt-8">
-          {tab === "shops" && <ShopsTab />}
-          {tab === "products" && <ProductsTab />}
+          {tab === "shops" && <ShopsTab currency={currency} exchangeRate={exchangeRate} />}
+          {tab === "products" && <ProductsTab currency={currency} exchangeRate={exchangeRate} />}
           {tab === "wallet" && <SellerWalletTab />}
           {tab === "messages" && <MessagesTab onChange={(n) => setUnreadMessages(n)} />}
           {tab === "notifications" && <NotificationsTab />}
-          {tab === "invoices" && <InvoicesTab />}
+          {tab === "invoices" && <InvoicesTab currency={currency} exchangeRate={exchangeRate} />}
           {tab === "rate" && <RateTab />}
           {tab === "settings" && <SettingsTab />}
         </div>
@@ -165,7 +167,7 @@ const VerificationBadge = ({ status }) => {
   return <span className="inline-flex items-center gap-1 bg-[#E9C46A]/30 text-[#1A1A1A] text-xs font-bold px-2 py-1 rounded-full"><Clock className="w-3 h-3" /> Pending</span>;
 };
 
-function ShopsTab() {
+function ShopsTab({ currency, exchangeRate }) {
   const [shops, setShops] = useState([]);
   const [restaurants, setRestaurants] = useState([]);
   const [showForm, setShowForm] = useState(false);
@@ -622,7 +624,7 @@ const MODE_CONFIG = {
   wholesale:   { label: "Wholesale",   icon: Warehouse, color: "#1A1A1A", hint: "Bulk pricing + minimum order qty" },
 };
 
-function ProductsTab() {
+function ProductsTab({ currency, exchangeRate }) {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [shops, setShops] = useState([]);
@@ -1319,8 +1321,8 @@ function ProductsTab() {
                       </span>
                     </td>
                     <td className="p-4">
-                      <p className="font-bold text-[var(--js-text)]">{formatUSD(p.price_usd)}</p>
-                      {isWs && p.bulk_price_usd && <p className="text-[10px] text-[#2D6A4F] font-bold">Bulk: {formatUSD(p.bulk_price_usd)}</p>}
+                      <p className="font-bold text-[var(--js-text)]">{formatPrice(p.price_usd, exchangeRate, currency)}</p>
+                      {isWs && p.bulk_price_usd && <p className="text-[10px] text-[#2D6A4F] font-bold">Bulk: {formatPrice(p.bulk_price_usd, exchangeRate, currency)}</p>}
                     </td>
                     <td className="p-4 hidden sm:table-cell text-xs">
                       <p className={bucket === "out" ? "text-[#D90429] font-bold" : bucket === "low" ? "text-[#9F6B00] font-bold" : ""}>Stock: {p.stock}</p>
@@ -1351,7 +1353,7 @@ function ProductsTab() {
                     <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full bg-[#2D6A4F]/15 text-[#2D6A4F]">RESTAURANT</span>
                   </td>
                   <td className="p-4">
-                    <p className="font-bold text-[var(--js-text)]">{formatUSD(m.price_usd)}</p>
+                    <p className="font-bold text-[var(--js-text)]">{formatPrice(m.price_usd, exchangeRate, currency)}</p>
                     {(m.side_items || []).length > 0 && <p className="text-[10px] text-[var(--js-text-secondary)]">+ {m.side_items.length} sides</p>}
                   </td>
                   <td className="p-4 hidden sm:table-cell text-xs">—</td>
@@ -1427,7 +1429,7 @@ function SideItemsEditor({ sides, setSides }) {
         <ul className="space-y-1">
           {sides.map((s, i) => (
             <li key={i} className="flex items-center justify-between text-sm bg-white rounded-lg px-3 py-1.5">
-              <span>{s.name} <span className="text-[var(--js-text-secondary)]">· {formatUSD(s.price_usd)}</span></span>
+              <span>{s.name} <span className="text-[var(--js-text-secondary)]">· {formatPrice(s.price_usd, exchangeRate, currency)}</span></span>
               <button type="button" onClick={() => remove(i)} data-testid={`side-remove-${i}`} className="text-[#D90429] text-xs font-bold">×</button>
             </li>
           ))}
@@ -1459,7 +1461,7 @@ function PricingTiersEditor({ tiers, setTiers }) {
         <ul className="mt-2 space-y-1">
           {tiers.map((t, i) => (
             <li key={i} className="flex items-center justify-between text-sm bg-white rounded-lg px-3 py-1.5">
-              <span>{t.min_qty}+ units → <strong>{formatUSD(t.price_usd)}</strong> / unit</span>
+              <span>{t.min_qty}+ units → <strong>{formatPrice(t.price_usd, exchangeRate, currency)}</strong> / unit</span>
               <button type="button" onClick={() => remove(i)} data-testid={`tier-remove-${i}`} className="text-[#D90429] text-xs font-bold">×</button>
             </li>
           ))}
@@ -1469,7 +1471,7 @@ function PricingTiersEditor({ tiers, setTiers }) {
   );
 }
 
-function InvoicesTab() {
+function InvoicesTab({ currency, exchangeRate }) {
   const [kind, setKind] = useState("shop");
   return (
     <div>
@@ -1511,9 +1513,9 @@ function SellerShopInvoices() {
     <div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <Stat label="Invoices" value={invoices.length} color="#1A1A1A" />
-        <Stat label="Total Sales" value={formatUSD(totalSales)} color="#2D6A4F" />
-        <Stat label="Commission" value={formatUSD(totalCommission)} color="#C84B31" />
-        <Stat label="Amount Owed" value={formatUSD(owed)} color="#D90429" />
+        <Stat label="Total Sales" value={formatPrice(totalSales, exchangeRate, currency)} color="#2D6A4F" />
+        <Stat label="Commission" value={formatPrice(totalCommission, exchangeRate, currency)} color="#C84B31" />
+        <Stat label="Amount Owed" value={formatPrice(owed, exchangeRate, currency)} color="#D90429" />
       </div>
       <div className="bg-white border border-[var(--js-border)] rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
@@ -1533,9 +1535,9 @@ function SellerShopInvoices() {
                 <tr key={inv.id} className="border-t border-[var(--js-border)]" data-testid={`seller-invoice-${inv.id}`}>
                   <td className="p-4 font-semibold">{inv.shop_name}</td>
                   <td className="p-4 text-[var(--js-text-secondary)] hidden sm:table-cell text-xs">{inv.week_label}</td>
-                  <td className="p-4 font-bold">{formatUSD(inv.total_sales)}</td>
-                  <td className="p-4 hidden md:table-cell text-[#C84B31] font-semibold">{formatUSD(inv.commission)}</td>
-                  <td className="p-4 font-display font-bold">{formatUSD(inv.amount_owed)}</td>
+                  <td className="p-4 font-bold">{formatPrice(inv.total_sales, exchangeRate, currency)}</td>
+                  <td className="p-4 hidden md:table-cell text-[#C84B31] font-semibold">{formatPrice(inv.commission, exchangeRate, currency)}</td>
+                  <td className="p-4 font-display font-bold">{formatPrice(inv.amount_owed, exchangeRate, currency)}</td>
                   <td className="p-4">
                     {inv.status === "Paid"
                       ? <span className="inline-flex items-center gap-1 bg-[#2D6A4F]/10 text-[#2D6A4F] text-xs font-bold px-2 py-1 rounded-full"><CheckCircle2 className="w-3 h-3" /> Paid</span>
@@ -1566,9 +1568,9 @@ function SellerRestaurantInvoices() {
     <div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <Stat label="Restaurant Invoices" value={invoices.length} color="#1A1A1A" />
-        <Stat label="Food Sales" value={formatUSD(totalSales)} color="#2D6A4F" />
-        <Stat label="Commission" value={formatUSD(totalCommission)} color="#C84B31" />
-        <Stat label="Amount Owed" value={formatUSD(owed)} color="#D90429" />
+        <Stat label="Food Sales" value={formatPrice(totalSales, exchangeRate, currency)} color="#2D6A4F" />
+        <Stat label="Commission" value={formatPrice(totalCommission, exchangeRate, currency)} color="#C84B31" />
+        <Stat label="Amount Owed" value={formatPrice(owed, exchangeRate, currency)} color="#D90429" />
       </div>
       <div className="bg-white border border-[var(--js-border)] rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
@@ -1588,9 +1590,9 @@ function SellerRestaurantInvoices() {
                 <tr key={inv.id} className="border-t border-[var(--js-border)]" data-testid={`seller-restaurant-invoice-${inv.id}`}>
                   <td className="p-4 font-semibold">{inv.restaurant_name}</td>
                   <td className="p-4 text-[var(--js-text-secondary)] hidden sm:table-cell text-xs">{inv.week_label}</td>
-                  <td className="p-4 font-bold">{formatUSD(inv.total_sales)}</td>
-                  <td className="p-4 hidden md:table-cell text-[#C84B31] font-semibold">{formatUSD(inv.commission)}</td>
-                  <td className="p-4 font-display font-bold">{formatUSD(inv.amount_owed)}</td>
+                  <td className="p-4 font-bold">{formatPrice(inv.total_sales, exchangeRate, currency)}</td>
+                  <td className="p-4 hidden md:table-cell text-[#C84B31] font-semibold">{formatPrice(inv.commission, exchangeRate, currency)}</td>
+                  <td className="p-4 font-display font-bold">{formatPrice(inv.amount_owed, exchangeRate, currency)}</td>
                   <td className="p-4">
                     {inv.status === "Paid"
                       ? <span className="inline-flex items-center gap-1 bg-[#2D6A4F]/10 text-[#2D6A4F] text-xs font-bold px-2 py-1 rounded-full"><CheckCircle2 className="w-3 h-3" /> Paid</span>
@@ -1780,7 +1782,7 @@ function OrdersTab() {
                     <p className="text-[10px] text-[#9F6B00] font-semibold mt-0.5">⚠ Restock needed for some items</p>
                   )}
                 </td>
-                <td className="p-4 font-bold">{formatUSD(o.subtotal_usd)}</td>
+                <td className="p-4 font-bold">{formatPrice(o.subtotal_usd, exchangeRate, currency)}</td>
                 <td className="p-4">
                   <div className="flex items-center gap-2">
                     <select
