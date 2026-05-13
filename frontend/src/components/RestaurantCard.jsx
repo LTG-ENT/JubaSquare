@@ -299,6 +299,9 @@ function MenuRow({ item, restaurant, addMenu, exchangeRate, currency }) {
   const [pickedSides, setPickedSides] = useState([]);
   const hasSides = (item.side_items || []).length > 0;
 
+  // Use item's embedded exchange rate (seller-specific) or fall back to global
+  const itemRate = item.exchange_rate_ssp || exchangeRate;
+
   const toggleSide = (s) => {
     const exists = pickedSides.find((x) => x.name === s.name);
     if (exists) setPickedSides(pickedSides.filter((x) => x.name !== s.name));
@@ -326,10 +329,10 @@ function MenuRow({ item, restaurant, addMenu, exchangeRate, currency }) {
           <p className="text-xs text-[var(--js-text-secondary)] line-clamp-2 mt-0.5">{item.description}</p>
           <div className="mt-1 flex items-center gap-2">
             <span className="font-display font-bold text-[var(--js-text)]" data-testid={`menu-price-${item.id}`}>
-              {formatPrice(totalUsd, exchangeRate, currency)}
+              {formatPrice(totalUsd, itemRate, currency)}
             </span>
             <span className="text-xs text-[var(--js-text-secondary)]">
-              ≈ {formatPriceAlt(totalUsd, exchangeRate, currency)}
+              ≈ {formatPriceAlt(totalUsd, itemRate, currency)}
             </span>
           </div>
         </div>
@@ -358,7 +361,7 @@ function MenuRow({ item, restaurant, addMenu, exchangeRate, currency }) {
                     picked ? "bg-[#C84B31] text-white border-[#C84B31]" : "bg-white border-[var(--js-border)] text-[var(--js-text)] hover:border-[#C84B31]"
                   }`}
                 >
-                  {picked ? "✓ " : "+ "}{s.name} {formatPrice(s.price_usd, exchangeRate, currency)}
+                  {picked ? "✓ " : "+ "}{s.name} {formatPrice(s.price_usd, itemRate, currency)}
                 </button>
               );
             })}

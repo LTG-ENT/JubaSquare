@@ -25,6 +25,23 @@ export const CartProvider = ({ children }) => {
   const [restaurantId, setRestaurantId] = useState(() => readStorage()?.restaurantId || null);
   const [restaurantName, setRestaurantName] = useState(() => readStorage()?.restaurantName || null);
 
+  // Load global exchange rate from backend on mount
+  useEffect(() => {
+    const loadExchangeRate = async () => {
+      try {
+        const response = await fetch('/api/admin/settings');
+        const data = await response.json();
+        const rate = Number(data.global_rate ?? 600);
+        if (rate !== exchangeRate) {
+          setExchangeRate(rate);
+        }
+      } catch (err) {
+        console.error('Failed to load exchange rate:', err);
+      }
+    };
+    loadExchangeRate();
+  }, []); // Only run on mount
+
   useEffect(() => {
     localStorage.setItem(KEY, JSON.stringify({
       items, area, exchangeRate, currency, cartMode, restaurantId, restaurantName,
