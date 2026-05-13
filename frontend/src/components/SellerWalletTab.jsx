@@ -258,9 +258,6 @@ export default function SellerWalletTab() {
                       </td>
                       <td className="px-3 py-2">
                         <div className="font-medium">{s.customer_name}</div>
-                        <div className="text-xs text-[var(--js-text-secondary)]">
-                          {s.customer_phone} • {s.customer_area}
-                        </div>
                       </td>
                       <td className="px-3 py-2 font-semibold">{formatUSD(s.order_total_usd)}</td>
                       <td className="px-3 py-2">
@@ -350,8 +347,7 @@ export default function SellerWalletTab() {
                 <div>
                   <p className="text-xs text-[var(--js-text-secondary)]">Customer</p>
                   <p className="font-semibold">{detail.customer_name}</p>
-                  <p className="text-xs">{detail.customer_phone}</p>
-                  <p className="text-xs">{detail.customer_area} — {detail.customer_address}</p>
+                  <p className="text-[10px] text-[var(--js-text-secondary)] italic">Phone & address hidden — driver has them.</p>
                 </div>
                 <div>
                   <p className="text-xs text-[var(--js-text-secondary)]">Driver</p>
@@ -418,6 +414,36 @@ export default function SellerWalletTab() {
                   <button onClick={() => act(detail, "handed-to-driver")} className="bg-[#1A1A1A] hover:bg-black text-white text-xs font-semibold px-4 py-2 rounded-full">Confirm I handed it to driver</button>
                 )}
               </div>
+
+              {/* Cancel — only while still cancellable (pending/accepted/preparing) */}
+              {["pending", "accepted", "preparing"].includes(detail.seller_preparation_status) ? (
+                <div className="border-t pt-3">
+                  <button
+                    onClick={async () => {
+                      const reason = prompt("Cancel reason (optional):", "");
+                      if (reason === null) return;
+                      try {
+                        const base = detail._kind === "rest" ? `/seller/restaurant-orders/${detail.id}` : `/seller/splits/${detail.id}`;
+                        await api.post(`${base}/cancel`, { reason });
+                        toast.success("Order cancelled");
+                        setDetail(null);
+                        load();
+                      } catch (e) {
+                        toast.error(formatDetail(e.response?.data?.detail) || "Cannot cancel");
+                      }
+                    }}
+                    data-testid="seller-cancel-order"
+                    className="text-xs text-red-700 hover:text-red-900 underline"
+                  >
+                    Cancel this order
+                  </button>
+                  <p className="text-[10px] text-[var(--js-text-secondary)] mt-1">You can cancel until you mark the order ready for pickup.</p>
+                </div>
+              ) : detail.seller_preparation_status !== "cancelled" && (
+                <p className="text-[11px] text-[var(--js-text-secondary)] italic border-t pt-3">
+                  Order is past <strong>ready for pickup</strong>. Contact admin to cancel.
+                </p>
+              )}
 
               {/* Return flow */}
               {detail.return_status === "return_to_seller_pending" && (

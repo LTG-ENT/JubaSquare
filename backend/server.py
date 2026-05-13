@@ -2303,7 +2303,10 @@ async def list_restaurant_orders_by_restaurant(
         query,
         {"_id": 0}
     ).sort("created_at", -1).to_list(200)
-    
+    # Sellers must not see customer phone/area/address. Admins see all.
+    if user["role"] != "admin":
+        for o in orders:
+            cod.redact_for_seller(o)
     return orders
 
 
@@ -2321,6 +2324,7 @@ async def get_restaurant_order(order_id: str, user: dict = Depends(get_current_u
         restaurant = await db.restaurants.find_one({"id": order["restaurant_id"]})
         if restaurant and restaurant["seller_id"] != user["id"]:
             raise HTTPException(403, "Forbidden")
+        cod.redact_for_seller(order)
     
     return order
 
@@ -3021,7 +3025,12 @@ async def seller_orders(
     ids = {p["id"] for p in seller_products} | {m["id"] for m in seller_menu}
     if not ids:
         return []
-    return await db.orders.find({"items.item_id": {"$in": list(ids)}}, {"_id": 0}).sort("created_at", -1).skip(off).to_list(lim)
+    rows = await db.orders.find({"items.item_id": {"$in": list(ids)}}, {"_id": 0}).sort("created_at", -1).skip(off).to_list(lim)
+    # Sellers must not see customer phone/area/address (privacy). Admins see everything.
+    if user["role"] != "admin":
+        for r in rows:
+            cod.redact_for_seller(r)
+    return rows
 
 
 @api.get("/orders")

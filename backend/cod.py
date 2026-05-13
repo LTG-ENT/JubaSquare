@@ -123,6 +123,40 @@ def _strip(doc: dict) -> dict:
     return doc
 
 
+# Fields that must NEVER reach the seller (they only see customer name).
+# Admin and driver still see them.
+SELLER_PRIVATE_KEYS = (
+    "customer_phone",
+    "customer_area",
+    "customer_address",
+    "phone",        # legacy fields on raw orders
+    "area",
+    "address",
+)
+
+
+def redact_for_seller(doc: dict) -> dict:
+    """Remove customer phone / area / address from a doc before returning to seller.
+    Returns the same dict (mutated). Keep customer_name intact."""
+    if not doc:
+        return doc
+    for k in SELLER_PRIVATE_KEYS:
+        if k in doc:
+            doc[k] = None
+    return doc
+
+
+def redact_many_for_seller(rows: list) -> list:
+    for r in rows:
+        redact_for_seller(r)
+    return rows
+
+
+# Statuses where the seller (and customer) can still cancel the order
+# themselves. Anything later means the order is en route or settled.
+CANCELLABLE_PREP_STATUSES = {"pending", "accepted", "preparing"}
+
+
 async def _enforce_dispute_pause(split_id: str) -> None:
     s = await db.seller_order_splits.find_one({"id": split_id}, {"_id": 0})
     if not s:
@@ -825,13 +859,15 @@ def register_endpoints():
         q: dict = {"seller_id": user["id"]}
         if status:
             q["delivery_status"] = status
-        return await db.seller_order_splits.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+        rows = await db.seller_order_splits.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+        return redact_many_for_seller(rows)
 
     @new_router.get("/seller/restaurant-orders-cod")
     async def seller_rest_cod(user: dict = seller_dep):
-        return await db.restaurant_orders.find(
+        rows = await db.restaurant_orders.find(
             {"seller_id": user["id"]}, {"_id": 0},
         ).sort("created_at", -1).to_list(500)
+        return redact_many_for_seller(rows)
 
     @new_router.post("/seller/splits/{split_id}/accept")
     async def seller_accept(split_id: str, user: dict = seller_dep):
@@ -1279,6 +1315,158 @@ def register_endpoints():
             }},
         )
         return await _find_rest_order(order_id)
+
+    # ===========================================================================
+    # CANCEL — seller / customer / admin
+    # ===========================================================================
+    async def _cancel_split(s: dict, by_role: str, by_user_id: str, reason: str = "") -> dict:
+        """Cancel a split. Admin can do it anytime; seller/customer only while
+        seller_preparation_status is in CANCELLABLE_PREP_STATUSES.
+        If the item was already picked up, refuse — must use return-to-seller
+        flow instead."""
+        if s.get("delivery_status") in {"delivered", "returned_to_seller"}:
+            raise HTTPException(400, "Order already finalized — cannot cancel")
+        if s.get("pickup_status") == "picked_up":
+            raise HTTPException(400, "Item already picked up by driver. Use the return-to-seller flow.")
+        if by_role != "admin" and s.get("seller_preparation_status") not in CANCELLABLE_PREP_STATUSES:
+            raise HTTPException(400, "Too late to cancel — order is already past 'ready for pickup'. Contact admin.")
+        now = now_iso()
+        update = {
+            "seller_preparation_status": "cancelled",
+            "delivery_status": "failed",
+            "payout_status": "cancelled",
+            "return_status": "not_required",
+            "cancelled_at": now,
+            "cancelled_by_role": by_role,
+            "cancelled_by_user_id": by_user_id,
+            "cancel_reason": (reason or "")[:500],
+            "updated_at": now,
+        }
+        await db.seller_order_splits.update_one({"id": s["id"]}, {"$set": update})
+        # Notify the other party
+        try:
+            if by_role == "customer":
+                await create_notification(user_id=s["seller_id"], message=f"Customer cancelled order from {s.get('shop_name','')}", ntype="order", meta={"split_id": s["id"]})
+            elif by_role == "seller":
+                await create_notification(user_id=s["customer_id"], message=f"Seller cancelled your order from {s.get('shop_name','')}", ntype="order", meta={"split_id": s["id"]})
+            elif by_role == "admin":
+                await create_notification(user_id=s["seller_id"], message=f"Admin cancelled order from {s.get('shop_name','')}", ntype="order", meta={"split_id": s["id"]})
+                await create_notification(user_id=s["customer_id"], message=f"Admin cancelled your order from {s.get('shop_name','')}", ntype="order", meta={"split_id": s["id"]})
+        except Exception:
+            pass
+        # If ALL splits of the parent marketplace order are now cancelled, flip
+        # the parent order's status too.
+        if s.get("order_type") == "marketplace":
+            sibs = await db.seller_order_splits.find({"order_id": s["order_id"]}, {"_id": 0, "seller_preparation_status": 1}).to_list(50)
+            if sibs and all(x.get("seller_preparation_status") == "cancelled" for x in sibs):
+                await db.orders.update_one({"id": s["order_id"]}, {"$set": {"status": "Cancelled", "updated_at": now}})
+        return await db.seller_order_splits.find_one({"id": s["id"]}, {"_id": 0})
+
+    async def _cancel_rest_order(o: dict, by_role: str, by_user_id: str, reason: str = "") -> dict:
+        if o.get("delivery_status") in {"delivered", "returned_to_seller"}:
+            raise HTTPException(400, "Order already finalized — cannot cancel")
+        if o.get("pickup_status") == "picked_up":
+            raise HTTPException(400, "Item already picked up by driver. Use the return-to-seller flow.")
+        if by_role != "admin" and o.get("seller_preparation_status") not in CANCELLABLE_PREP_STATUSES:
+            raise HTTPException(400, "Too late to cancel — order is already past 'ready for pickup'. Contact admin.")
+        now = now_iso()
+        update = {
+            "seller_preparation_status": "cancelled",
+            "delivery_status": "failed",
+            "payout_status": "cancelled",
+            "return_status": "not_required",
+            "status": "cancelled",  # legacy status field
+            "cancelled_at": now,
+            "cancelled_by_role": by_role,
+            "cancelled_by_user_id": by_user_id,
+            "cancel_reason": (reason or "")[:500],
+            "updated_at": now,
+        }
+        await db.restaurant_orders.update_one({"id": o["id"]}, {"$set": update})
+        try:
+            if by_role == "customer":
+                await create_notification(user_id=o["seller_id"], message=f"Customer cancelled order at {o.get('restaurant_name','')}", ntype="order", meta={"order_id": o["id"], "kind": "restaurant"})
+            elif by_role == "seller":
+                await create_notification(user_id=o["customer_id"], message=f"Restaurant cancelled your order ({o.get('restaurant_name','')})", ntype="order", meta={"order_id": o["id"], "kind": "restaurant"})
+            elif by_role == "admin":
+                await create_notification(user_id=o["seller_id"], message=f"Admin cancelled order at {o.get('restaurant_name','')}", ntype="order", meta={"order_id": o["id"], "kind": "restaurant"})
+                await create_notification(user_id=o["customer_id"], message=f"Admin cancelled your order ({o.get('restaurant_name','')})", ntype="order", meta={"order_id": o["id"], "kind": "restaurant"})
+        except Exception:
+            pass
+        return await db.restaurant_orders.find_one({"id": o["id"]}, {"_id": 0})
+
+    class CancelBody(BaseModel):
+        reason: Optional[str] = ""
+
+    # ---- Seller cancels ----
+    @new_router.post("/seller/splits/{split_id}/cancel")
+    async def seller_cancel_split(split_id: str, body: CancelBody, user: dict = seller_dep):
+        s = await _find_split(split_id)
+        _check_seller_owns(s, user)
+        return await _cancel_split(s, "seller", user["id"], body.reason or "")
+
+    @new_router.post("/seller/restaurant-orders/{order_id}/cancel")
+    async def seller_cancel_rest(order_id: str, body: CancelBody, user: dict = seller_dep):
+        o = await _find_rest_order(order_id)
+        _check_seller_owns(o, user)
+        return await _cancel_rest_order(o, "seller", user["id"], body.reason or "")
+
+    # ---- Customer cancels ----
+    @new_router.post("/customer/splits/{split_id}/cancel")
+    async def customer_cancel_split(split_id: str, body: CancelBody, user: dict = Depends(get_current_user)):
+        s = await _find_split(split_id)
+        if s.get("customer_id") != user["id"]:
+            raise HTTPException(403, "Not your order")
+        return await _cancel_split(s, "customer", user["id"], body.reason or "")
+
+    @new_router.post("/customer/orders/{order_id}/cancel")
+    async def customer_cancel_order(order_id: str, body: CancelBody, user: dict = Depends(get_current_user)):
+        """Cancel an entire marketplace order — only succeeds if EVERY split is
+        still cancellable. Returns per-split outcomes."""
+        order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+        if not order:
+            raise HTTPException(404, "Order not found")
+        if order.get("customer_id") != user["id"]:
+            raise HTTPException(403, "Not your order")
+        splits = await db.seller_order_splits.find({"order_id": order_id}, {"_id": 0}).to_list(50)
+        if not splits:
+            raise HTTPException(400, "Order has no splits (legacy order)")
+        results = []
+        for s in splits:
+            try:
+                r = await _cancel_split(s, "customer", user["id"], body.reason or "")
+                results.append({"split_id": s["id"], "ok": True, "split": r})
+            except HTTPException as exc:
+                results.append({"split_id": s["id"], "ok": False, "error": exc.detail})
+        return {"order_id": order_id, "results": results}
+
+    @new_router.post("/customer/restaurant-orders/{order_id}/cancel")
+    async def customer_cancel_rest(order_id: str, body: CancelBody, user: dict = Depends(get_current_user)):
+        o = await _find_rest_order(order_id)
+        if o.get("customer_id") != user["id"]:
+            raise HTTPException(403, "Not your order")
+        return await _cancel_rest_order(o, "customer", user["id"], body.reason or "")
+
+    # ---- Admin cancels (anytime) ----
+    @new_router.post("/admin/order-splits/{split_id}/cancel")
+    async def admin_cancel_split(split_id: str, body: CancelBody, user: dict = admin_dep):
+        s = await _find_split(split_id)
+        return await _cancel_split(s, "admin", user["id"], body.reason or "")
+
+    @new_router.post("/admin/restaurant-orders/{order_id}/cancel")
+    async def admin_cancel_rest(order_id: str, body: CancelBody, user: dict = admin_dep):
+        o = await _find_rest_order(order_id)
+        return await _cancel_rest_order(o, "admin", user["id"], body.reason or "")
+
+    # ===========================================================================
+    # CUSTOMER — read own splits (with full details, customer is the owner)
+    # ===========================================================================
+    @new_router.get("/customer/orders/{order_id}/splits")
+    async def customer_order_splits(order_id: str, user: dict = Depends(get_current_user)):
+        order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+        if not order or order.get("customer_id") != user["id"]:
+            raise HTTPException(404, "Order not found")
+        return await db.seller_order_splits.find({"order_id": order_id}, {"_id": 0}).sort("created_at", -1).to_list(50)
 
     # Replace module-level router
     global router

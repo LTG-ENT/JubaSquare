@@ -1,96 +1,111 @@
-import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { useAuth } from "@/context/AuthContext";
+// Kitchen Dashboard — "Today's Restaurant Queue" focused on FOOD PREPARATION.
+//
+// Repurposed to use the new COD/order state machine. The kitchen only cares
+// about seller_preparation_status: pending → accepted → preparing →
+// ready_for_pickup → handed_to_driver. Payments, cash handover, driver
+// commission, delivery details are all hidden here — they live in Wallet &
+// Admin tabs.
+//
+// Privacy: customer phone / area / address are NEVER shown. Just the name.
+
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { useParams } from "react-router-dom";
+import api, { formatUSD, formatDetail } from "@/lib/api";
+import { toast } from "sonner";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import { Clock, Phone, MapPin, DollarSign, CheckCircle, ChefHat, Package, Printer, Power, XCircle } from "lucide-react";
-import api from "@/lib/api";
-import { toast } from "sonner";
+import {
+  ChefHat,
+  Clock,
+  Flame,
+  PackageCheck,
+  Truck,
+  CheckCircle2,
+  XCircle,
+  Power,
+  Printer,
+  AlertTriangle,
+  User,
+  KeyRound,
+  RotateCcw,
+} from "lucide-react";
 
-const STATUS_CONFIG = {
-  pending: { label: "New Orders", color: "bg-yellow-500", icon: Clock },
-  accepted: { label: "Accepted", color: "bg-blue-500", icon: CheckCircle },
-  cooking: { label: "Cooking", color: "bg-orange-500", icon: ChefHat },
-  ready: { label: "Ready", color: "bg-green-500", icon: Package },
-  completed: { label: "Completed", color: "bg-gray-500", icon: CheckCircle },
-  cancellations: { label: "Cancellations", color: "bg-red-500", icon: XCircle },
-  cancel_requested: { label: "Cancellation pending for review", color: "bg-yellow-600", icon: XCircle },
-  cancel_denied: { label: "Cancellation Denied", color: "bg-orange-600", icon: XCircle },
-  cancel_approved: { label: "Cancelled", color: "bg-red-500", icon: XCircle },
-  cancelled: { label: "Cancelled", color: "bg-red-500", icon: XCircle },
+// Columns shown on the kitchen board, in left-to-right flow order.
+const LANES = [
+  { id: "pending", label: "New", icon: Clock, accent: "border-gray-300", text: "text-gray-700" },
+  { id: "accepted", label: "Accepted", icon: CheckCircle2, accent: "border-blue-300", text: "text-blue-700" },
+  { id: "preparing", label: "Preparing", icon: Flame, accent: "border-amber-300", text: "text-amber-700" },
+  { id: "ready_for_pickup", label: "Ready for pickup", icon: PackageCheck, accent: "border-emerald-300", text: "text-emerald-700" },
+  { id: "handed_to_driver", label: "Handed to driver", icon: Truck, accent: "border-slate-300", text: "text-slate-700" },
+];
+
+const PILL = {
+  unassigned: "bg-gray-100 text-gray-700",
+  assigned: "bg-blue-100 text-blue-700",
+  pending_pickup: "bg-blue-100 text-blue-700",
+  picked_up: "bg-amber-100 text-amber-800",
+  out_for_delivery: "bg-amber-100 text-amber-800",
+  delivered: "bg-emerald-100 text-emerald-700",
+  delivery_failed: "bg-red-100 text-red-700",
+  return_to_seller_pending: "bg-orange-100 text-orange-700",
 };
+function Pill({ value }) {
+  if (!value) return null;
+  const cls = PILL[value] || "bg-gray-100 text-gray-700";
+  return (
+    <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${cls}`}>
+      {String(value).replace(/_/g, " ")}
+    </span>
+  );
+}
 
-const PRIMARY_STATUSES = ["pending", "accepted", "cooking", "ready", "completed", "cancellations"];
-const CANCEL_STATUSES = ["cancel_requested", "cancel_denied", "cancel_approved", "cancelled"];
+// How long has this order been in the queue? Returns "12m" / "1h 5m" / "now".
+function ago(iso) {
+  if (!iso) return "—";
+  const t = new Date(iso).getTime();
+  const diff = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (diff < 60) return "now";
+  const m = Math.floor(diff / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
 
 export default function KitchenDashboard() {
-  const { restaurantId } = useParams();
-  const { user } = useAuth();
-  const navigate = useNavigate();
-  
+  const { restaurant_id: restaurantId } = useParams();
   const [restaurant, setRestaurant] = useState(null);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedOrder, setSelectedOrder] = useState(null);
-  const [activeFilter, setActiveFilter] = useState("all");
-  // Cancellation modal state — replaces the old window.prompt
-  const [cancelTarget, setCancelTarget] = useState(null); // order being cancelled
+  const [selected, setSelected] = useState(null);
   const [cancelReason, setCancelReason] = useState("");
-  const [cancelSubmitting, setCancelSubmitting] = useState(false);
-  
-  // Fetch restaurant and orders
-  useEffect(() => {
-    if (!user || !restaurantId) {
-      navigate("/seller");
-      return;
-    }
-    
-    loadRestaurant();
-    loadOrders();
-    
-    // Poll for new orders every 10 seconds
-    const interval = setInterval(loadOrders, 10000);
-    return () => clearInterval(interval);
-  }, [restaurantId]); // eslint-disable-line
-  
-  const loadRestaurant = async () => {
+  const [busy, setBusy] = useState(false);
+
+  const loadRestaurant = useCallback(async () => {
     try {
       const { data } = await api.get(`/restaurants/${restaurantId}`);
       setRestaurant(data);
-    } catch (err) {
-      toast.error("Restaurant not found");
-      navigate("/seller");
+    } catch (e) {
+      toast.error("Failed to load restaurant");
     }
-  };
-  
-  const loadOrders = async () => {
+  }, [restaurantId]);
+
+  const loadOrders = useCallback(async () => {
     try {
       const { data } = await api.get(`/restaurant-orders/restaurant/${restaurantId}`);
-      setOrders(data);
-      setLoading(false);
-      // Re-sync the currently selected order so the actions panel reflects
-      // the latest status (otherwise actions like Accept/Cancel can look stale).
-      setSelectedOrder((prev) => prev ? (data.find((o) => o.id === prev.id) || null) : null);
-    } catch (err) {
-      console.error("Failed to load orders:", err);
+      setOrders(data || []);
+    } catch (e) {
+      toast.error(formatDetail(e.response?.data?.detail) || "Failed to load orders");
+    } finally {
       setLoading(false);
     }
-  };
-  
-  const updateOrderStatus = async (orderId, newStatus) => {
-    try {
-      await api.put(`/restaurant-orders/${orderId}/status`, { status: newStatus });
-      toast.success(`Order status updated to ${newStatus}`);
-      loadOrders();
-      
-      // Print receipt if accepted or ready
-      if (newStatus === "accepted" || newStatus === "ready") {
-        printReceipt(orders.find(o => o.id === orderId));
-      }
-    } catch (err) {
-      toast.error(err.response?.data?.detail || "Failed to update order status");
-    }
-  };
+  }, [restaurantId]);
+
+  useEffect(() => {
+    loadRestaurant();
+    loadOrders();
+    const t = setInterval(loadOrders, 15000); // poll every 15s
+    return () => clearInterval(t);
+  }, [loadRestaurant, loadOrders]);
 
   const toggleOpen = async () => {
     if (!restaurant) return;
@@ -98,569 +113,312 @@ export default function KitchenDashboard() {
       const { data } = await api.put(`/restaurants/${restaurantId}/toggle-open`);
       setRestaurant({ ...restaurant, is_open: data.is_open });
       toast.success(data.is_open ? "Restaurant is now OPEN" : "Restaurant is now CLOSED");
-    } catch (err) {
-      toast.error("Failed to update restaurant status");
+    } catch (e) {
+      toast.error("Failed to update status");
     }
   };
 
-  const requestCancel = (order) => {
-    setCancelTarget(order);
-    setCancelReason("");
-  };
-
-  const submitCancelRequest = async () => {
-    if (!cancelTarget) return;
-    setCancelSubmitting(true);
+  const move = async (order, action) => {
+    setBusy(true);
     try {
-      await api.post(`/restaurant-orders/${cancelTarget.id}/request-cancel`, {
-        reason: cancelReason.trim(),
-      });
-      toast.success("Cancellation request sent to admin");
-      setCancelTarget(null);
-      setCancelReason("");
-      // Don't reset selectedOrder — loadOrders below re-syncs it so the
-      // detail panel correctly switches to the 'Cancellation pending' banner.
-      loadOrders();
-    } catch (err) {
-      toast.error(err.response?.data?.detail || "Failed to request cancellation");
+      await api.post(`/seller/restaurant-orders/${order.id}/${action}`);
+      toast.success("Updated");
+      // optimistic local refresh
+      await loadOrders();
+      if (selected?.id === order.id) {
+        const fresh = (await api.get(`/restaurant-orders/${order.id}`)).data;
+        setSelected(fresh);
+      }
+    } catch (e) {
+      toast.error(formatDetail(e.response?.data?.detail) || "Action failed");
     } finally {
-      setCancelSubmitting(false);
+      setBusy(false);
     }
   };
-  
-  const printReceipt = (order) => {
+
+  const cancelOrder = async (order) => {
+    if (!confirm(`Cancel this order?\n\nCustomer: ${order.customer_name}\nReason (optional): ${cancelReason || "(none)"}`)) return;
+    setBusy(true);
+    try {
+      await api.post(`/seller/restaurant-orders/${order.id}/cancel`, { reason: cancelReason });
+      toast.success("Order cancelled");
+      setCancelReason("");
+      await loadOrders();
+      setSelected(null);
+    } catch (e) {
+      toast.error(formatDetail(e.response?.data?.detail) || "Cannot cancel");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const printTicket = (order) => {
     if (!order) return;
-    
-    // Create a printable receipt
-    const receiptWindow = window.open("", "_blank");
-    receiptWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Order Receipt - ${order.id}</title>
-        <style>
-          body { font-family: monospace; width: 300px; margin: 20px auto; }
-          h1 { text-align: center; font-size: 18px; }
-          .header { text-align: center; border-bottom: 2px dashed #000; padding-bottom: 10px; margin-bottom: 10px; }
-          .order-info { margin: 10px 0; font-size: 12px; }
-          .items { margin: 10px 0; }
-          .item { display: flex; justify-content: space-between; margin: 5px 0; }
-          .total { border-top: 2px dashed #000; padding-top: 10px; margin-top: 10px; font-weight: bold; }
-          .footer { text-align: center; margin-top: 20px; font-size: 10px; }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1>${restaurant?.name || "Restaurant"}</h1>
-          <div>Order #${order.id.substring(0, 8)}</div>
-          <div>${new Date(order.created_at).toLocaleString()}</div>
-        </div>
-        
-        <div class="order-info">
-          <div><strong>Customer:</strong> ${order.customer_name}</div>
-          <div><strong>Phone:</strong> ${order.customer_phone}</div>
-          ${order.delivery_type === "delivery" ? `<div><strong>Address:</strong> ${order.customer_address}</div>` : ""}
-          <div><strong>Type:</strong> ${order.delivery_type === "delivery" ? "Delivery" : "Pickup"}</div>
-          <div><strong>Payment:</strong> ${order.payment_method === "cash" ? "Cash" : "Mobile Money"}</div>
-        </div>
-        
-        <div class="items">
-          <div style="border-bottom: 1px solid #000; margin-bottom: 5px; padding-bottom: 5px;">
-            <strong>ITEMS</strong>
-          </div>
-          ${order.items.map(item => `
-            <div class="item">
-              <span>${item.quantity}x ${item.name}</span>
-              <span>$${(item.price_usd * item.quantity).toFixed(2)}</span>
-            </div>
-            ${item.sides && item.sides.length > 0 ? item.sides.map(side => `
-              <div class="item" style="margin-left: 20px; font-size: 11px;">
-                <span>+ ${side.name}</span>
-                <span>$${(side.price_usd * item.quantity).toFixed(2)}</span>
-              </div>
-            `).join('') : ''}
-          `).join('')}
-        </div>
-        
-        <div class="total">
-          <div class="item">
-            <span>Subtotal:</span>
-            <span>$${order.subtotal.toFixed(2)}</span>
-          </div>
-          <div class="item">
-            <span>Delivery Fee:</span>
-            <span>$${order.delivery_fee.toFixed(2)}</span>
-          </div>
-          <div class="item" style="font-size: 16px;">
-            <span>TOTAL:</span>
-            <span>$${order.total.toFixed(2)}</span>
-          </div>
-        </div>
-        
-        ${order.note ? `<div style="margin-top: 10px; font-size: 11px;"><strong>Note:</strong> ${order.note}</div>` : ""}
-        
-        <div class="footer">
-          Thank you for your order!<br>
-          ${restaurant?.name || ""}
-        </div>
-      </body>
-      </html>
-    `);
-    receiptWindow.document.close();
-    
-    setTimeout(() => {
-      receiptWindow.print();
-    }, 250);
+    const w = window.open("", "_blank");
+    if (!w) return;
+    w.document.write(`<!doctype html><html><head><title>Ticket ${order.id.slice(0,8)}</title>
+<style>body{font-family:monospace;width:300px;margin:20px auto;font-size:13px}h1{text-align:center;font-size:18px;margin:0}.hr{border-top:2px dashed #000;margin:8px 0}.row{display:flex;justify-content:space-between;margin:3px 0}.big{font-size:16px;font-weight:700}.center{text-align:center}</style>
+</head><body>
+<h1>${restaurant?.name || "Restaurant"}</h1>
+<div class="center">Ticket #${order.id.slice(0,8)}</div>
+<div class="center">${new Date(order.created_at).toLocaleString()}</div>
+<div class="hr"></div>
+<div><strong>Customer:</strong> ${order.customer_name || "—"}</div>
+<div><strong>Type:</strong> ${order.delivery_type === "delivery" ? "Delivery" : "Pickup"}</div>
+<div class="hr"></div>
+<strong>ITEMS</strong>
+${(order.items || order.items_secure || []).map(it => `
+  <div class="row"><span>${it.quantity}× ${it.name}</span><span>${formatUSD(it.line_total_usd || it.price_usd * it.quantity)}</span></div>
+  ${(it.sides || []).map(s => `<div class="row" style="margin-left:12px;font-size:11px"><span>+ ${s.name}</span><span></span></div>`).join('')}
+`).join('')}
+<div class="hr"></div>
+<div class="row big"><span>TOTAL</span><span>${formatUSD(order.order_total_usd || order.total)}</span></div>
+${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}</div>` : ""}
+</body></html>`);
+    w.document.close();
+    setTimeout(() => w.print(), 300);
   };
-  
-  // Group orders by status — must include every key in STATUS_CONFIG
-  const ordersByStatus = {
-    pending: orders.filter(o => o.status === "pending"),
-    accepted: orders.filter(o => o.status === "accepted"),
-    cooking: orders.filter(o => o.status === "cooking"),
-    ready: orders.filter(o => o.status === "ready"),
-    completed: orders.filter(o => o.status === "completed"),
-    cancellations: orders.filter(o => CANCEL_STATUSES.includes(o.status)),
-    cancel_requested: orders.filter(o => o.status === "cancel_requested"),
-    cancel_denied: orders.filter(o => o.status === "cancel_denied"),
-    cancel_approved: orders.filter(o => o.status === "cancel_approved"),
-    cancelled: orders.filter(o => o.status === "cancelled"),
-  };
-  
-  const filteredOrders = activeFilter === "all" 
-    ? orders 
-    : activeFilter === "cancellations"
-    ? orders.filter(o => CANCEL_STATUSES.includes(o.status))
-    : orders.filter(o => o.status === activeFilter);
-  
+
+  // Bucket by prep status (the new state machine). Anything past
+  // handed_to_driver is hidden from the kitchen board (delivery / cash /
+  // payout is admin/driver concern).
+  const byLane = useMemo(() => {
+    const m = Object.fromEntries(LANES.map(l => [l.id, []]));
+    for (const o of orders) {
+      const s = o.seller_preparation_status || (o.status === "cancelled" ? "cancelled" : "pending");
+      if (m[s]) m[s].push(o);
+    }
+    return m;
+  }, [orders]);
+
+  const totals = useMemo(() => ({
+    inFlight: orders.filter(o => ["pending","accepted","preparing","ready_for_pickup"].includes(o.seller_preparation_status)).length,
+    handed: orders.filter(o => o.seller_preparation_status === "handed_to_driver").length,
+  }), [orders]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[var(--js-background)]">
         <Header />
         <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-[#C84B31]"></div>
-          <p className="mt-4 text-[var(--js-text-secondary)]">Loading kitchen dashboard...</p>
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-[#C84B31]" />
+          <p className="mt-4 text-[var(--js-text-secondary)]">Loading kitchen…</p>
         </div>
         <Footer />
       </div>
     );
   }
-  
+
   return (
-    <div className="min-h-screen bg-[var(--js-background)]">
+    <div className="min-h-screen flex flex-col bg-[var(--js-background)]">
       <Header />
-      
-      <div className="max-w-7xl mx-auto px-4 py-6">
-        {/* Header */}
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 w-full flex-1">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
           <div>
-            <button
-              onClick={() => navigate("/seller")}
-              className="text-sm text-[var(--js-text-secondary)] hover:text-[var(--js-text)] mb-2"
-            >
-              ← Back to Seller Dashboard
-            </button>
-            <h1 className="text-3xl font-bold text-[var(--js-text)]">
-              {restaurant?.name} - Kitchen Dashboard
+            <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-[var(--js-text-secondary)]">Today's Restaurant Queue</p>
+            <h1 className="font-display font-bold text-2xl flex items-center gap-2">
+              <ChefHat className="w-7 h-7 text-[#C84B31]" />
+              {restaurant?.name || "Kitchen"}
             </h1>
-            <p className="text-[var(--js-text-secondary)] mt-1">
-              Manage your restaurant orders in real-time
+            <p className="text-xs text-[var(--js-text-secondary)]">
+              {totals.inFlight} active · {totals.handed} handed to driver
             </p>
           </div>
-
-          {/* Open/Close toggle */}
-          {restaurant && (
-            <button
-              onClick={toggleOpen}
-              data-testid="restaurant-open-toggle"
-              className={`inline-flex items-center gap-2 px-5 py-3 rounded-full font-bold text-sm shadow-sm transition ${
-                restaurant.is_open
-                  ? "bg-[#2D6A4F] hover:bg-[#245940] text-white"
-                  : "bg-[#A3A39E] hover:bg-[#8A8A85] text-white"
-              }`}
-              title={restaurant.is_open ? "Click to close (stop receiving orders)" : "Click to open"}
-            >
-              <Power className="w-4 h-4" />
-              <span data-testid="restaurant-open-label">
-                {restaurant.is_open ? "● Open — accepting orders" : "● Closed — paused"}
-              </span>
-            </button>
-          )}
+          <button
+            onClick={toggleOpen}
+            data-testid="kitchen-toggle-open"
+            className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold ${
+              restaurant?.is_open
+                ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}
+          >
+            <Power className="w-4 h-4" />
+            {restaurant?.is_open ? "OPEN" : "CLOSED"} — click to toggle
+          </button>
         </div>
-        
-        {/* Stats — primary lifecycle including Cancellations tab */}
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
-          {PRIMARY_STATUSES.map((status) => {
-            const config = STATUS_CONFIG[status];
-            if (!config) return null;
-            const Icon = config.icon;
-            const count = (ordersByStatus[status] || []).length;
+
+        {/* Lanes */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+          {LANES.map((lane) => {
+            const Icon = lane.icon;
+            const rows = byLane[lane.id] || [];
             return (
-              <button
-                key={status}
-                onClick={() => setActiveFilter(activeFilter === status ? "all" : status)}
-                data-testid={`status-card-${status}`}
-                className={`p-4 rounded-xl border-2 transition ${
-                  activeFilter === status
-                    ? "border-[#C84B31] bg-[#C84B31]/5"
-                    : "border-[var(--js-border)] hover:border-[var(--js-border-hover)]"
-                }`}
-              >
-                <div className={`${config.color} text-white w-10 h-10 rounded-full flex items-center justify-center mx-auto mb-2`}>
-                  <Icon className="w-5 h-5" />
+              <div key={lane.id} className={`bg-white border-t-4 ${lane.accent} rounded-2xl p-3 min-h-[200px] flex flex-col`}>
+                <div className="flex items-center justify-between mb-3 pb-2 border-b border-[var(--js-border)]">
+                  <h2 className={`font-bold text-sm flex items-center gap-1.5 ${lane.text}`}>
+                    <Icon className="w-4 h-4" /> {lane.label}
+                  </h2>
+                  <span className="text-xs font-bold bg-gray-100 rounded-full px-2 py-0.5">{rows.length}</span>
                 </div>
-                <div className="text-2xl font-bold text-[var(--js-text)]">{count}</div>
-                <div className="text-xs text-[var(--js-text-secondary)] mt-1">{config.label}</div>
-              </button>
+
+                <div className="space-y-2 flex-1">
+                  {rows.length === 0 && (
+                    <p className="text-xs text-[var(--js-text-secondary)] text-center py-6">Empty</p>
+                  )}
+                  {rows.map((o) => (
+                    <button
+                      key={o.id}
+                      onClick={() => setSelected(o)}
+                      data-testid={`kitchen-card-${o.id.slice(0,8)}`}
+                      className="w-full text-left bg-[var(--js-bg)] hover:bg-white hover:shadow-sm border border-[var(--js-border)] rounded-xl p-3 transition"
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-mono text-[10px] text-[var(--js-text-secondary)]">#{o.id.slice(0,8)}</span>
+                        <span className="text-[10px] text-[var(--js-text-secondary)]">{ago(o.created_at)}</span>
+                      </div>
+                      <p className="font-semibold text-sm flex items-center gap-1 truncate">
+                        <User className="w-3 h-3 shrink-0" /> {o.customer_name || "—"}
+                      </p>
+                      <p className="text-xs text-[var(--js-text-secondary)] mt-1">
+                        {(o.items || o.items_secure || []).slice(0,2).map(it => `${it.quantity}× ${it.name}`).join(" · ")}
+                        {(o.items || []).length > 2 ? ` +${(o.items || []).length - 2}` : ""}
+                      </p>
+                      <div className="flex items-center justify-between mt-2">
+                        <div className="flex flex-wrap gap-1">
+                          {o.driver_name && (
+                            <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <Truck className="w-2.5 h-2.5" /> {o.driver_name.split(" ")[0]}
+                            </span>
+                          )}
+                          {o.pickup_status && o.pickup_status !== "not_assigned" && (
+                            <Pill value={o.pickup_status} />
+                          )}
+                        </div>
+                        <span className="text-sm font-bold">{formatUSD(o.order_total_usd || o.total)}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
             );
           })}
         </div>
-        
-        {/* Orders Grid/List */}
-        <div className="grid lg:grid-cols-2 gap-6">
-          {/* Orders List */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-[var(--js-text)]">
-                {activeFilter === "all" ? "All Orders" : STATUS_CONFIG[activeFilter]?.label}
-              </h2>
-              <button
-                onClick={loadOrders}
-                className="text-sm text-[#C84B31] hover:underline"
-              >
-                Refresh
-              </button>
-            </div>
-            
-            {filteredOrders.length === 0 ? (
-              <div className="text-center py-12 text-[var(--js-text-secondary)]">
-                No {activeFilter !== "all" ? STATUS_CONFIG[activeFilter]?.label.toLowerCase() : "orders"} yet
-              </div>
-            ) : (
-              filteredOrders.map(order => {
-                const config = STATUS_CONFIG[order.status];
-                const Icon = config.icon;
-                return (
-                  <div
-                    key={order.id}
-                    onClick={() => setSelectedOrder(order)}
-                    className={`bg-white dark:bg-[#1A1A1A] rounded-xl p-4 border-2 cursor-pointer transition ${
-                      selectedOrder?.id === order.id
-                        ? "border-[#C84B31]"
-                        : "border-[var(--js-border)] hover:border-[var(--js-border-hover)]"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <div className="font-bold text-[var(--js-text)]">
-                          Order #{order.id.substring(0, 8)}
-                        </div>
-                        <div className="text-xs text-[var(--js-text-secondary)] mt-1">
-                          {new Date(order.created_at).toLocaleString()}
-                        </div>
-                      </div>
-                      <div className={`${config.color} text-white px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1`}>
-                        <Icon className="w-3 h-3" />
-                        {config.label}
-                      </div>
-                    </div>
-                    
-                    <div className="space-y-1 text-sm">
-                      <div className="flex items-center gap-2 text-[var(--js-text)]">
-                        <span className="font-semibold">{order.customer_name}</span>
-                        <span className="text-[var(--js-text-secondary)]">• {order.delivery_type}</span>
-                      </div>
-                      <div className="text-[var(--js-text-secondary)]">
-                        {order.items.length} item{order.items.length !== 1 ? "s" : ""} • ${order.total.toFixed(2)}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-          
-          {/* Order Details */}
-          <div className="sticky top-6">
-            {selectedOrder ? (
-              <div className="bg-white dark:bg-[#1A1A1A] rounded-xl p-6 border border-[var(--js-border)]">
-                <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <h3 className="text-xl font-bold text-[var(--js-text)]">
-                      Order #{selectedOrder.id.substring(0, 8)}
-                    </h3>
-                    <div className="text-sm text-[var(--js-text-secondary)] mt-1">
-                      {new Date(selectedOrder.created_at).toLocaleString()}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => printReceipt(selectedOrder)}
-                    className="p-2 hover:bg-[var(--js-subtle)] rounded-lg transition"
-                    title="Print Receipt"
-                  >
-                    <Printer className="w-5 h-5 text-[var(--js-text)]" />
-                  </button>
-                </div>
-                
-                {/* Customer Info */}
-                <div className="bg-[var(--js-subtle)] rounded-xl p-4 mb-4">
-                  <div className="font-semibold text-[var(--js-text)] mb-2">Customer Details</div>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex items-center gap-2 text-[var(--js-text)]">
-                      <span className="font-medium">{selectedOrder.customer_name}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-[var(--js-text-secondary)]">
-                      <Phone className="w-4 h-4" />
-                      {selectedOrder.customer_phone}
-                    </div>
-                    {selectedOrder.delivery_type === "delivery" && (
-                      <div className="flex items-start gap-2 text-[var(--js-text-secondary)]">
-                        <MapPin className="w-4 h-4 mt-0.5" />
-                        <span className="flex-1">{selectedOrder.customer_address}</span>
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2 text-[var(--js-text-secondary)]">
-                      <DollarSign className="w-4 h-4" />
-                      {selectedOrder.payment_method === "cash" ? "Cash on Delivery" : "Mobile Money"}
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Items */}
-                <div className="mb-4">
-                  <div className="font-semibold text-[var(--js-text)] mb-2">Order Items</div>
-                  <div className="space-y-2">
-                    {selectedOrder.items.map((item, idx) => (
-                      <div key={idx} className="flex justify-between text-sm">
-                        <div className="flex-1">
-                          <div className="font-medium text-[var(--js-text)]">
-                            {item.quantity}x {item.name}
-                          </div>
-                          {item.sides && item.sides.length > 0 && (
-                            <div className="text-xs text-[var(--js-text-secondary)] mt-1 ml-4">
-                              + {item.sides.map(s => s.name).join(", ")}
-                            </div>
-                          )}
-                        </div>
-                        <div className="font-semibold text-[var(--js-text)]">
-                          ${(item.price_usd * item.quantity).toFixed(2)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                
-                {/* Total */}
-                <div className="border-t border-[var(--js-border)] pt-4 mb-4">
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-[var(--js-text-secondary)]">Subtotal</span>
-                    <span className="text-[var(--js-text)]">${selectedOrder.subtotal.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="text-[var(--js-text-secondary)]">Delivery Fee</span>
-                    <span className="text-[var(--js-text)]">${selectedOrder.delivery_fee.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-lg font-bold">
-                    <span className="text-[var(--js-text)]">Total</span>
-                    <span className="text-[#C84B31]">${selectedOrder.total.toFixed(2)}</span>
-                  </div>
-                </div>
-                
-                {/* Note */}
-                {selectedOrder.note && (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 mb-4">
-                    <div className="text-sm font-semibold text-yellow-800 mb-1">Note:</div>
-                    <div className="text-sm text-yellow-700">{selectedOrder.note}</div>
-                  </div>
-                )}
-                
-                {/* Actions */}
-                <div className="space-y-2">
-                  {selectedOrder.status === "pending" && (
-                    <button
-                      onClick={() => updateOrderStatus(selectedOrder.id, "accepted")}
-                      className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 rounded-xl transition"
-                    >
-                      Accept Order
-                    </button>
-                  )}
-                  
-                  {selectedOrder.status === "accepted" && (
-                    <button
-                      onClick={() => updateOrderStatus(selectedOrder.id, "cooking")}
-                      className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl transition"
-                    >
-                      Start Cooking
-                    </button>
-                  )}
-                  
-                  {selectedOrder.status === "cooking" && (
-                    <button
-                      onClick={() => updateOrderStatus(selectedOrder.id, "ready")}
-                      className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-xl transition"
-                    >
-                      Mark Ready
-                    </button>
-                  )}
-                  
-                  {selectedOrder.status === "ready" && (
-                    <button
-                      onClick={() => updateOrderStatus(selectedOrder.id, "completed")}
-                      className="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 rounded-xl transition"
-                    >
-                      Mark Completed
-                    </button>
-                  )}
-                  
-                  {selectedOrder.status === "completed" && (
-                    <div className="text-center py-6 text-[var(--js-text-secondary)]">
-                      Order completed ✓
-                    </div>
-                  )}
-
-                  {/* Request Cancellation — visible while order is in-progress */}
-                  {["accepted", "cooking", "ready"].includes(selectedOrder.status) && (
-                    <button
-                      onClick={() => requestCancel(selectedOrder)}
-                      data-testid="request-cancel-btn"
-                      className="w-full bg-white hover:bg-red-50 text-red-600 border-2 border-red-300 hover:border-red-500 font-semibold py-3 rounded-xl transition"
-                    >
-                      Request Cancellation (admin approval)
-                    </button>
-                  )}
-
-                  {selectedOrder.status === "cancel_requested" && (
-                    <div className="rounded-xl bg-yellow-50 border border-yellow-300 p-4 text-sm text-yellow-800" data-testid="cancel-pending-banner">
-                      <div className="font-bold mb-1">Cancellation pending for review</div>
-                      <div className="text-xs">
-                        Cancelled from: <span className="font-semibold">{selectedOrder.previous_status || "—"}</span>
-                      </div>
-                      {selectedOrder.cancel_reason && (
-                        <div className="text-xs mt-1">Reason: {selectedOrder.cancel_reason}</div>
-                      )}
-                    </div>
-                  )}
-
-                  {selectedOrder.status === "cancel_denied" && (
-                    <div className="space-y-3">
-                      <div className="rounded-xl bg-orange-50 border border-orange-300 p-4 text-sm text-orange-800">
-                        <div className="font-bold mb-1">Cancellation Denied</div>
-                        <div className="text-xs">
-                          Was cancelled from: <span className="font-semibold">{selectedOrder.previous_status || "—"}</span>
-                        </div>
-                        {selectedOrder.cancel_rejected_note && (
-                          <div className="text-xs mt-2 p-2 bg-white rounded border border-orange-200">
-                            <span className="font-semibold">Reason: </span>{selectedOrder.cancel_rejected_note}
-                          </div>
-                        )}
-                      </div>
-                      <button
-                        onClick={async () => {
-                          try {
-                            await api.post(`/restaurant-orders/${selectedOrder.id}/return-to-previous`);
-                            toast.success("Order returned to previous status");
-                            loadOrders();
-                          } catch (err) {
-                            toast.error(err.response?.data?.detail || "Failed to return order");
-                          }
-                        }}
-                        className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 rounded-xl transition"
-                      >
-                        Return to {selectedOrder.previous_status || "Previous Status"}
-                      </button>
-                      <button
-                        onClick={async () => {
-                          try {
-                            await api.post(`/restaurant-orders/${selectedOrder.id}/mark-received`);
-                            toast.success("Order marked as received by customer");
-                            loadOrders();
-                          } catch (err) {
-                            toast.error(err.response?.data?.detail || "Failed to mark order");
-                          }
-                        }}
-                        className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-xl transition"
-                      >
-                        Order Received By Customer
-                      </button>
-                    </div>
-                  )}
-
-                  {(selectedOrder.status === "cancel_approved" || selectedOrder.status === "cancelled") && (
-                    <div className="rounded-xl bg-red-50 border border-red-300 p-4 text-sm text-red-700 text-center font-semibold">
-                      Order Cancelled
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="bg-white dark:bg-[#1A1A1A] rounded-xl p-12 border border-[var(--js-border)] text-center">
-                <p className="text-[var(--js-text-secondary)]">
-                  Select an order to view details
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
       </div>
 
-      {/* Cancellation request modal */}
-      {cancelTarget && (
-        <div
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
-          onClick={() => !cancelSubmitting && setCancelTarget(null)}
-          data-testid="cancel-modal"
-        >
-          <div
-            className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-md shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="p-6">
-              <h2 className="font-display font-bold text-2xl text-[var(--js-text)]">
-                Request Cancellation
-              </h2>
-              <p className="text-sm text-[var(--js-text-secondary)] mt-2">
-                Order <span className="font-semibold">#{cancelTarget.id.substring(0, 8)}</span> — {cancelTarget.customer_name}
-              </p>
-              <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-xs text-yellow-800">
-                This request will be sent to an administrator. The order will remain in its current
-                status (<span className="font-semibold">{cancelTarget.status}</span>) until they approve or reject it.
+      {/* DETAIL MODAL */}
+      {selected && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-5 border-b border-[var(--js-border)]">
+              <h3 className="font-bold text-lg">Order #{selected.id.slice(0,8)}</h3>
+              <button onClick={() => setSelected(null)} className="p-2 hover:bg-gray-100 rounded-full">
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-xs text-[var(--js-text-secondary)]">Customer</p>
+                  <p className="font-semibold flex items-center gap-1"><User className="w-3 h-3" /> {selected.customer_name || "—"}</p>
+                  <p className="text-[10px] text-[var(--js-text-secondary)] italic">Phone & address hidden — driver has them.</p>
+                </div>
+                <div>
+                  <p className="text-xs text-[var(--js-text-secondary)]">Type</p>
+                  <p className="font-semibold capitalize">{selected.delivery_type}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-[var(--js-text-secondary)]">Driver</p>
+                  <p className="font-semibold flex items-center gap-1"><Truck className="w-3 h-3" /> {selected.driver_name || "Not assigned yet"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-[var(--js-text-secondary)]">Pickup status</p>
+                  <Pill value={selected.pickup_status || "not_assigned"} />
+                </div>
               </div>
 
-              <label className="block mt-5 text-sm font-semibold text-[var(--js-text)]">
-                Reason for cancellation
-              </label>
-              <textarea
-                value={cancelReason}
-                onChange={(e) => setCancelReason(e.target.value)}
-                rows={3}
-                maxLength={500}
-                placeholder="e.g. customer unreachable, ingredient out of stock, kitchen overloaded…"
-                data-testid="cancel-reason-input"
-                disabled={cancelSubmitting}
-                className="mt-2 w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#C84B31] disabled:opacity-60"
-              />
-              <p className="mt-1 text-[10px] text-[var(--js-text-secondary)] text-right">
-                {cancelReason.length}/500
-              </p>
+              {/* Items */}
+              <div className="border-t pt-3">
+                <p className="text-xs font-bold uppercase tracking-wider text-[var(--js-text-secondary)] mb-2">Items</p>
+                <ul className="space-y-1 text-sm">
+                  {(selected.items || selected.items_secure || []).map((it, i) => (
+                    <li key={i}>
+                      <div className="flex justify-between">
+                        <span><strong>{it.quantity}×</strong> {it.name}</span>
+                        <span className="font-medium">{formatUSD(it.line_total_usd || it.price_usd * it.quantity)}</span>
+                      </div>
+                      {(it.sides || []).map((s, j) => (
+                        <div key={j} className="text-xs text-[var(--js-text-secondary)] ml-4">+ {s.name}</div>
+                      ))}
+                    </li>
+                  ))}
+                </ul>
+                {selected.note && (
+                  <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-2 text-xs">
+                    <strong>Note:</strong> {selected.note}
+                  </div>
+                )}
+              </div>
 
-              <div className="mt-6 flex items-center justify-end gap-2">
-                <button
-                  onClick={() => setCancelTarget(null)}
-                  disabled={cancelSubmitting}
-                  data-testid="cancel-modal-close"
-                  className="px-5 py-2.5 rounded-full text-sm font-semibold bg-[var(--js-subtle)] hover:bg-[var(--js-border)] text-[var(--js-text)] disabled:opacity-60"
-                >
-                  Keep order
-                </button>
-                <button
-                  onClick={submitCancelRequest}
-                  disabled={cancelSubmitting}
-                  data-testid="cancel-modal-submit"
-                  className="px-5 py-2.5 rounded-full text-sm font-semibold bg-[#D90429] hover:bg-[#A60320] disabled:bg-[#A3A39E] text-white"
-                >
-                  {cancelSubmitting ? "Sending…" : "Send to admin"}
+              {/* Pickup OTP — visible once ready_for_pickup */}
+              {["ready_for_pickup", "handed_to_driver"].includes(selected.seller_preparation_status) && selected.seller_pickup_otp && (
+                <div className="border border-emerald-200 bg-emerald-50 rounded-xl p-3">
+                  <p className="text-xs uppercase tracking-wider font-bold text-emerald-800 flex items-center gap-1">
+                    <KeyRound className="w-3 h-3" /> Driver pickup OTP
+                  </p>
+                  <p className="text-3xl font-mono font-bold text-emerald-700 tracking-widest">{selected.seller_pickup_otp}</p>
+                  <p className="text-[10px] text-emerald-800">Give this to the driver to confirm pickup.</p>
+                </div>
+              )}
+
+              {/* Return banner */}
+              {selected.return_status === "return_to_seller_pending" && (
+                <div className="border border-orange-300 bg-orange-50 rounded-xl p-3">
+                  <p className="text-xs uppercase font-bold text-orange-800 flex items-center gap-1">
+                    <RotateCcw className="w-3 h-3" /> Driver returning item
+                  </p>
+                  <p className="text-xs text-orange-800">Ask the driver for the return OTP and confirm it under <strong>Wallet → Active Orders</strong>.</p>
+                </div>
+              )}
+
+              {/* Actions — strictly the new state machine */}
+              <div className="flex flex-wrap gap-2 pt-3 border-t">
+                {selected.seller_preparation_status === "pending" && (
+                  <button onClick={() => move(selected, "accept")} disabled={busy} className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-full">Accept order</button>
+                )}
+                {["pending","accepted"].includes(selected.seller_preparation_status) && (
+                  <button onClick={() => move(selected, "preparing")} disabled={busy} className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-4 py-2 rounded-full">Mark preparing</button>
+                )}
+                {["pending","accepted","preparing"].includes(selected.seller_preparation_status) && (
+                  <button onClick={() => move(selected, "ready-for-pickup")} disabled={busy} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2 rounded-full">Ready for pickup</button>
+                )}
+                {selected.pickup_status === "picked_up" && selected.seller_handover_status !== "handed_to_driver" && (
+                  <button onClick={() => move(selected, "handed-to-driver")} disabled={busy} className="bg-[#1A1A1A] hover:bg-black text-white text-xs font-semibold px-4 py-2 rounded-full">Confirm I handed it to driver</button>
+                )}
+                <button onClick={() => printTicket(selected)} className="ml-auto inline-flex items-center gap-1 bg-gray-100 hover:bg-gray-200 text-[var(--js-text)] text-xs font-semibold px-4 py-2 rounded-full">
+                  <Printer className="w-3 h-3" /> Print ticket
                 </button>
               </div>
+
+              {/* Cancel — only when still cancellable */}
+              {["pending","accepted","preparing"].includes(selected.seller_preparation_status) ? (
+                <div className="border-t pt-3 space-y-2">
+                  <p className="text-xs font-bold uppercase tracking-wider text-red-700 flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3" /> Cancel this order
+                  </p>
+                  <input
+                    type="text"
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    placeholder="Reason (optional)"
+                    data-testid="kitchen-cancel-reason"
+                    className="w-full px-3 py-2 border border-red-200 rounded-lg text-sm"
+                  />
+                  <button
+                    onClick={() => cancelOrder(selected)}
+                    disabled={busy}
+                    data-testid="kitchen-cancel-btn"
+                    className="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold px-4 py-2 rounded-full"
+                  >
+                    Cancel order
+                  </button>
+                </div>
+              ) : (
+                <p className="text-[11px] text-[var(--js-text-secondary)] italic border-t pt-3">
+                  This order is past <strong>ready for pickup</strong> — only admin can cancel it now.
+                </p>
+              )}
             </div>
           </div>
         </div>

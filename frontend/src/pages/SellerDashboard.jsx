@@ -14,8 +14,7 @@ import { toast } from "sonner";
 const TABS = [
   { id: "shops", label: "My Shops", icon: Store },
   { id: "products", label: "Products", icon: Package },
-  { id: "orders", label: "Orders", icon: ShoppingBag },
-  { id: "wallet", label: "Wallet & Payouts", icon: Wallet },
+  { id: "wallet", label: "Wallet & Active Orders", icon: Wallet },
   { id: "messages", label: "Messages", icon: MessageCircle },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "invoices", label: "Invoices", icon: FileText },
@@ -147,7 +146,6 @@ export default function SellerDashboard() {
         <div className="mt-8">
           {tab === "shops" && <ShopsTab />}
           {tab === "products" && <ProductsTab />}
-          {tab === "orders" && <OrdersTab />}
           {tab === "wallet" && <SellerWalletTab />}
           {tab === "messages" && <MessagesTab onChange={(n) => setUnreadMessages(n)} />}
           {tab === "notifications" && <NotificationsTab />}
