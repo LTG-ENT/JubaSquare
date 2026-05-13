@@ -2152,9 +2152,8 @@ async def create_restaurant_order(body: RestaurantOrderIn, user: dict = Depends(
     if body.delivery_type == "delivery":
         # Get restaurant area as pickup area
         pickup_area = restaurant.get("area", "")
-        # Extract delivery area from address or use a default
-        # You might need to add an explicit area field to RestaurantOrderIn if needed
-        delivery_area = body.customer_address.split(",")[0].strip() if body.customer_address else ""
+        # Get customer area from user profile or default
+        delivery_area = user.get("area", "")
         
         # Calculate using admin rules
         delivery_fee = await _calculate_delivery_fee(
@@ -2314,9 +2313,9 @@ async def list_restaurant_orders_by_restaurant(
     if status:
         query["status"] = status
     elif not include_history:
-        # Exclude historical orders by default (completed, cancelled, or handed to driver)
+        # Exclude historical orders by default (only completed, cancelled, delivered, or returned)
+        # Keep handed_to_driver in active view until delivery is confirmed
         query["$and"] = [
-            {"seller_preparation_status": {"$nin": ["handed_to_driver"]}},
             {"status": {"$nin": ["completed", "cancelled", "cancel_approved"]}},
             {"delivery_status": {"$nin": ["delivered", "returned_to_seller"]}}
         ]

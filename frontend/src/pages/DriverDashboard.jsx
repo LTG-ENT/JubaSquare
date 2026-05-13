@@ -114,14 +114,15 @@ export default function DriverDashboard() {
     loadCashSummary();
   }, [load, loadRequests, loadCashSummary]);
 
-  // Auto-refresh requests every 15 seconds, cash summary every 30s
+  // Auto-refresh everything every 15 seconds
   useEffect(() => {
     const interval = setInterval(() => {
+      load(); // Add main assignments polling
       loadRequests();
       loadCashSummary();
     }, 15000);
     return () => clearInterval(interval);
-  }, [loadRequests, loadCashSummary]);
+  }, [load, loadRequests, loadCashSummary]);
 
   const all = [
     ...(data.splits || []).map((s) => ({ ...s, _kind: "split" })),

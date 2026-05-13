@@ -2569,6 +2569,125 @@ agent_communication:
         2. Admin payout OTP flow - Two-step payment with OTP modal
            - Generate OTP button → shows 4-digit code to admin
            - Admin enters OTP from seller → confirms payment
+
+bug_fixes_iteration_11:
+  - task: "Kitchen history showing orders too early"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            ISSUE: Orders were going to history panel after "Ready for pickup" and "Handed to driver" stages.
+            USER EXPECTATION: Orders should only go to history after customer confirms received (delivered) or order is returned to seller.
+            
+            FIX: Modified GET /api/restaurant-orders/restaurant/{id} filtering logic:
+            - REMOVED: seller_preparation_status="handed_to_driver" from exclusion
+            - KEPT: Only exclude orders with status in ["completed", "cancelled", "cancel_approved"] OR delivery_status in ["delivered", "returned_to_seller"]
+            - RESULT: Orders now stay in active view through "Handed to driver" stage until actually delivered or returned
+
+  - task: "Driver dashboard not auto-updating"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/pages/DriverDashboard.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            ISSUE: Driver had to manually refresh to see new assignments and updates.
+            FIX: Added load() function to the auto-refresh interval (every 15 seconds).
+            Previously only loadRequests() and loadCashSummary() were polling.
+            Now all three functions poll: load(), loadRequests(), loadCashSummary()
+
+  - task: "Restaurant order delivery fee not applying"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            ISSUE: Delivery pricing rules (e.g., Munuki to Jebel) not applying to restaurant orders.
+            ROOT CAUSE: Restaurant order endpoint was trying to extract delivery area from address string instead of using customer area.
+            FIX: Changed delivery_area source from parsing address to using user.get("area", "")
+            Line changed: delivery_area = user.get("area", "") instead of body.customer_address.split(",")[0].strip()
+            
+            NOTE: This requires customers to have an "area" field set in their user profile.
+            The marketplace order flow already requires this (line 2872: body.area is required).
+            Restaurant orders should follow the same pattern.
+
+  - task: "Seller exchange rate not affecting product prices"
+    implemented: false
+    working: "NA"
+    file: ""
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            ISSUE REPORTED: Seller exchange rate not reflecting in product prices.
+            
+            INVESTIGATION FINDINGS:
+            - Backend correctly embeds exchange_rate_ssp in product responses (server.py:1792)
+            - Frontend correctly uses per-seller rate (ProductCard.jsx:15, ProductDetail.jsx:90)
+            - Exchange rate API exists and works (PUT /api/exchange-rate)
+            
+            LIKELY CAUSES:
+            1. Seller hasn't set their exchange rate (no record in exchange_rates collection)
+            2. Frontend cache issue (hard refresh needed)
+            3. Products API not being called with fresh data
+            
+            RECOMMENDED TESTS:
+            1. Verify seller has set exchange rate via PUT /api/exchange-rate
+            2. Check exchange_rates collection in MongoDB for seller's rate
+            3. Verify GET /api/products includes exchange_rate_ssp field
+            4. Hard refresh frontend (Ctrl+Shift+R) to clear cache
+            5. Check browser console for any API errors
+            
+            STATUS: Needs user to verify exchange rate is set + provide more details
+
+agent_communication:
+    - agent: "main"
+      message: |
+        Bug fixes applied for user-reported issues:
+        
+        **FIXED:**
+        1. ✅ Kitchen history showing orders too early
+           - Orders now stay in active view until delivered/returned (not just handed to driver)
+        
+        2. ✅ Driver dashboard auto-update
+           - Added polling for main assignments list (was missing)
+        
+        3. ✅ Restaurant order delivery fee calculation
+           - Now uses user.area instead of parsing address string
+        
+        **NEEDS INVESTIGATION:**
+        4. ⚠️ Seller exchange rate issue
+           - Code is correct on both backend and frontend
+           - Need to verify:
+             a) Seller has actually set their exchange rate
+             b) exchange_rates collection has the seller's record
+             c) Product API returns exchange_rate_ssp field
+           - Might be user error or cache issue
+        
+        **NEXT STEPS:**
+        - Test kitchen history behavior (verify orders stay active until delivered)
+        - Test driver auto-update (wait 15 seconds and check for updates)
+        - Test restaurant delivery fee with pricing rules
+        - Debug exchange rate issue with specific seller data
+
            - Fallback "Mark paid" button for direct payment
            - Needs UI testing
         
