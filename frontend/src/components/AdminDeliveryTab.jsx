@@ -206,7 +206,7 @@ function AssignmentsPane() {
   const [drivers, setDrivers] = useState([]);
   const [filter, setFilter] = useState(""); // status filter
   const [actingIds, setActingIds] = useState(new Set());
-  const { currency, exchangeRate } = useCart();
+  const { currency = "USD", exchangeRate = 600 } = useCart() || {};
 
   const load = useCallback(async () => {
     try {
@@ -315,7 +315,7 @@ function AssignmentsPane() {
 function CashHandoversPane() {
   const [data, setData] = useState({ splits: [], restaurant_orders: [], totals: {} });
   const [actingIds, setActingIds] = useState(new Set());
-  const { currency, exchangeRate } = useCart();
+  const { currency = "USD", exchangeRate = 600 } = useCart() || {};
   
   const load = useCallback(async () => {
     try {
@@ -405,7 +405,7 @@ function PayoutsPane() {
   const [generating, setGenerating] = useState(false);
   const [payingIds, setPayingIds] = useState(new Set());
   const [otpModal, setOtpModal] = useState(null); // { payout, otp?, confirming? }
-  const { currency, exchangeRate } = useCart(); // Get currency preference
+  const { currency = "USD", exchangeRate = 600 } = useCart() || {}; // Get currency preference
 
   const load = useCallback(async () => {
     try {
@@ -663,7 +663,7 @@ function PayoutsPane() {
 function DisputesPane() {
   const [list, setList] = useState([]);
   const [allSplits, setAllSplits] = useState([]);
-  const { currency, exchangeRate } = useCart();
+  const { currency = "USD", exchangeRate = 600 } = useCart() || {};
   
   const load = useCallback(async () => {
     try {
