@@ -211,26 +211,13 @@ export default function Cart() {
                   <span data-testid="cart-subtotal">{fmtSubtotal}</span>
                 </div>
 
-                {quote.delivery_breakdown && quote.delivery_breakdown.length > 0 && (
-                  <div className="space-y-1 pt-1">
-                    <div className="flex items-center gap-1 text-xs text-[#2D6A4F] font-semibold">
-                      <Truck className="w-3 h-3" /> Delivery (per shop)
-                    </div>
-                    {quote.delivery_breakdown.map((b) => (
-                      <div key={b.shop_id} className="flex justify-between text-xs text-[#5C5C5C] pl-4" data-testid={`delivery-row-${b.shop_id}`}>
-                        <span className="truncate">{b.shop_name}</span>
-                        <span className="font-semibold">
-                          {b.fee_usd === 0 ? <span className="text-[#2D6A4F]">FREE</span> : formatPrice(b.fee_usd, exchangeRate, currency)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
+                {/* Hide per-shop breakdown, show only total delivery */}
                 <div className="flex justify-between text-sm text-[#5C5C5C]">
-                  <span>Delivery total</span>
-                  <span data-testid="cart-delivery-total">
-                    {quote.delivery_fee_usd === 0 ? <span className="text-[#2D6A4F] font-semibold">FREE</span> : formatPrice(quote.delivery_fee_usd, exchangeRate, currency)}
+                  <span className="flex items-center gap-1">
+                    <Truck className="w-3.5 h-3.5 text-[#2D6A4F]" /> Delivery
+                  </span>
+                  <span data-testid="cart-delivery-total" className="font-semibold">
+                    {quote.delivery_fee_usd === 0 ? <span className="text-[#2D6A4F]">FREE</span> : formatPrice(quote.delivery_fee_usd, exchangeRate, currency)}
                   </span>
                 </div>
 
