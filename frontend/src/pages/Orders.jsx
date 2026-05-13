@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import api, { formatUSD } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import { Package, MapPin, Phone, Truck, CheckCircle2, Clock, Star, X } from "lucide-react";
+import { Package, MapPin, Phone, Truck, CheckCircle2, Clock, Star, X, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import OrderChatButton from "@/components/OrderChatButton";
 
@@ -11,7 +11,113 @@ const STATUS_STYLES = {
   Pending: { bg: "bg-[#E9C46A]", text: "text-[#1A1A1A]", icon: Clock },
   "In Progress": { bg: "bg-[#2A9D8F]", text: "text-white", icon: Truck },
   Delivered: { bg: "bg-[#2D6A4F]", text: "text-white", icon: CheckCircle2 },
+  Cancelled: { bg: "bg-[#D90429]", text: "text-white", icon: XCircle },
 };
+
+// Marketplace parent statuses that may still be cancellable by the customer.
+// (Backend validates each split individually based on seller_preparation_status.)
+const CUSTOMER_CANCELLABLE_MP_STATUSES = new Set(["Pending"]);
+
+// Restaurant order statuses where the customer can still cancel.
+const CUSTOMER_CANCELLABLE_REST_STATUSES = new Set(["pending", "accepted", "cooking"]);
+
+function CancelOrderModal({ order, kind, onClose, onCancelled }) {
+  const [reason, setReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      const url =
+        kind === "restaurant"
+          ? `/customer/restaurant-orders/${order.id}/cancel`
+          : `/customer/orders/${order.id}/cancel`;
+      const { data } = await api.post(url, { reason: reason.trim() });
+
+      // Marketplace returns { order_id, results: [{ok, error}] } per split.
+      if (kind === "marketplace" && data?.results) {
+        const okCount = data.results.filter((r) => r.ok).length;
+        const failCount = data.results.length - okCount;
+        if (okCount === 0) {
+          const firstErr = data.results.find((r) => !r.ok)?.error || "Could not cancel any item";
+          toast.error(firstErr);
+        } else if (failCount > 0) {
+          toast.warning(`Cancelled ${okCount}/${data.results.length} shop(s). Some items were already past pickup.`);
+        } else {
+          toast.success("Order cancelled");
+        }
+      } else {
+        toast.success("Order cancelled");
+      }
+      onCancelled(order.id);
+      onClose();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to cancel order");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const shortId = (order.id || "").slice(0, 8).toUpperCase();
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/55 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+      <div
+        data-testid="cancel-order-modal"
+        className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-[#5C5C5C] font-bold">Cancel order</p>
+            <h3 className="font-display font-bold text-xl text-[#1A1A1A] mt-1">Order #{shortId}</h3>
+            <p className="text-xs text-[#5C5C5C] mt-1">
+              You can only cancel before the {kind === "restaurant" ? "restaurant" : "seller"} marks it as ready for pickup.
+            </p>
+          </div>
+          <button onClick={onClose} data-testid="close-cancel-modal" className="p-2 hover:bg-[#F2EBE5] rounded-full">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <form onSubmit={submit} className="space-y-4">
+          <div>
+            <label className="text-xs font-semibold text-[#5C5C5C] block mb-1">Reason (optional)</label>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              data-testid="cancel-reason-input"
+              maxLength={500}
+              rows={3}
+              placeholder="Let the seller know why you're cancelling..."
+              className="w-full bg-[#F8F5F0] border border-[#E2E2D9] rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-[#C84B31]"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              data-testid="keep-order-btn"
+              className="text-sm font-semibold text-[#5C5C5C] px-4 py-2.5 rounded-full hover:bg-[#F2EBE5]"
+            >
+              Keep order
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              data-testid="confirm-cancel-order-btn"
+              className="bg-[#D90429] hover:bg-[#A8001E] disabled:bg-[#A3A39E] text-white text-sm font-semibold px-5 py-2.5 rounded-full"
+            >
+              {submitting ? "Cancelling..." : "Cancel order"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 function StarRating({ value, onChange, testId = "star-rating" }) {
   return (
@@ -195,13 +301,20 @@ export default function Orders() {
   const [reviewedIds, setReviewedIds] = useState(new Set()); // session-only set of product_ids the user reviewed via this page
   const [reviewedOrderIds, setReviewedOrderIds] = useState(new Set()); // restaurant order ids reviewed in this session (merged with has_review from backend)
   const [activeTab, setActiveTab] = useState("all"); // "all", "marketplace", "restaurant"
+  const [cancelTarget, setCancelTarget] = useState(null); // { order, kind }
+
+  const refreshOrders = () => {
+    api.get("/orders/mine?limit=200").then((r) => setMarketplaceOrders(r.data)).catch(() => setMarketplaceOrders([]));
+    api.get("/restaurant-orders").then((r) => setRestaurantOrders(r.data)).catch(() => setRestaurantOrders([]));
+  };
 
   useEffect(() => {
-    // Fetch marketplace orders
-    api.get("/orders/mine?limit=200").then((r) => setMarketplaceOrders(r.data)).catch(() => setMarketplaceOrders([]));
-    // Fetch restaurant orders
-    api.get("/restaurant-orders").then((r) => setRestaurantOrders(r.data)).catch(() => setRestaurantOrders([]));
+    refreshOrders();
   }, []);
+
+  const onOrderCancelled = () => {
+    refreshOrders();
+  };
 
   const allOrders = [...marketplaceOrders, ...restaurantOrders].sort((a, b) => 
     new Date(b.created_at) - new Date(a.created_at)
@@ -294,6 +407,7 @@ export default function Orders() {
                 };
                 const config = STATUS_CONFIG[o.status] || STATUS_CONFIG.pending;
                 const canReview = o.status === "completed";
+                const canCancel = CUSTOMER_CANCELLABLE_REST_STATUSES.has(o.status);
 
                 // Cancellation banner content for the customer.
                 let updateBanner = null;
@@ -379,24 +493,35 @@ export default function Orders() {
 
                     <div className="flex items-center justify-between mt-4 pt-4 border-t border-[#E2E2D9]">
                       <div className="font-bold text-lg text-[#1A1A1A]">Total: {formatUSD(o.total)}</div>
-                      {canReview && (
-                        (o.has_review || reviewedOrderIds.has(o.id)) ? (
-                          <span
-                            data-testid={`restaurant-order-${o.id}-reviewed`}
-                            className="inline-flex items-center gap-1 text-[12px] font-semibold text-[#2D6A4F] bg-[#2D6A4F]/10 px-3 py-1.5 rounded-full"
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5" /> Reviewed
-                          </span>
-                        ) : (
+                      <div className="flex items-center gap-2">
+                        {canCancel && (
                           <button
-                            onClick={() => setRestaurantReviewOrder(o)}
-                            data-testid={`write-restaurant-review-${o.id}`}
-                            className="bg-[#E9C46A] hover:bg-[#D4B05A] text-[#0E1A2B] text-sm font-semibold px-4 py-2 rounded-full flex items-center gap-1"
+                            onClick={() => setCancelTarget({ order: o, kind: "restaurant" })}
+                            data-testid={`cancel-restaurant-order-${o.id}`}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-[#D90429] hover:text-white hover:bg-[#D90429] border border-[#D90429] px-3 py-1.5 rounded-full transition"
                           >
-                            <Star className="w-4 h-4" /> Write Review
+                            <XCircle className="w-3.5 h-3.5" /> Cancel
                           </button>
-                        )
-                      )}
+                        )}
+                        {canReview && (
+                          (o.has_review || reviewedOrderIds.has(o.id)) ? (
+                            <span
+                              data-testid={`restaurant-order-${o.id}-reviewed`}
+                              className="inline-flex items-center gap-1 text-[12px] font-semibold text-[#2D6A4F] bg-[#2D6A4F]/10 px-3 py-1.5 rounded-full"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Reviewed
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => setRestaurantReviewOrder(o)}
+                              data-testid={`write-restaurant-review-${o.id}`}
+                              className="bg-[#E9C46A] hover:bg-[#D4B05A] text-[#0E1A2B] text-sm font-semibold px-4 py-2 rounded-full flex items-center gap-1"
+                            >
+                              <Star className="w-4 h-4" /> Write Review
+                            </button>
+                          )
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
@@ -407,6 +532,7 @@ export default function Orders() {
               const Icon = s.icon;
               const isNew = o.id === newId;
               const isDelivered = o.status === "Delivered";
+              const canCancelMp = CUSTOMER_CANCELLABLE_MP_STATUSES.has(o.status);
               return (
                 <div
                   key={o.id}
@@ -467,6 +593,15 @@ export default function Orders() {
                       {o.phone && <span className="inline-flex items-center gap-1"><Phone className="w-3 h-3" /> {o.phone}</span>}
                     </div>
                     <div className="flex items-center gap-3">
+                      {canCancelMp && (
+                        <button
+                          onClick={() => setCancelTarget({ order: o, kind: "marketplace" })}
+                          data-testid={`cancel-marketplace-order-${o.id}`}
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-[#D90429] hover:text-white hover:bg-[#D90429] border border-[#D90429] px-3 py-1.5 rounded-full transition"
+                        >
+                          <XCircle className="w-3.5 h-3.5" /> Cancel
+                        </button>
+                      )}
                       <OrderChatButton orderId={o.id} />
                       <p className="font-display font-bold text-lg text-[#1A1A1A]">{formatUSD(o.subtotal_usd)}</p>
                     </div>
@@ -492,6 +627,15 @@ export default function Orders() {
           order={restaurantReviewOrder}
           onClose={() => setRestaurantReviewOrder(null)}
           onSubmitted={onRestaurantReviewSubmitted}
+        />
+      )}
+
+      {cancelTarget && (
+        <CancelOrderModal
+          order={cancelTarget.order}
+          kind={cancelTarget.kind}
+          onClose={() => setCancelTarget(null)}
+          onCancelled={onOrderCancelled}
         />
       )}
     </div>
