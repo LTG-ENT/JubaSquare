@@ -29,11 +29,14 @@ from __future__ import annotations
 
 import uuid
 import secrets
+import logging
 from datetime import datetime, timezone
 from typing import List, Optional, Literal, Any
 
 from fastapi import APIRouter, HTTPException, Depends, Body
 from pydantic import BaseModel, Field, EmailStr
+
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -2477,6 +2480,7 @@ async def _calculate_delivery_fee(
     delivery_area = (delivery_area or "").strip().lower()
     
     # Log for debugging
+    print(f"🚚 [DELIVERY FEE] Calculating: pickup={pickup_area}, delivery={delivery_area}, type={order_type}, shop={shop_id}, restaurant={restaurant_id}")
     log.info(f"[DELIVERY FEE] Calculating: pickup={pickup_area}, delivery={delivery_area}, type={order_type}, shop={shop_id}, restaurant={restaurant_id}")
     
     # Try shop/restaurant-specific rule first
