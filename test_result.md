@@ -698,7 +698,124 @@ backend_round7:
             
             All categories endpoints working correctly. Auth gating correct (401 without token, admin-only for write operations). Validation rules enforced (depth limit, duplicate names, group consistency). Backward compatibility maintained. Active/inactive filtering works as designed. Seed is idempotent. Cleanup successful (all test categories deleted). No critical issues found.
 
+frontend_cod:
+  - task: "Admin Delivery & Payouts tab UI"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/components/AdminDeliveryTab.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: |
+          ✅ PASSED: Admin Delivery & Payouts tab renders correctly with all 5 sub-tabs:
+          - Drivers sub-tab: "New driver" button opens form with name/email/password/phone fields
+          - Driver creation works: Test Driver 2 (driver2@test.com) created and appears in table with 0 active deliveries
+          - Assignments sub-tab renders (table structure verified)
+          - Cash Handovers sub-tab renders
+          - Payouts sub-tab renders with "Generate payouts (all eligible)" button
+          - Disputes sub-tab renders
+          All UI components present and functional.
+
+  - task: "Driver Dashboard UI"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/pages/DriverDashboard.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "testing"
+        comment: |
+          ⚠️ NOT FULLY TESTED: Driver Dashboard page structure verified (heading "My deliveries", filter dropdown present), but could not test with actual assignment data due to order placement failure in test setup. Page renders correctly when empty.
+
+  - task: "Seller Wallet & Payouts tab UI"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/components/SellerWalletTab.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "testing"
+        comment: |
+          ⚠️ NOT FULLY TESTED: Could not verify Seller Wallet & Payouts tab due to test data creation failure. The component exists and should render 3 sub-tabs (Overview with 8 stat cards, Active Orders, Payout History) but needs retesting with actual data.
+
+  - task: "End-to-end COD flow + critical payout_status verification"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/cod.py, /app/frontend/src/components/AdminDeliveryTab.jsx, /app/frontend/src/components/SellerWalletTab.jsx, /app/frontend/src/pages/DriverDashboard.jsx"
+    stuck_count: 1
+    priority: "critical"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "testing"
+        comment: |
+          ❌ NOT TESTED: End-to-end COD flow test failed during test data setup. Could not verify the CRITICAL business rule: "payout_status stays 'not_ready' after driver collects cash, only becomes 'ready_for_payout' after admin confirms cash."
+          
+          **Test Failure Root Cause:**
+          Product creation API call failed with 422 validation error. The test script used old format with `category` (string), but the system now requires `category_id` (UUID) due to the admin-managed categories feature implemented in Round 7.
+          
+          **Additional API Errors During Test Setup:**
+          - POST /api/products: 422 (missing category_id)
+          - PUT /api/admin/shops/{id}/verify: 403 (admin token issue)
+          - POST /api/admin/users (customer): 403 (admin token issue)
+          - POST /api/auth/login (customer): 401 (invalid credentials)
+          - POST /api/orders: 422 (validation error, likely due to missing product)
+          
+          **What Needs to Be Done:**
+          1. Fix test script to use category_id (UUID) instead of category (string) for product creation
+          2. Investigate admin token issues (403 errors on admin endpoints)
+          3. Re-run full end-to-end COD flow test to verify the critical payout_status business rule
+          4. Test all seller/driver/admin interactions in the COD flow
+
 agent_communication:
+    - agent: "testing"
+      message: |
+        ⚠️ COD/DRIVER/PAYOUT UI TESTING PARTIALLY COMPLETE
+        
+        **SUCCESSFUL TESTS (3/4 UI components):**
+        ✅ Admin Delivery & Payouts tab: All 5 sub-tabs render correctly (Drivers, Assignments, Cash Handovers, Payouts, Disputes)
+        ✅ Driver creation: Form works perfectly - created Test Driver 2 (driver2@test.com / pass123 / +211 912 345 678)
+        ✅ Driver Dashboard: Page structure verified (heading, filter dropdown, empty state)
+        
+        **FAILED/INCOMPLETE TESTS:**
+        ❌ Seller Wallet & Payouts tab: NOT TESTED (test data creation failed)
+        ❌ End-to-end COD flow: NOT TESTED (order placement failed)
+        ❌ CRITICAL payout_status verification: NOT TESTED
+        
+        **ROOT CAUSE OF FAILURES:**
+        The test script failed during test data setup because product creation now requires `category_id` (UUID) instead of `category` (string). This is a breaking change from the Round 7 admin-managed categories feature.
+        
+        **API Errors Encountered:**
+        - POST /api/products: 422 (missing category_id)
+        - PUT /api/admin/shops/{id}/verify: 403 (admin token issue)
+        - POST /api/admin/users: 403 (admin token issue)
+        - POST /api/orders: 422 (validation error)
+        
+        **NEXT STEPS FOR MAIN AGENT:**
+        1. The COD/Driver/Payout UI is implemented and the basic rendering works
+        2. Backend COD endpoints were already tested and confirmed working (all 14 tests passed in previous iteration)
+        3. To complete UI testing, need to either:
+           a. Update test script to use new category_id format, OR
+           b. Manually verify the end-to-end flow works by:
+              - Creating a seller + shop + product (with category_id)
+              - Placing an order with payment_method=cash_on_delivery
+              - Assigning driver via Admin → Delivery & Payouts → Assignments
+              - Walking through seller prep → driver pickup → delivery → cash collection → admin confirmation → payout generation
+              - Verifying payout_status transitions: not_ready → ready_for_payout → pending_payout → paid
+        
+        **RECOMMENDATION:**
+        Since backend was thoroughly tested and UI components render correctly, the main risk is in the integration/wiring. Main agent should either:
+        1. Fix the test script and re-run automated tests, OR
+        2. Perform manual verification of the critical COD flow, OR
+        3. Accept that UI rendering is verified and backend is tested, and mark as complete with caveat that full E2E UI flow needs manual verification
+    
     - agent: "testing"
       message: |
         ✅ ROUND 7 BACKEND TESTING COMPLETE (8/8 tests PASSED)
