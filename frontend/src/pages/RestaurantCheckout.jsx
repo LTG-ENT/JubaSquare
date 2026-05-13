@@ -203,35 +203,15 @@ export default function RestaurantCheckout() {
         <div className="grid lg:grid-cols-3 gap-6">
           {/* Left: Form */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Delivery Options */}
+            {/* Delivery Options - Delivery Only */}
             <div className="bg-white dark:bg-[#1A1A1A] rounded-2xl p-6 shadow-sm border border-[var(--js-border)]">
               <h2 className="text-lg font-bold text-[var(--js-text)] mb-4 flex items-center gap-2">
                 <Truck className="w-5 h-5" />
                 Delivery Options
               </h2>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => setDeliveryType("delivery")}
-                  className={`p-4 rounded-xl border-2 transition ${
-                    deliveryType === "delivery"
-                      ? "border-[#C84B31] bg-[#C84B31]/5"
-                      : "border-[var(--js-border)] hover:border-[#C84B31]/50"
-                  }`}
-                >
-                  <Truck className="w-6 h-6 mx-auto mb-2 text-[var(--js-text)]" />
-                  <div className="text-sm font-semibold text-[var(--js-text)]">Delivery</div>
-                </button>
-                <button
-                  onClick={() => setDeliveryType("pickup")}
-                  className={`p-4 rounded-xl border-2 transition ${
-                    deliveryType === "pickup"
-                      ? "border-[#C84B31] bg-[#C84B31]/5"
-                      : "border-[var(--js-border)] hover:border-[#C84B31]/50"
-                  }`}
-                >
-                  <MapPin className="w-6 h-6 mx-auto mb-2 text-[var(--js-text)]" />
-                  <div className="text-sm font-semibold text-[var(--js-text)]">Pickup</div>
-                </button>
+              <div className="p-4 rounded-xl border-2 border-[#C84B31] bg-[#C84B31]/5">
+                <Truck className="w-6 h-6 mx-auto mb-2 text-[var(--js-text)]" />
+                <div className="text-sm font-semibold text-[var(--js-text)] text-center">Delivery</div>
               </div>
             </div>
             

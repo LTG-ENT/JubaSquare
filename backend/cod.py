@@ -2541,9 +2541,11 @@ async def _calculate_delivery_fee(
         log.warning(f"[DELIVERY FEE] No generic (all) rule found")
     
     # Fallback to default
+    print(f"🚚 [DELIVERY FEE] No rule found, using default")
     log.warning(f"[DELIVERY FEE] No rule found, using default")
     settings = await db.settings.find_one({"id": "system"}, {"_id": 0})
     default_fee = float(settings.get("default_delivery_fee_usd", 0.0)) if settings else 0.0
+    print(f"🚚 [DELIVERY FEE] Default fee from settings: {default_fee}")
     log.info(f"[DELIVERY FEE] Default fee: {default_fee}")
     return default_fee
 
