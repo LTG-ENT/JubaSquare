@@ -3491,26 +3491,34 @@ async def quote_order(body: OrderIn, _: dict = Depends(get_current_user)):
     item_ids = [it.item_id for it in body.items]
     products = await db.products.find({"id": {"$in": item_ids}}, {"_id": 0}).to_list(2000)
     shop_ids_in_order = list({p["shop_id"] for p in products})
+    
+    # Use admin delivery pricing rules (same as actual order creation)
+    from cod import _calculate_delivery_fee
+    
     delivery_fee = 0.0
     breakdown = []
     if shop_ids_in_order and body.area:
         shops = await db.shops.find({"id": {"$in": shop_ids_in_order}}, {"_id": 0}).to_list(500)
         for sh in shops:
-            mode = sh.get("delivery_mode", "free")
-            fee = 0.0
-            if mode == "fixed":
-                fee = float(sh.get("delivery_fee_usd") or 0)
-            elif mode == "per_area":
-                for entry in sh.get("delivery_per_area", []) or []:
-                    if (entry.get("area") or "").lower() == body.area.lower():
-                        fee = float(entry.get("fee_usd") or 0)
-                        break
+            # Calculate delivery fee using admin rules
+            pickup_area = sh.get("area", "")
+            delivery_area = body.area
+            
+            fee = await _calculate_delivery_fee(
+                pickup_area=pickup_area,
+                delivery_area=delivery_area,
+                order_type="marketplace",
+                shop_id=sh["id"],
+                restaurant_id=None
+            )
+            
             delivery_fee += fee
             breakdown.append({
                 "shop_id": sh["id"],
                 "shop_name": sh.get("name", "—"),
                 "fee_usd": round(fee, 2),
-                "mode": mode,
+                "pickup_area": pickup_area,
+                "delivery_area": delivery_area,
             })
     return {
         "subtotal_usd": round(subtotal, 2),
