@@ -216,18 +216,46 @@ export default function ProductDetail() {
               {usesBulk && <span className="text-xs font-bold text-[#2D6A4F] bg-[#2D6A4F]/10 px-2 py-1 rounded-full">BULK PRICE</span>}
             </div>
 
-            {isWholesale && (
+            {isWholesale && (product.min_order_qty > 1 || product.bulk_price_usd) && (
               <div className="mt-3 grid grid-cols-2 gap-2 max-w-sm">
-                <div className="bg-[var(--js-subtle)] rounded-xl p-3">
-                  <p className="text-[10px] uppercase font-bold text-[var(--js-text-secondary)]">Minimum order</p>
-                  <p className="font-bold text-[var(--js-text)]">{minQty} units</p>
-                </div>
+                {product.min_order_qty > 1 && (
+                  <div className="bg-[var(--js-subtle)] rounded-xl p-3">
+                    <p className="text-[10px] uppercase font-bold text-[var(--js-text-secondary)]">Minimum order</p>
+                    <p className="font-bold text-[var(--js-text)]">{minQty} units</p>
+                  </div>
+                )}
                 {product.bulk_price_usd && (
                   <div className="bg-[#2D6A4F]/10 rounded-xl p-3">
                     <p className="text-[10px] uppercase font-bold text-[#2D6A4F]">Bulk price</p>
                     <p className="font-bold text-[#2D6A4F]">{formatPrice(product.bulk_price_usd, rate, currency)}</p>
                   </div>
                 )}
+              </div>
+            )}
+
+            {isWholesale && Array.isArray(product.pricing_tiers) && product.pricing_tiers.length > 0 && (
+              <div className="mt-4 max-w-md" data-testid="pricing-tiers">
+                <p className="text-[10px] uppercase font-bold text-[var(--js-text-secondary)] tracking-wider mb-2">
+                  Pricing tiers
+                </p>
+                <div className="border border-[var(--js-border)] rounded-xl overflow-hidden divide-y divide-[var(--js-border)]">
+                  {[...product.pricing_tiers]
+                    .sort((a, b) => (a.min_qty || 0) - (b.min_qty || 0))
+                    .map((t, i) => (
+                      <div
+                        key={i}
+                        data-testid={`pricing-tier-${i}`}
+                        className="flex items-center justify-between px-3 py-2 text-sm bg-[var(--js-paper)]"
+                      >
+                        <span className="text-[var(--js-text-secondary)]">
+                          <strong className="text-[var(--js-text)]">{t.min_qty}+</strong> units
+                        </span>
+                        <span className="font-bold text-[#2D6A4F]">
+                          {formatPrice(t.price_usd, rate, currency)} <span className="text-xs font-normal text-[var(--js-text-secondary)]">/ unit</span>
+                        </span>
+                      </div>
+                    ))}
+                </div>
               </div>
             )}
 

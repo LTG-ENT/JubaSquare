@@ -708,7 +708,7 @@ function ProductsTab() {
       category: "",     // DEPRECATED: for display only
       description: "", image_url: "",
       price_usd: 0, stock: 100,
-      min_order_qty: 1, bulk_price_usd: "",
+      min_order_qty: "", bulk_price_usd: "",
       pricing_tiers: [],
       category_id_menu: "",  // PRIMARY: UUID for menu items (required)
       food_category: "",     // DEPRECATED: for display only
@@ -846,7 +846,7 @@ function ProductsTab() {
       category: p.category || "",         // DEPRECATED (for display)
       price_usd: p.price_usd, stock: p.stock,
       description: p.description || "", image_url: p.image_url || "",
-      min_order_qty: p.min_order_qty || 1,
+      min_order_qty: p.min_order_qty && p.min_order_qty > 1 ? p.min_order_qty : "",
       bulk_price_usd: p.bulk_price_usd || "",
       pricing_tiers: p.pricing_tiers || [],
     });
@@ -1276,7 +1276,7 @@ function ProductsTab() {
                   </span>
                   <div>
                     <p className="font-semibold text-sm text-[var(--js-text)]">📦 Enable wholesale pricing</p>
-                    <p className="text-xs text-[var(--js-text-secondary)] mt-0.5">Customers will see a minimum-order-qty and bulk price on this product.</p>
+                    <p className="text-xs text-[var(--js-text-secondary)] mt-0.5">Mark this product as wholesale. MOQ, bulk price, and tiers are all optional.</p>
                   </div>
                 </label>
 
@@ -1284,7 +1284,7 @@ function ProductsTab() {
                   <div className="bg-[var(--js-subtle)] rounded-2xl p-4 space-y-3">
                     <p className="text-xs uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">Wholesale pricing</p>
                     <div className="grid grid-cols-2 gap-3">
-                      <Input label="Minimum order qty" type="number" value={form.min_order_qty} onChange={(v) => setForm({ ...form, min_order_qty: v })} testId="min-order-qty-input" />
+                      <Input label="Minimum order qty (optional)" type="number" value={form.min_order_qty} onChange={(v) => setForm({ ...form, min_order_qty: v })} testId="min-order-qty-input" />
                       <Input label="Bulk price (USD, optional)" type="number" step="0.01" value={form.bulk_price_usd} onChange={(v) => setForm({ ...form, bulk_price_usd: v })} testId="bulk-price-input" />
                     </div>
                     <PricingTiersEditor tiers={form.pricing_tiers} setTiers={(t) => setForm({ ...form, pricing_tiers: t })} />
