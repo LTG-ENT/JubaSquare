@@ -2152,6 +2152,165 @@ async def backfill_existing_orders():
             log.warning(f"backfill restaurant order {o['id']} failed: {e}")
 
 
+    # ---------------------------------------------------------------------------
+    # Admin: Delivery Pricing Rules Management
+    # ---------------------------------------------------------------------------
+    @new_router.get("/admin/delivery-pricing-rules")
+    async def admin_get_delivery_pricing_rules(_: dict = admin_dep):
+        """Get all delivery pricing rules."""
+        rules = await db.delivery_pricing_rules.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+        return rules
+
+
+    @new_router.post("/admin/delivery-pricing-rules")
+    async def admin_create_delivery_pricing_rule(body: DeliveryPricingRuleIn, user: dict = admin_dep):
+        """Create a new delivery pricing rule."""
+        rule_id = str(uuid.uuid4())
+        now = now_iso()
+        
+        rule = {
+            "id": rule_id,
+            "pickup_area": body.pickup_area.strip(),
+            "delivery_area": body.delivery_area.strip(),
+            "order_type": body.order_type,
+            "shop_id": body.shop_id,
+            "restaurant_id": body.restaurant_id,
+            "delivery_fee_usd": body.delivery_fee_usd,
+            "active": body.active,
+            "created_at": now,
+            "updated_at": now,
+            "created_by_admin_id": user["id"],
+        }
+        
+        await db.delivery_pricing_rules.insert_one(rule)
+        rule.pop("_id", None)
+        return rule
+
+
+    @new_router.put("/admin/delivery-pricing-rules/{rule_id}")
+    async def admin_update_delivery_pricing_rule(rule_id: str, body: DeliveryPricingRuleIn, user: dict = admin_dep):
+        """Update an existing delivery pricing rule."""
+        existing = await db.delivery_pricing_rules.find_one({"id": rule_id}, {"_id": 0})
+        if not existing:
+            raise HTTPException(404, "Delivery pricing rule not found")
+        
+        update = {
+            "pickup_area": body.pickup_area.strip(),
+            "delivery_area": body.delivery_area.strip(),
+            "order_type": body.order_type,
+            "shop_id": body.shop_id,
+            "restaurant_id": body.restaurant_id,
+            "delivery_fee_usd": body.delivery_fee_usd,
+            "active": body.active,
+            "updated_at": now_iso(),
+        }
+        
+        await db.delivery_pricing_rules.update_one({"id": rule_id}, {"$set": update})
+        
+        # Return updated rule
+        updated = await db.delivery_pricing_rules.find_one({"id": rule_id}, {"_id": 0})
+        return updated
+
+
+    @new_router.delete("/admin/delivery-pricing-rules/{rule_id}")
+    async def admin_delete_delivery_pricing_rule(rule_id: str, _: dict = admin_dep):
+        """Delete a delivery pricing rule."""
+        result = await db.delivery_pricing_rules.delete_one({"id": rule_id})
+        if result.deleted_count == 0:
+            raise HTTPException(404, "Delivery pricing rule not found")
+        return {"ok": True}
+
+
+    @new_router.get("/admin/delivery-pricing-rules/default-fee")
+    async def admin_get_default_delivery_fee(_: dict = admin_dep):
+        """Get the default delivery fee."""
+        settings = await db.settings.find_one({"key": "default_delivery_fee_usd"}, {"_id": 0})
+        return {"default_delivery_fee_usd": settings.get("value", 2.0) if settings else 2.0}
+
+
+    @new_router.post("/admin/delivery-pricing-rules/default-fee")
+    async def admin_set_default_delivery_fee(body: dict, _: dict = admin_dep):
+        """Set the default delivery fee."""
+        fee = float(body.get("default_delivery_fee_usd", 2.0))
+        if fee < 0:
+            raise HTTPException(400, "Delivery fee cannot be negative")
+        
+        await db.settings.update_one(
+            {"key": "default_delivery_fee_usd"},
+            {"$set": {"key": "default_delivery_fee_usd", "value": fee, "updated_at": now_iso()}},
+            upsert=True
+        )
+        return {"default_delivery_fee_usd": fee}
+
+
+# ---------------------------------------------------------------------------
+# Delivery Fee Calculation Helper
+# ---------------------------------------------------------------------------
+async def _calculate_delivery_fee(
+    pickup_area: str,
+    delivery_area: str,
+    order_type: str,
+    shop_id: str = None,
+    restaurant_id: str = None
+) -> float:
+    """Calculate delivery fee based on admin pricing rules.
+    
+    Priority:
+    1. Shop/restaurant-specific rule (if shop_id or restaurant_id provided)
+    2. Order type + area rule
+    3. Generic area rule (order_type = 'all')
+    4. Default fee
+    """
+    # Try shop/restaurant-specific rule first
+    if shop_id:
+        rule = await db.delivery_pricing_rules.find_one({
+            "shop_id": shop_id,
+            "pickup_area": pickup_area,
+            "delivery_area": delivery_area,
+            "active": True
+        }, {"_id": 0})
+        if rule:
+            return float(rule["delivery_fee_usd"])
+    
+    if restaurant_id:
+        rule = await db.delivery_pricing_rules.find_one({
+            "restaurant_id": restaurant_id,
+            "pickup_area": pickup_area,
+            "delivery_area": delivery_area,
+            "active": True
+        }, {"_id": 0})
+        if rule:
+            return float(rule["delivery_fee_usd"])
+    
+    # Try order type + area rule
+    rule = await db.delivery_pricing_rules.find_one({
+        "order_type": order_type,
+        "pickup_area": pickup_area,
+        "delivery_area": delivery_area,
+        "shop_id": None,
+        "restaurant_id": None,
+        "active": True
+    }, {"_id": 0})
+    if rule:
+        return float(rule["delivery_fee_usd"])
+    
+    # Try generic area rule (order_type = 'all')
+    rule = await db.delivery_pricing_rules.find_one({
+        "order_type": "all",
+        "pickup_area": pickup_area,
+        "delivery_area": delivery_area,
+        "shop_id": None,
+        "restaurant_id": None,
+        "active": True
+    }, {"_id": 0})
+    if rule:
+        return float(rule["delivery_fee_usd"])
+    
+    # Fallback to default
+    settings = await db.settings.find_one({"key": "default_delivery_fee_usd"}, {"_id": 0})
+    return float(settings.get("value", 2.0)) if settings else 2.0
+
+
 # ---------------------------------------------------------------------------
 # Index creation + driver seed (called from server.seed_production)
 # ---------------------------------------------------------------------------
@@ -2167,6 +2326,12 @@ async def seed_cod():
 
     await db.driver_cash_receipts.create_index("id", unique=True)
     await db.driver_cash_receipts.create_index([("driver_id", 1), ("received_at", -1)])
+
+    await db.delivery_pricing_rules.create_index("id", unique=True)
+    await db.delivery_pricing_rules.create_index([("pickup_area", 1), ("delivery_area", 1)])
+    await db.delivery_pricing_rules.create_index([("shop_id", 1)])
+    await db.delivery_pricing_rules.create_index([("restaurant_id", 1)])
+    await db.delivery_pricing_rules.create_index([("active", 1)])
 
     # Demo driver
     demo_email = "driver@demo.com"
