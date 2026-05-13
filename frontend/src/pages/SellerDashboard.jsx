@@ -172,7 +172,7 @@ function ShopsTab() {
   const [editing, setEditing] = useState(null);
   const emptyForm = {
     name: "", type: "shop", description: "", area: "Munuki", image_url: "",
-    delivery_mode: "free", delivery_fee_usd: 0, delivery_per_area: [],
+    // Delivery pricing removed - controlled by admin
   };
   const [form, setForm] = useState(emptyForm);
 
@@ -216,15 +216,7 @@ function ShopsTab() {
           area: form.area,
           image_url: form.image_url, 
           is_open: true,
-          delivery_pricing: {
-            type: form.delivery_mode || "fixed",
-            fixed_fee: form.delivery_mode === "fixed" ? parseFloat(form.delivery_fee_usd) || 2.0 : 0.0,
-            area_fees: form.delivery_mode === "per_area"
-              ? (form.delivery_per_area || [])
-                  .filter((a) => a.area && a.area.trim())
-                  .map((a) => ({ area: a.area.trim(), fee: parseFloat(a.fee_usd) || 0 }))
-              : [],
-          }
+          // Delivery pricing removed - controlled by admin
         };
         if (editing?._kind === "restaurant") {
           await api.put(`/restaurants/${editing.id}`, payload);
@@ -239,13 +231,7 @@ function ShopsTab() {
           description: form.description,
           area: form.area,
           image_url: form.image_url,
-          delivery_mode: form.delivery_mode || "free",
-          delivery_fee_usd: form.delivery_mode === "fixed" ? parseFloat(form.delivery_fee_usd) || 0 : 0,
-          delivery_per_area: form.delivery_mode === "per_area"
-            ? (form.delivery_per_area || [])
-                .filter((a) => a.area && a.area.trim())
-                .map((a) => ({ area: a.area.trim(), fee_usd: parseFloat(a.fee_usd) || 0 }))
-            : [],
+          // Delivery pricing removed - controlled by admin
         };
         if (editing?._kind !== "restaurant" && editing) await api.put(`/shops/${editing.id}`, payload);
         else await api.post("/shops", payload);
@@ -262,30 +248,14 @@ function ShopsTab() {
   const onEdit = (s, kind) => {
     setEditing({ ...s, _kind: kind });
     
-    // Handle delivery pricing for both shops and restaurants
-    let deliveryMode = "free";
-    let deliveryFee = 0;
-    let deliveryPerArea = [];
-    
-    if (kind === "restaurant" && s.delivery_pricing) {
-      deliveryMode = s.delivery_pricing.type || "fixed";
-      deliveryFee = s.delivery_pricing.fixed_fee || 0;
-      deliveryPerArea = (s.delivery_pricing.area_fees || []).map(a => ({ area: a.area, fee_usd: a.fee }));
-    } else if (kind === "shop") {
-      deliveryMode = s.delivery_mode || "free";
-      deliveryFee = s.delivery_fee_usd || 0;
-      deliveryPerArea = s.delivery_per_area || [];
-    }
-    
+    // Delivery pricing removed - controlled by admin
     setForm({
       name: s.name,
       type: kind,
       description: s.description || "",
       area: s.area,
       image_url: s.image_url,
-      delivery_mode: deliveryMode,
-      delivery_fee_usd: deliveryFee,
-      delivery_per_area: deliveryPerArea,
+      // Delivery pricing removed - controlled by admin
     });
     setShowForm(true);
   };
@@ -1647,113 +1617,22 @@ function Stat({ label, value, color }) {
 }
 
 function DeliveryEditor({ form, setForm }) {
-  const mode = form.delivery_mode || "free";
-  const setMode = (m) => setForm({ ...form, delivery_mode: m });
-  const updateAreaFee = (idx, key, value) => {
-    const next = [...(form.delivery_per_area || [])];
-    next[idx] = { ...next[idx], [key]: value };
-    setForm({ ...form, delivery_per_area: next });
-  };
-  const addArea = () => {
-    setForm({
-      ...form,
-      delivery_per_area: [...(form.delivery_per_area || []), { area: "", fee_usd: 0 }],
-    });
-  };
-  const removeArea = (idx) => {
-    const next = [...(form.delivery_per_area || [])];
-    next.splice(idx, 1);
-    setForm({ ...form, delivery_per_area: next });
-  };
-
+  // Delivery pricing is now controlled by admin via delivery pricing rules
   return (
-    <div className="border border-[var(--js-border)] rounded-2xl p-3 bg-[var(--js-subtle)]">
-      <p className="text-sm font-display font-semibold text-[var(--js-text)] mb-2">Delivery pricing</p>
-      <div className="grid grid-cols-3 gap-2 mb-3">
-        {[
-          { id: "free", label: "🆓 Free", hint: "No charge" },
-          { id: "fixed", label: "💵 Fixed", hint: "One amount" },
-          { id: "per_area", label: "📍 Per area", hint: "Different per location" },
-        ].map((opt) => (
-          <button
-            type="button"
-            key={opt.id}
-            onClick={() => setMode(opt.id)}
-            data-testid={`delivery-mode-${opt.id}`}
-            className={`p-2 rounded-xl border-2 text-left transition ${
-              mode === opt.id
-                ? "border-[#C84B31] bg-[#C84B31]/5"
-                : "border-[var(--js-border)] bg-white hover:border-[var(--js-text)]"
-            }`}
-          >
-            <p className="text-xs font-bold text-[var(--js-text)]">{opt.label}</p>
-            <p className="text-[10px] text-[var(--js-text-secondary)]">{opt.hint}</p>
-          </button>
-        ))}
-      </div>
-
-      {mode === "fixed" && (
+    <div className="border-2 border-[#E9C46A] rounded-2xl p-4 bg-[#E9C46A]/10">
+      <div className="flex items-start gap-3">
+        <div className="bg-[#E9C46A] rounded-full p-2 flex-shrink-0">
+          <MapPin className="w-5 h-5 text-[#1A1A1A]" />
+        </div>
         <div>
-          <label className="text-xs text-[var(--js-text-secondary)] font-semibold block mb-1.5">Delivery fee (USD)</label>
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            value={form.delivery_fee_usd ?? 0}
-            onChange={(e) => setForm({ ...form, delivery_fee_usd: e.target.value })}
-            data-testid="delivery-fee-fixed"
-            className="js-input"
-            placeholder="e.g. 2.50"
-          />
+          <p className="font-bold text-sm text-[var(--js-text)] mb-1">Delivery Pricing Controlled by Admin</p>
+          <p className="text-xs text-[var(--js-text-secondary)] leading-relaxed">
+            Delivery fees are now set by the platform admin based on pickup and delivery areas. 
+            You don't need to configure delivery pricing for your shop. The correct fees will be 
+            automatically calculated for each order based on admin-defined pricing rules.
+          </p>
         </div>
-      )}
-
-      {mode === "per_area" && (
-        <div className="space-y-2">
-          <p className="text-xs text-[var(--js-text-secondary)]">Set a different delivery fee for each area you serve.</p>
-          {(form.delivery_per_area || []).map((entry, idx) => (
-            <div key={idx} className="flex gap-2 items-center" data-testid={`delivery-area-row-${idx}`}>
-              <div className="flex-1">
-                <AreaSelectField
-                  value={entry.area}
-                  onChange={(v) => updateAreaFee(idx, "area", v)}
-                  testId={`delivery-area-select-${idx}`}
-                  placeholder="Select area"
-                />
-              </div>
-              <div className="relative w-32">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-[var(--js-text-secondary)]">USD</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={entry.fee_usd ?? 0}
-                  onChange={(e) => updateAreaFee(idx, "fee_usd", e.target.value)}
-                  data-testid={`delivery-area-fee-${idx}`}
-                  className="js-input pl-12"
-                  placeholder="0.00"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => removeArea(idx)}
-                data-testid={`delivery-area-remove-${idx}`}
-                className="p-2 text-[#D90429] hover:bg-[#D90429]/10 rounded-full"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
-          <button
-            type="button"
-            onClick={addArea}
-            data-testid="delivery-add-area"
-            className="text-xs font-semibold text-[#C84B31] hover:underline inline-flex items-center gap-1"
-          >
-            <Plus className="w-3 h-3" /> Add area
-          </button>
-        </div>
-      )}
+      </div>
     </div>
   );
 }
