@@ -2381,6 +2381,8 @@ async def _generate_payouts(seller_id: Optional[str]) -> dict:
         seller = await db.users.find_one({"id": sid}, {"_id": 0, "name": 1, "email": 1})
         seller_rate = rate_by_seller.get(sid, global_rate)
         
+        print(f"💰 [PAYOUT] Seller {sid}: rate={seller_rate}, amount=${bucket['amount']}, SSP={bucket['amount'] * seller_rate}")
+        
         payout = {
             "id": str(uuid.uuid4()),
             "seller_id": sid,
