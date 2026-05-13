@@ -8,8 +8,103 @@ import { toast } from "sonner";
  *
  * Central place for global platform settings including:
  * - Commission rates
+ * - Exchange rates
  * - User management
  */
+
+function ExchangeRateSection() {
+  const [currentRate, setCurrentRate] = useState(600);
+  const [rateDraft, setRateDraft] = useState("600");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const { data } = await api.get("/admin/settings");
+        const rate = Number(data.global_rate ?? 600);
+        setCurrentRate(rate);
+        setRateDraft(rate.toString());
+      } catch (err) {
+        console.error("Failed to load exchange rate:", err);
+      }
+    };
+    load();
+  }, []);
+
+  const parsedRate = (() => {
+    const val = parseFloat(rateDraft);
+    if (Number.isNaN(val) || val <= 0) return null;
+    return val;
+  })();
+
+  const dirty = parsedRate !== null && Math.abs(parsedRate - currentRate) > 0.01;
+
+  const saveRate = async () => {
+    if (parsedRate === null) return;
+    setSaving(true);
+    try {
+      await api.put("/admin/settings", { global_rate: parsedRate });
+      setCurrentRate(parsedRate);
+      toast.success(`Exchange rate updated to ${parsedRate.toFixed(2)} SSP per 1 USD`);
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail) || "Failed to save exchange rate");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="mt-4 flex items-stretch gap-2 flex-wrap">
+        <div className="relative">
+          <input
+            type="number"
+            value={rateDraft}
+            onChange={(e) => setRateDraft(e.target.value)}
+            min="1"
+            step="0.01"
+            placeholder="600"
+            className="w-48 bg-[var(--js-bg)] border border-[var(--js-border)] rounded-xl pl-3 pr-20 py-2.5 text-lg font-bold focus:outline-none focus:border-emerald-600"
+          />
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--js-text-secondary)] font-semibold text-sm">SSP / USD</span>
+        </div>
+        <button
+          type="button"
+          onClick={saveRate}
+          disabled={!dirty || saving}
+          className="inline-flex items-center gap-1.5 text-sm font-bold px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white disabled:bg-gray-300"
+        >
+          <Save className="w-4 h-4" /> {saving ? "Saving…" : "Save rate"}
+        </button>
+        {dirty && (
+          <button
+            type="button"
+            onClick={() => setRateDraft(currentRate.toString())}
+            className="inline-flex items-center gap-1.5 text-xs font-bold px-4 py-2 rounded-xl border border-[var(--js-border)] text-[var(--js-text)] hover:border-[#1A1A1A]"
+          >
+            <RotateCcw className="w-3.5 h-3.5" /> Discard
+          </button>
+        )}
+      </div>
+
+      <div className="mt-3 text-xs text-[var(--js-text-secondary)]">
+        <span className="font-semibold text-[var(--js-text)]">Currently saved:</span>{" "}
+        <span className="font-bold text-emerald-700">{currentRate.toFixed(2)} SSP = 1 USD</span>
+        {parsedRate === null && rateDraft !== "" && (
+          <span className="ml-3 text-red-600 font-semibold">⚠ Must be a positive number</span>
+        )}
+      </div>
+
+      <div className="mt-4 flex gap-2 items-start p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900">
+        <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
+        <div>
+          <strong>How it works:</strong> When customers toggle between USD and SSP in the header, prices are converted using this rate. Example: At 600 SSP/USD, a $10 item shows as SSP 6,000.
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function AdminSettingsTab({ onGoToShop }) {
   const [globalRate, setGlobalRate] = useState(0.10);
   const [rateDraft, setRateDraft] = useState("10");
@@ -152,6 +247,24 @@ export default function AdminSettingsTab({ onGoToShop }) {
                 Changing the global rate triggers invoice regeneration so pending invoices pick up the new value.
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Global Exchange Rate (SSP) */}
+      <div className="bg-white border border-[var(--js-border)] rounded-2xl p-5 sm:p-6">
+        <div className="flex items-start gap-4">
+          <div className="w-11 h-11 rounded-xl bg-emerald-600/10 text-emerald-700 flex items-center justify-center flex-shrink-0">
+            <DollarSign className="w-5 h-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">Currency</p>
+            <h2 className="font-display font-bold text-lg text-[var(--js-text)] mt-0.5">Global Exchange Rate (SSP)</h2>
+            <p className="text-xs text-[var(--js-text-secondary)] mt-1 leading-relaxed">
+              Set how many <strong>South Sudanese Pounds (SSP)</strong> equal 1 US Dollar. This rate is used platform-wide for currency conversion when customers toggle between USD and SSP.
+            </p>
+
+            <ExchangeRateSection />
           </div>
         </div>
       </div>

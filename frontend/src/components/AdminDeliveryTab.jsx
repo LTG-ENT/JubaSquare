@@ -179,7 +179,7 @@ function DriversPane() {
                 <td className="px-3 py-2">{d.email}</td>
                 <td className="px-3 py-2">{d.phone || "—"}</td>
                 <td className="px-3 py-2">{d.active_deliveries || 0}</td>
-                <td className="px-3 py-2 font-semibold">{formatUSD(d.cash_pending_handover_usd || 0)}</td>
+                <td className="px-3 py-2 font-semibold">{formatPrice(d.cash_pending_handover_usd || 0, exchangeRate, currency)}</td>
                 <td className="px-3 py-2">{d.is_active ? <Pill value="resolved" /> : <Pill value="opened" />}</td>
                 <td className="px-3 py-2 text-right space-x-1">
                   <button onClick={() => toggle(d)} title={d.is_active ? "Disable" : "Enable"} className="text-xs px-2 py-1 rounded-full hover:bg-gray-100">
