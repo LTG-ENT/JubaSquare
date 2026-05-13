@@ -4,7 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import AreaSelector from "@/components/AreaSelector";
-import { Minus, Plus, Trash2, ShoppingBag, Truck } from "lucide-react";
+import { Minus, Plus, Trash2, ShoppingBag, Truck, ArrowLeft } from "lucide-react";
 import api, { formatPrice, formatPriceAlt } from "@/lib/api";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
@@ -111,6 +111,13 @@ export default function Cart() {
     <div className="min-h-screen flex flex-col">
       <Header />
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full flex-1">
+        <button
+          onClick={() => navigate(-1)}
+          data-testid="cart-back-btn"
+          className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#5C5C5C] hover:text-[#1A1A1A] mb-4 -mt-2"
+        >
+          <ArrowLeft className="w-4 h-4" /> Back
+        </button>
         <h1 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">Your cart</h1>
         <p className="text-sm text-[#5C5C5C] mt-1">{items.length} item{items.length !== 1 && "s"}</p>
 

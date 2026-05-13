@@ -86,7 +86,7 @@ PICKUP_STATUSES = {"not_assigned", "pending_pickup", "picked_up", "pickup_failed
 SELLER_PREP_STATUSES = {"pending", "accepted", "preparing", "ready_for_pickup", "handed_to_driver", "cancelled"}
 SELLER_HANDOVER_STATUSES = {"pending", "handed_to_driver", "disputed"}
 DELIVERY_STATUSES = {
-    "unassigned", "assigned", "pending_pickup", "picked_up", "out_for_delivery",
+    "unassigned", "offered", "assigned", "pending_pickup", "picked_up", "out_for_delivery",
     "delivered", "delivery_failed", "return_to_seller_pending", "returned_to_seller", "failed",
 }
 POD_STATUSES = {"not_required", "pending", "submitted", "disputed"}
@@ -164,6 +164,79 @@ def redact_many_for_seller(rows: list) -> list:
 # Statuses where the seller (and customer) can still cancel the order
 # themselves. Anything later means the order is en route or settled.
 CANCELLABLE_PREP_STATUSES = {"pending", "accepted", "preparing"}
+
+
+async def _next_round_robin_driver(declined_by: list[str] | None = None) -> dict | None:
+    """Pick the next active driver using round-robin by least-recently-assigned.
+    Excludes any driver_id present in `declined_by`. Returns the driver doc or None."""
+    declined = set(declined_by or [])
+    drivers = await db.users.find(
+        {"role": "driver", "is_active": True},
+        {"_id": 0, "id": 1, "name": 1, "phone": 1, "last_offered_at": 1},
+    ).to_list(500)
+    drivers = [d for d in drivers if d["id"] not in declined]
+    if not drivers:
+        return None
+    # Drivers never offered before float to the top; otherwise sort by
+    # `last_offered_at` ascending (the longest-idle driver gets the next order).
+    drivers.sort(key=lambda d: d.get("last_offered_at") or "")
+    return drivers[0]
+
+
+async def _offer_order_to_driver(
+    *, kind: str, order_id: str, driver: dict
+) -> None:
+    """Mark the order as 'offered' to this driver and bump the driver's
+    last_offered_at timestamp (drives the round-robin). `kind` is either
+    'split' or 'rest'."""
+    now = now_iso()
+    coll = db.seller_order_splits if kind == "split" else db.restaurant_orders
+    await coll.update_one(
+        {"id": order_id},
+        {"$set": {
+            "driver_id": driver["id"],
+            "driver_name": driver.get("name") or "",
+            "delivery_status": "offered",
+            "pickup_status": "pending_pickup",
+            "assigned_at": now,
+            "updated_at": now,
+        }},
+    )
+    await db.users.update_one(
+        {"id": driver["id"]},
+        {"$set": {"last_offered_at": now}},
+    )
+    try:
+        await create_notification(
+            user_id=driver["id"],
+            message=(
+                "New delivery offered — open Driver Dashboard to Accept or Decline."
+            ),
+            ntype="order",
+            meta={
+                "order_id": order_id,
+                "order_type": ("restaurant" if kind == "rest" else "marketplace"),
+                "auto_offered": True,
+            },
+        )
+    except Exception:
+        pass
+
+
+async def auto_assign_rest_order(order_id: str) -> dict | None:
+    """Try to auto-assign a restaurant order to the next round-robin driver,
+    skipping anyone in declined_by. Returns the driver picked, or None if no
+    drivers are available (order stays in 'unassigned')."""
+    o = await db.restaurant_orders.find_one({"id": order_id}, {"_id": 0})
+    if not o:
+        return None
+    if o.get("delivery_status") not in {"unassigned", "delivery_failed"}:
+        return None
+    driver = await _next_round_robin_driver(declined_by=o.get("declined_by") or [])
+    if not driver:
+        return None
+    await _offer_order_to_driver(kind="rest", order_id=order_id, driver=driver)
+    return driver
 
 
 async def _enforce_dispute_pause(split_id: str) -> None:
@@ -992,6 +1065,10 @@ def register_endpoints():
             {"id": order_id},
             {"$set": {"seller_preparation_status": "ready_for_pickup", "updated_at": now_iso()}},
         )
+        # Auto-assign a driver via round-robin if none is yet committed.
+        fresh = await db.restaurant_orders.find_one({"id": order_id}, {"_id": 0})
+        if fresh and fresh.get("delivery_status") in {"unassigned", "delivery_failed"}:
+            await auto_assign_rest_order(order_id)
         return await _find_rest_order(order_id)
 
     @new_router.post("/seller/restaurant-orders/{order_id}/handed-to-driver")
@@ -1077,6 +1154,77 @@ def register_endpoints():
         return o
 
     # ---- Driver actions on a split ----
+    @new_router.post("/driver/restaurant-orders/{order_id}/accept-offer")
+    async def driver_accept_offer_rest(order_id: str, user: dict = driver_dep):
+        """Driver accepts a pending offered restaurant order — flips
+        delivery_status from 'offered' → 'assigned'. Pickup OTP is still
+        required at the pickup step."""
+        o = await _find_rest_order(order_id)
+        _check_driver_owns(o, user)
+        if o.get("delivery_status") != "offered":
+            raise HTTPException(400, f"Order is not in 'offered' state (current: {o.get('delivery_status')})")
+        await db.restaurant_orders.update_one(
+            {"id": order_id},
+            {"$set": {
+                "delivery_status": "assigned",
+                "driver_accepted_at": now_iso(),
+                "updated_at": now_iso(),
+            }},
+        )
+        try:
+            await create_notification(
+                user_id=o.get("seller_id"),
+                message=f"A driver has accepted your delivery for order #{order_id[:8]}",
+                ntype="order",
+                meta={"order_id": order_id, "kind": "restaurant"},
+            )
+        except Exception:
+            pass
+        return await _find_rest_order(order_id)
+
+    @new_router.post("/driver/restaurant-orders/{order_id}/decline-offer")
+    async def driver_decline_offer_rest(order_id: str, user: dict = driver_dep):
+        """Driver declines the offered restaurant order. The order is then
+        re-offered to the next available driver via round-robin (excluding
+        anyone who has already declined it). If no driver remains, the order
+        reverts to 'unassigned' and admin will see it as unassigned again."""
+        o = await _find_rest_order(order_id)
+        _check_driver_owns(o, user)
+        if o.get("delivery_status") != "offered":
+            raise HTTPException(400, f"Order is not in 'offered' state (current: {o.get('delivery_status')})")
+        declined_by = list(o.get("declined_by") or [])
+        if user["id"] not in declined_by:
+            declined_by.append(user["id"])
+        # Detach this driver from the order first.
+        await db.restaurant_orders.update_one(
+            {"id": order_id},
+            {"$set": {
+                "driver_id": None,
+                "driver_name": None,
+                "delivery_status": "unassigned",
+                "pickup_status": "not_assigned",
+                "assigned_at": None,
+                "declined_by": declined_by,
+                "updated_at": now_iso(),
+            }},
+        )
+        # Try to offer it to the next driver in line.
+        next_driver = await auto_assign_rest_order(order_id)
+        if not next_driver:
+            try:
+                # Notify admins so they can intervene if no driver accepted.
+                admins = await db.users.find({"role": "admin"}, {"_id": 0, "id": 1}).to_list(50)
+                for a in admins:
+                    await create_notification(
+                        user_id=a["id"],
+                        message=f"All drivers declined order #{order_id[:8]} — needs manual assignment.",
+                        ntype="order",
+                        meta={"order_id": order_id, "kind": "restaurant"},
+                    )
+            except Exception:
+                pass
+        return {"ok": True, "reoffered_to": (next_driver or {}).get("id")}
+
     @new_router.post("/driver/splits/{split_id}/pickup")
     async def driver_pickup(split_id: str, body: OTPIn, user: dict = driver_dep):
         s = await _find_split(split_id)

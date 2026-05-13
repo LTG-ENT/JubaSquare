@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import "@/App.css";
 
-import { AuthProvider } from "@/context/AuthContext";
+import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { CartProvider } from "@/context/CartContext";
 import { SystemProvider } from "@/context/SystemContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -11,6 +11,7 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import RouteLoader from "@/components/RouteLoader";
 import DarkModeIconButton from "@/components/DarkModeIconButton";
 import FloatingChat from "@/components/FloatingChat";
+import { useLocation, Navigate as RRNavigate } from "react-router-dom";
 
 // ---------------------------------------------------------------------------
 // Eagerly bundled (small + commonly first-paint on a cold visit)
@@ -64,6 +65,17 @@ if (typeof document !== "undefined") {
   }
 }
 
+// Drivers are locked to their dashboard — any other route redirects them to /driver.
+const DRIVER_ALLOWED_PATHS = new Set(["/driver", "/login", "/logout", "/settings", "/verify-email"]);
+function DriverGate({ children }) {
+  const { user } = useAuth();
+  const location = useLocation();
+  if (user?.role === "driver" && !DRIVER_ALLOWED_PATHS.has(location.pathname)) {
+    return <RRNavigate to="/driver" replace />;
+  }
+  return children;
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
@@ -72,7 +84,8 @@ export default function App() {
           <CartProvider>
             <BrowserRouter>
               <Suspense fallback={<RouteLoader />}>
-                <Routes>
+                <DriverGate>
+                  <Routes>
                   <Route path="/" element={<Home />} />
                   <Route path="/login" element={<Login />} />
                   <Route path="/signup" element={<Signup />} />
@@ -101,7 +114,8 @@ export default function App() {
                   <Route path="/privacy" element={<Privacy />} />
                   <Route path="/returns" element={<Returns />} />
                   <Route path="*" element={<NotFound />} />
-                </Routes>
+                  </Routes>
+                </DriverGate>
               </Suspense>
               <FloatingChat />
             </BrowserRouter>

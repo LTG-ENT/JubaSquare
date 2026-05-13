@@ -12,8 +12,8 @@ import NotificationBell from "@/components/NotificationBell";
 import CategoriesNavMenu from "@/components/CategoriesNavMenu";
 import GlobalSearch from "@/components/GlobalSearch";
 
-const Brand = () => (
-  <Link to="/" className="flex items-center gap-3 shrink-0" data-testid="brand-logo">
+const Brand = ({ to = "/" }) => (
+  <Link to={to} className="flex items-center gap-3 shrink-0" data-testid="brand-logo">
     <Logo size={48} className="sm:w-14 sm:h-14 md:w-16 md:h-16 lg:w-[72px] lg:h-[72px] xl:w-20 xl:h-20" />
     <div className="flex flex-col leading-tight min-w-0">
       <span className="font-display font-bold text-xl sm:text-2xl text-white whitespace-nowrap">JubaSquare</span>
@@ -163,6 +163,10 @@ export default function Header() {
 
   const dashboardPath = user?.role === "admin" ? "/admin" : user?.role === "seller" ? "/seller" : user?.role === "driver" ? "/driver" : null;
 
+  // Drivers are restricted to their own dashboard — hide marketplace nav,
+  // shopping cart, search, currency toggle. They keep notifications, profile, logout.
+  const isDriver = user?.role === "driver";
+
   return (
     <header className="sticky top-0 z-50 bg-[#0E1A2B] border-b border-white/10 shadow-md">
       {settings.maintenance_mode && (
@@ -173,51 +177,59 @@ export default function Header() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="h-20 lg:h-24 flex items-center justify-between gap-4">
           {/* Mobile menu button - left side on mobile */}
-          <button
-            onClick={() => setMobileOpen((v) => !v)}
-            data-testid="mobile-menu-button"
-            className="lg:hidden p-2 rounded-full hover:bg-white/10 transition"
-            aria-label="Menu"
-          >
-            {mobileOpen ? <X className="w-6 h-6 text-white" /> : <Menu className="w-6 h-6 text-white" />}
-          </button>
+          {!isDriver && (
+            <button
+              onClick={() => setMobileOpen((v) => !v)}
+              data-testid="mobile-menu-button"
+              className="lg:hidden p-2 rounded-full hover:bg-white/10 transition"
+              aria-label="Menu"
+            >
+              {mobileOpen ? <X className="w-6 h-6 text-white" /> : <Menu className="w-6 h-6 text-white" />}
+            </button>
+          )}
 
           {/* Centered Brand */}
           <div className="flex-1 flex justify-center lg:justify-start">
-            <Brand />
+            <Brand to={isDriver ? "/driver" : "/"} />
           </div>
 
-          {/* Desktop Navigation - hidden on mobile */}
-          <nav className="hidden lg:flex items-center gap-1">
-            {navLink("/", "Home", HomeIcon)}
-            {settings.module_marketplace && (
-              <CategoriesNavMenu
-                active={location.pathname === "/marketplace"}
-                onNavigate={() => setMobileOpen(false)}
-                trigger={navLink("/marketplace", "Marketplace", LayoutGrid)}
-              />
-            )}
-            {navLink("/shops", "Shops", Store)}
-            {settings.module_restaurants && navLink("/restaurants", "Restaurants", UtensilsCrossed)}
-          </nav>
+          {/* Desktop Navigation - hidden on mobile + completely hidden for drivers */}
+          {!isDriver && (
+            <nav className="hidden lg:flex items-center gap-1">
+              {navLink("/", "Home", HomeIcon)}
+              {settings.module_marketplace && (
+                <CategoriesNavMenu
+                  active={location.pathname === "/marketplace"}
+                  onNavigate={() => setMobileOpen(false)}
+                  trigger={navLink("/marketplace", "Marketplace", LayoutGrid)}
+                />
+              )}
+              {navLink("/shops", "Shops", Store)}
+              {settings.module_restaurants && navLink("/restaurants", "Restaurants", UtensilsCrossed)}
+            </nav>
+          )}
 
           {/* Right side actions */}
           <div className="flex items-center gap-2">
-            <div className="hidden md:block">
-              <GlobalSearch />
-            </div>
-            <CurrencyToggle />
+            {!isDriver && (
+              <div className="hidden md:block">
+                <GlobalSearch />
+              </div>
+            )}
+            {!isDriver && <CurrencyToggle />}
 
             {user && <NotificationBell />}
 
-            <Link to="/cart" data-testid="header-cart-button" className="relative p-2.5 rounded-full hover:bg-white/10 transition">
-              <ShoppingCart className="w-5 h-5 text-white" />
-              {count > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 bg-[#C84B31] text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center" data-testid="cart-count-badge">
-                  {count}
-                </span>
-              )}
-            </Link>
+            {!isDriver && (
+              <Link to="/cart" data-testid="header-cart-button" className="relative p-2.5 rounded-full hover:bg-white/10 transition">
+                <ShoppingCart className="w-5 h-5 text-white" />
+                {count > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 bg-[#C84B31] text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center" data-testid="cart-count-badge">
+                    {count}
+                  </span>
+                )}
+              </Link>
+            )}
 
             {user ? (
               <div className="hidden sm:flex items-center gap-1">
@@ -239,7 +251,7 @@ export default function Header() {
           </div>
         </div>
 
-        {mobileOpen && (
+        {mobileOpen && !isDriver && (
           <div className="lg:hidden pb-4 flex flex-col gap-1 fade-up">
             <div className="md:hidden mb-2">
               <GlobalSearch />

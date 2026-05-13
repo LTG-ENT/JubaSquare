@@ -384,6 +384,15 @@ export default function SellerWalletTab() {
                     </li>
                   ))}
                 </ul>
+                {detail.note && (
+                  <div
+                    data-testid="seller-wallet-customer-note"
+                    className="mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs"
+                  >
+                    <p className="font-bold text-amber-900 uppercase tracking-wide mb-0.5">Customer note</p>
+                    <p className="text-amber-900 leading-snug">{detail.note}</p>
+                  </div>
+                )}
               </div>
 
               {/* Pickup OTP — only visible once we're ready_for_pickup */}

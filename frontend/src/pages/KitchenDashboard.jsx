@@ -9,7 +9,7 @@
 // Privacy: customer phone / area / address are NEVER shown. Just the name.
 
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import api, { formatUSD, formatDetail } from "@/lib/api";
 import { toast } from "sonner";
 import Header from "@/components/Header";
@@ -28,6 +28,8 @@ import {
   User,
   KeyRound,
   RotateCcw,
+  ArrowLeft,
+  StickyNote,
 } from "lucide-react";
 
 // Columns shown on the kitchen board, in left-to-right flow order.
@@ -73,6 +75,7 @@ function ago(iso) {
 
 export default function KitchenDashboard() {
   const { restaurantId } = useParams();
+  const navigate = useNavigate();
   const [restaurant, setRestaurant] = useState(null);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -213,6 +216,13 @@ ${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}<
     <div className="min-h-screen flex flex-col bg-[var(--js-background)]">
       <Header />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 w-full flex-1">
+        <button
+          onClick={() => navigate("/seller")}
+          data-testid="kitchen-back-btn"
+          className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--js-text-secondary)] hover:text-[var(--js-text)] mb-4"
+        >
+          <ArrowLeft className="w-4 h-4" /> Back to dashboard
+        </button>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
           <div>
             <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-[var(--js-text-secondary)]">Today's Restaurant Queue</p>
@@ -274,6 +284,15 @@ ${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}<
                         {(o.items || o.items_secure || []).slice(0,2).map(it => `${it.quantity}× ${it.name}`).join(" · ")}
                         {(o.items || []).length > 2 ? ` +${(o.items || []).length - 2}` : ""}
                       </p>
+                      {o.note && (
+                        <div
+                          data-testid={`kitchen-card-note-${o.id.slice(0,8)}`}
+                          className="mt-2 flex items-start gap-1 bg-amber-50 border border-amber-200 rounded-md px-2 py-1"
+                        >
+                          <StickyNote className="w-3 h-3 mt-0.5 shrink-0 text-amber-700" />
+                          <p className="text-[11px] text-amber-900 leading-snug line-clamp-2">{o.note}</p>
+                        </div>
+                      )}
                       <div className="flex items-center justify-between mt-2">
                         <div className="flex flex-wrap gap-1">
                           {o.driver_name && (

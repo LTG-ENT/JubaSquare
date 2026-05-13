@@ -20,6 +20,7 @@ import {
 
 const PILL = {
   unassigned: "bg-gray-100 text-gray-700",
+  offered: "bg-purple-100 text-purple-800",
   assigned: "bg-blue-100 text-blue-700",
   pending_pickup: "bg-blue-100 text-blue-700",
   picked_up: "bg-amber-100 text-amber-700",
@@ -112,6 +113,7 @@ export default function DriverDashboard() {
         <div className="mt-6 flex gap-2 flex-wrap items-center">
           <select value={filter} onChange={(e) => setFilter(e.target.value)} data-testid="driver-filter" className="px-3 py-2 border border-[var(--js-border)] rounded-lg text-sm">
             <option value="">All my deliveries</option>
+            <option value="offered">Offered (action needed)</option>
             <option value="assigned">Assigned (new)</option>
             <option value="picked_up">Picked up</option>
             <option value="out_for_delivery">Out for delivery</option>
@@ -130,13 +132,15 @@ export default function DriverDashboard() {
           </div>
         ) : (
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-            {all.map((r) => (
-              <button
-                key={r.id}
-                onClick={() => setOpen(r)}
-                data-testid={`driver-card-${r.id.slice(0,8)}`}
-                className="text-left bg-white hover:shadow-md transition border border-[var(--js-border)] rounded-2xl p-4"
-              >
+            {all.map((r) => {
+              const isOffered = r.delivery_status === "offered";
+              return (
+              <div key={r.id} className="text-left bg-white hover:shadow-md transition border border-[var(--js-border)] rounded-2xl p-4">
+                <button
+                  onClick={() => setOpen(r)}
+                  data-testid={`driver-card-${r.id.slice(0,8)}`}
+                  className="w-full text-left"
+                >
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-mono text-xs text-[var(--js-text-secondary)]">
                     {r._kind === "rest" ? "RESTAURANT" : "MARKETPLACE"} • {r.id.slice(0, 8)}
@@ -147,16 +151,24 @@ export default function DriverDashboard() {
                 <p className="text-xs text-[var(--js-text-secondary)] flex items-center gap-1 mt-1"><MapPin className="w-3 h-3" /> Pickup: {r.shop_area || "—"}</p>
                 <hr className="my-3 border-[var(--js-border)]" />
                 <p className="font-semibold">{r.customer_name}</p>
-                <p className="text-xs text-[var(--js-text-secondary)] flex items-center gap-1"><Phone className="w-3 h-3" /> {r.customer_phone || "—"}</p>
-                <p className="text-xs text-[var(--js-text-secondary)] flex items-center gap-1"><MapPin className="w-3 h-3" /> {r.customer_area} — {r.customer_address}</p>
+                {!isOffered && (
+                  <>
+                    <p className="text-xs text-[var(--js-text-secondary)] flex items-center gap-1"><Phone className="w-3 h-3" /> {r.customer_phone || "—"}</p>
+                    <p className="text-xs text-[var(--js-text-secondary)] flex items-center gap-1"><MapPin className="w-3 h-3" /> {r.customer_area} — {r.customer_address}</p>
+                  </>
+                )}
                 <div className="mt-3 flex items-center justify-between">
                   <span className="text-lg font-bold text-[var(--js-text)]">{formatUSD(r.order_total_usd)}</span>
                   <div className="flex gap-1">
                     <Pill value={r.payment_status} />
                   </div>
                 </div>
-              </button>
-            ))}
+                </button>
+                {isOffered && r._kind === "rest" && (
+                  <DriverOfferActions row={r} reload={load} />
+                )}
+              </div>
+            );})}
           </div>
         )}
       </div>
@@ -269,6 +281,38 @@ function DeliveryDetail({ row, reload, setOpen }) {
         </div>
       </section>
 
+      {/* OFFERED step — driver must Accept or Decline first */}
+      {r.delivery_status === "offered" && (
+        <div className="border-2 border-purple-300 bg-purple-50 rounded-xl p-4 space-y-3">
+          <div>
+            <p className="text-sm font-semibold text-purple-900">New delivery offered</p>
+            <p className="text-xs text-purple-800">
+              Auto-assigned to you. Accept to commit, or decline so the next driver can pick it up.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={async () => { await post("decline-offer"); setOpen?.(null); }}
+              disabled={busy}
+              data-testid="detail-decline-offer"
+              className="flex-1 inline-flex items-center justify-center gap-1 bg-white hover:bg-red-50 disabled:opacity-50 border border-red-300 text-red-700 text-sm font-semibold py-2 rounded-full"
+            >
+              <XCircle className="w-4 h-4" /> Decline
+            </button>
+            <button
+              type="button"
+              onClick={async () => { await post("accept-offer"); setOpen?.(null); }}
+              disabled={busy}
+              data-testid="detail-accept-offer"
+              className="flex-1 inline-flex items-center justify-center gap-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-semibold py-2 rounded-full"
+            >
+              <CheckCircle2 className="w-4 h-4" /> Accept
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* PICKUP step */}
       {r.delivery_status === "assigned" && (
         <form onSubmit={submitPickup} className="border-2 border-blue-200 bg-blue-50 rounded-xl p-4 space-y-3">
@@ -356,6 +400,65 @@ function DeliveryDetail({ row, reload, setOpen }) {
           <CheckCircle2 className="w-4 h-4" /> Delivered & cash settled. Great job!
         </p>
       )}
+    </div>
+  );
+}
+
+function DriverOfferActions({ row, reload }) {
+  const [busy, setBusy] = useState(false);
+  const base = row._kind === "rest" ? `/driver/restaurant-orders/${row.id}` : `/driver/splits/${row.id}`;
+
+  const accept = async (e) => {
+    e.stopPropagation();
+    setBusy(true);
+    try {
+      await api.post(`${base}/accept-offer`);
+      toast.success("Order accepted — head to the pickup location.");
+      reload();
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail) || "Could not accept");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const decline = async (e) => {
+    e.stopPropagation();
+    setBusy(true);
+    try {
+      await api.post(`${base}/decline-offer`);
+      toast.success("Declined — order has been re-offered to another driver.");
+      reload();
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail) || "Could not decline");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      data-testid={`driver-offer-actions-${row.id.slice(0,8)}`}
+      className="mt-3 pt-3 border-t border-[var(--js-border)] flex gap-2"
+    >
+      <button
+        type="button"
+        onClick={decline}
+        disabled={busy}
+        data-testid={`driver-decline-${row.id.slice(0,8)}`}
+        className="flex-1 inline-flex items-center justify-center gap-1 bg-white hover:bg-red-50 disabled:opacity-50 border border-red-300 text-red-700 text-sm font-semibold py-2 rounded-full transition"
+      >
+        <XCircle className="w-4 h-4" /> Decline
+      </button>
+      <button
+        type="button"
+        onClick={accept}
+        disabled={busy}
+        data-testid={`driver-accept-${row.id.slice(0,8)}`}
+        className="flex-1 inline-flex items-center justify-center gap-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-semibold py-2 rounded-full transition"
+      >
+        <CheckCircle2 className="w-4 h-4" /> Accept
+      </button>
     </div>
   );
 }
