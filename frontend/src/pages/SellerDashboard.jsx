@@ -1102,7 +1102,7 @@ function ProductsTab({ currency, exchangeRate }) {
                 <Input label="Price (USD)" type="number" step="0.01" value={form.price_usd} onChange={(v) => setForm({ ...form, price_usd: v })} required testId="product-price-input" />
                 <ImageUpload label="Food photo" value={form.image_url} onChange={(v) => setForm({ ...form, image_url: v })} testId="product-image-upload" />
                 <Textarea label="Description" value={form.description} onChange={(v) => setForm({ ...form, description: v })} testId="product-desc-input" />
-                <SideItemsEditor sides={form.side_items} setSides={(s) => setForm({ ...form, side_items: s })} />
+                <SideItemsEditor sides={form.side_items} setSides={(s) => setForm({ ...form, side_items: s })} currency={currency} exchangeRate={exchangeRate} />
               </>
             ) : (
               <>
@@ -1261,7 +1261,7 @@ function ProductsTab({ currency, exchangeRate }) {
                       <Input label="Minimum order qty (optional)" type="number" value={form.min_order_qty} onChange={(v) => setForm({ ...form, min_order_qty: v })} testId="min-order-qty-input" />
                       <Input label="Bulk price (USD, optional)" type="number" step="0.01" value={form.bulk_price_usd} onChange={(v) => setForm({ ...form, bulk_price_usd: v })} testId="bulk-price-input" />
                     </div>
-                    <PricingTiersEditor tiers={form.pricing_tiers} setTiers={(t) => setForm({ ...form, pricing_tiers: t })} />
+                    <PricingTiersEditor tiers={form.pricing_tiers} setTiers={(t) => setForm({ ...form, pricing_tiers: t })} currency={currency} exchangeRate={exchangeRate} />
                   </div>
                 )}
               </>
@@ -1409,7 +1409,7 @@ function ModeToggle({ mode, setMode, disabledEditing }) {
   );
 }
 
-function SideItemsEditor({ sides, setSides }) {
+function SideItemsEditor({ sides, setSides, currency, exchangeRate }) {
   const [draft, setDraft] = useState({ name: "", price_usd: "" });
   const add = () => {
     if (!draft.name.trim()) return;
@@ -1439,7 +1439,7 @@ function SideItemsEditor({ sides, setSides }) {
   );
 }
 
-function PricingTiersEditor({ tiers, setTiers }) {
+function PricingTiersEditor({ tiers, setTiers, currency, exchangeRate }) {
   const [draft, setDraft] = useState({ min_qty: "", price_usd: "" });
   const add = () => {
     const q = parseInt(draft.min_qty); const p = parseFloat(draft.price_usd);

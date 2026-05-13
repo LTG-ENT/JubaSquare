@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
-import api, { formatUSD, formatDetail } from "@/lib/api";
+import api, { formatUSD, formatPrice, formatDetail } from "@/lib/api";
+import { useCart } from "@/context/CartContext";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import AdminAnalytics from "@/components/AdminAnalytics";
@@ -33,6 +34,7 @@ const TABS = [
 
 export default function AdminDashboard() {
   const [tab, setTab] = useState("analytics");
+  const { currency, exchangeRate } = useCart(); // Get currency and exchange rate
 
   return (
     <div className="min-h-screen flex flex-col bg-[var(--js-bg)]">
@@ -350,9 +352,9 @@ function AdminInvoicesTab() {
     <div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <Stat label="Invoices" value={invoices.length} color="#1A1A1A" />
-        <Stat label="Total Sales" value={formatUSD(totalSales)} color="#2D6A4F" />
-        <Stat label="Commission" value={formatUSD(totalCommission)} color="#C84B31" />
-        <Stat label="Unpaid" value={formatUSD(unpaidAmount)} color="#D90429" />
+        <Stat label="Total Sales" value={formatPrice(totalSales, exchangeRate, currency)} color="#2D6A4F" />
+        <Stat label="Commission" value={formatPrice(totalCommission, exchangeRate, currency)} color="#C84B31" />
+        <Stat label="Unpaid" value={formatPrice(unpaidAmount, exchangeRate, currency)} color="#D90429" />
       </div>
 
       <div className="flex flex-wrap items-center gap-3 mb-4">
@@ -413,9 +415,9 @@ function AdminInvoicesTab() {
                 <tr key={inv.id} className="border-t border-[var(--js-border)]" data-testid={`invoice-row-${inv.id}`}>
                   <td className="p-4 font-semibold text-[var(--js-text)]">{inv.shop_name}</td>
                   <td className="p-4 text-[var(--js-text-secondary)] hidden sm:table-cell text-xs">{inv.week_label}</td>
-                  <td className="p-4 font-bold">{formatUSD(inv.total_sales)}</td>
+                  <td className="p-4 font-bold">{formatPrice(inv.total_sales, exchangeRate, currency)}</td>
                   <td className="p-4 hidden md:table-cell">
-                    <p className="font-semibold text-[#C84B31]">{formatUSD(inv.commission)}</p>
+                    <p className="font-semibold text-[#C84B31]">{formatPrice(inv.commission, exchangeRate, currency)}</p>
                     <p className="text-[10px] text-[var(--js-text-secondary)]">{(inv.commission_rate * 100).toFixed(1)}%</p>
                   </td>
                   <td className="p-4">
@@ -449,10 +451,10 @@ function AdminInvoicesTab() {
             <h3 className="font-display font-bold text-xl">{detail.shop_name}</h3>
             <p className="text-sm text-[var(--js-text-secondary)]">{detail.week_label}</p>
             <dl className="mt-4 space-y-2 text-sm">
-              <div className="flex justify-between"><dt className="text-[var(--js-text-secondary)]">Total Sales</dt><dd className="font-bold">{formatUSD(detail.total_sales)}</dd></div>
+              <div className="flex justify-between"><dt className="text-[var(--js-text-secondary)]">Total Sales</dt><dd className="font-bold">{formatPrice(detail.total_sales, exchangeRate, currency)}</dd></div>
               <div className="flex justify-between"><dt className="text-[var(--js-text-secondary)]">Order count</dt><dd className="font-bold">{detail.order_count}</dd></div>
-              <div className="flex justify-between"><dt className="text-[var(--js-text-secondary)]">Commission ({(detail.commission_rate * 100).toFixed(1)}%)</dt><dd className="font-bold text-[#C84B31]">{formatUSD(detail.commission)}</dd></div>
-              <div className="flex justify-between border-t border-[var(--js-border)] pt-2"><dt className="font-semibold">Amount owed</dt><dd className="font-display font-bold text-lg">{formatUSD(detail.amount_owed)}</dd></div>
+              <div className="flex justify-between"><dt className="text-[var(--js-text-secondary)]">Commission ({(detail.commission_rate * 100).toFixed(1)}%)</dt><dd className="font-bold text-[#C84B31]">{formatPrice(detail.commission, exchangeRate, currency)}</dd></div>
+              <div className="flex justify-between border-t border-[var(--js-border)] pt-2"><dt className="font-semibold">Amount owed</dt><dd className="font-display font-bold text-lg">{formatPrice(detail.amount_owed, exchangeRate, currency)}</dd></div>
               <div className="flex justify-between"><dt className="text-[var(--js-text-secondary)]">Status</dt><dd className="font-bold">{detail.status}</dd></div>
             </dl>
             <button onClick={() => setDetail(null)} className="mt-5 w-full bg-[#1A1A1A] text-white text-sm font-semibold py-2.5 rounded-full">Close</button>
@@ -524,7 +526,7 @@ function AdminOrdersTab() {
         <Stat label="Total Orders" value={orders.length} color="#1A1A1A" />
         <Stat label="Pending" value={orders.filter((o) => o.status === "Pending").length} color="#E9C46A" />
         <Stat label="In Progress" value={orders.filter((o) => o.status === "In Progress").length} color="#2A9D8F" />
-        <Stat label="Revenue" value={formatUSD(total)} color="#C84B31" />
+        <Stat label="Revenue" value={formatPrice(total, exchangeRate, currency)} color="#C84B31" />
       </div>
 
       <div className="bg-white border border-[var(--js-border)] rounded-2xl overflow-hidden">
@@ -551,7 +553,7 @@ function AdminOrdersTab() {
                     <p className="text-xs text-[var(--js-text-secondary)]">{o.area}</p>
                   </td>
                   <td className="p-4 hidden md:table-cell text-[var(--js-text-secondary)] capitalize">{o.order_kind}</td>
-                  <td className="p-4 font-bold">{formatUSD(o.subtotal_usd)}</td>
+                  <td className="p-4 font-bold">{formatPrice(o.subtotal_usd, exchangeRate, currency)}</td>
                   <td className="p-4">
                     <select value={o.status} onChange={(e) => updateStatus(o.id, e.target.value)} data-testid={`admin-order-status-${o.id}`} className="bg-white border border-[var(--js-border)] rounded-full px-3 py-1.5 text-xs font-semibold focus:border-[#C84B31] focus:outline-none">
                       <option>Pending</option><option>In Progress</option><option>Delivered</option>
@@ -641,9 +643,9 @@ function AdminRestaurantInvoicesTab() {
     <div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <Stat label="Restaurant Invoices" value={invoices.length} color="#1A1A1A" />
-        <Stat label="Food Sales (commissionable)" value={formatUSD(totalSales)} color="#2D6A4F" />
-        <Stat label="Commission" value={formatUSD(totalCommission)} color="#C84B31" />
-        <Stat label="Unpaid" value={formatUSD(unpaidAmount)} color="#D90429" />
+        <Stat label="Food Sales (commissionable)" value={formatPrice(totalSales, exchangeRate, currency)} color="#2D6A4F" />
+        <Stat label="Commission" value={formatPrice(totalCommission, exchangeRate, currency)} color="#C84B31" />
+        <Stat label="Unpaid" value={formatPrice(unpaidAmount, exchangeRate, currency)} color="#D90429" />
       </div>
 
       <div className="flex flex-wrap items-center gap-3 mb-4">
@@ -675,9 +677,9 @@ function AdminRestaurantInvoicesTab() {
                 <tr key={inv.id} className="border-t border-[var(--js-border)]" data-testid={`restaurant-invoice-row-${inv.id}`}>
                   <td className="p-4 font-semibold text-[var(--js-text)]">{inv.restaurant_name}</td>
                   <td className="p-4 text-[var(--js-text-secondary)] hidden sm:table-cell text-xs">{inv.week_label}</td>
-                  <td className="p-4 font-bold">{formatUSD(inv.total_sales)}</td>
+                  <td className="p-4 font-bold">{formatPrice(inv.total_sales, exchangeRate, currency)}</td>
                   <td className="p-4 hidden md:table-cell">
-                    <p className="font-semibold text-[#C84B31]">{formatUSD(inv.commission)}</p>
+                    <p className="font-semibold text-[#C84B31]">{formatPrice(inv.commission, exchangeRate, currency)}</p>
                     <p className="text-[10px] text-[var(--js-text-secondary)]">{(inv.commission_rate * 100).toFixed(1)}%</p>
                   </td>
                   <td className="p-4">
@@ -789,7 +791,7 @@ function AdminCancellationsTab() {
                   <p className="text-xs text-[var(--js-text-secondary)] mt-1">
                     Previous status: <span className="font-semibold text-[var(--js-text)]">{o.previous_status || "—"}</span>
                     {" · "}Customer: <span className="font-semibold text-[var(--js-text)]">{o.customer_name}</span>
-                    {" · "}Total: <span className="font-semibold text-[var(--js-text)]">{formatUSD(o.total)}</span>
+                    {" · "}Total: <span className="font-semibold text-[var(--js-text)]">{formatPrice(o.total, exchangeRate, currency)}</span>
                   </p>
                   {o.cancel_reason && (
                     <p className="text-sm text-[var(--js-text)] mt-2 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
