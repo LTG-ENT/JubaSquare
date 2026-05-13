@@ -476,6 +476,14 @@ class RestaurantOrderIn(BaseModel):
     note: Optional[str] = ""
 
 
+class RestaurantOrderQuoteIn(BaseModel):
+    """Simplified model for quote calculation - no customer details needed"""
+    restaurant_id: str
+    items: List[OrderItemIn]
+    delivery_type: Literal["delivery", "pickup"] = "delivery"
+    customer_area: Optional[str] = ""  # Delivery area for fee calculation
+
+
 class OrderStatusUpdate(BaseModel):
     """Update order status in kitchen dashboard"""
     status: Literal[
@@ -2159,7 +2167,7 @@ async def delete_menu_item(item_id: str, user: dict = Depends(require_role("sell
 # Restaurant Orders (separate from marketplace orders)
 # ----------------------------------------------------------------------------
 @api.post("/restaurant-orders/quote")
-async def quote_restaurant_order(body: RestaurantOrderIn, user: dict = Depends(get_current_user)):
+async def quote_restaurant_order(body: RestaurantOrderQuoteIn, user: dict = Depends(get_current_user)):
     """Calculate delivery fee preview for restaurant order without creating it."""
     if body.delivery_type == "pickup":
         return {"delivery_fee_usd": 0, "subtotal_usd": 0, "total_usd": 0}
