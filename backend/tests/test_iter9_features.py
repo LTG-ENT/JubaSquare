@@ -16,7 +16,7 @@ import requests
 from pymongo import MongoClient
 
 BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL")
-            or "https://cash-delivery-flow.preview.emergentagent.com").rstrip("/")
+            or "https://wallet-auto-refresh.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
 ADMIN = {"email": "admin@LTG.com", "password": "Kokobleake1"}
