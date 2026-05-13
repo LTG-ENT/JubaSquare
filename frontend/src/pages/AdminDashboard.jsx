@@ -34,7 +34,27 @@ const TABS = [
 
 export default function AdminDashboard() {
   const [tab, setTab] = useState("analytics");
+  const [alerts, setAlerts] = useState({});
   const { currency = "USD", exchangeRate = 1 } = useCart() || {}; // Get currency and exchange rate with defaults
+
+  // Poll the admin alerts endpoint so tab badges stay fresh.
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      api.get("/admin/alerts")
+        .then((r) => { if (!cancelled) setAlerts(r.data || {}); })
+        .catch(() => { /* silent — keep last value */ });
+    };
+    load();
+    const id = setInterval(load, 30000); // 30s
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  // Map tab id -> number of pending items
+  const tabBadge = {
+    delivery: (alerts.orders_needing_driver || 0) + (alerts.cash_pending || 0) + (alerts.payouts_ready || 0) + (alerts.disputes_open || 0),
+    cancellations: alerts.cancellations_open || 0,
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-[var(--js-bg)]">
@@ -46,20 +66,74 @@ export default function AdminDashboard() {
         <div className="mt-8 flex flex-wrap gap-2 border-b border-[var(--js-border)]">
           {TABS.map((t) => {
             const Icon = t.icon;
+            const badge = tabBadge[t.id] || 0;
             return (
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
                 data-testid={`admin-tab-${t.id}`}
-                className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 transition ${
+                className={`relative flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 transition ${
                   tab === t.id ? "border-[#C84B31] text-[#C84B31]" : "border-transparent text-[var(--js-text-secondary)] hover:text-[var(--js-text)]"
                 }`}
               >
                 <Icon className="w-4 h-4" /> {t.label}
+                {badge > 0 && (
+                  <span
+                    data-testid={`admin-tab-badge-${t.id}`}
+                    className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-[#D90429] text-white text-[10px] font-bold ml-1"
+                  >
+                    {badge > 99 ? "99+" : badge}
+                  </span>
+                )}
               </button>
             );
           })}
         </div>
+
+        {/* Inline alerts banner — visible across tabs so admins never miss it */}
+        {(alerts.orders_needing_driver > 0 || alerts.cash_pending > 0 || alerts.payouts_ready > 0 || alerts.disputes_open > 0) && (
+          <div
+            data-testid="admin-alerts-banner"
+            className="mt-4 flex flex-wrap gap-2 text-xs"
+          >
+            {alerts.orders_needing_driver > 0 && (
+              <button
+                onClick={() => setTab("delivery")}
+                data-testid="alert-pill-needs-driver"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-100 text-amber-900 font-semibold hover:bg-amber-200 transition"
+              >
+                <Truck className="w-3 h-3" /> {alerts.orders_needing_driver} order{alerts.orders_needing_driver > 1 ? "s" : ""} need a driver
+              </button>
+            )}
+            {alerts.cash_pending > 0 && (
+              <button
+                onClick={() => setTab("delivery")}
+                data-testid="alert-pill-cash"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-100 text-blue-900 font-semibold hover:bg-blue-200 transition"
+              >
+                💵 {alerts.cash_pending} cash pending handover
+              </button>
+            )}
+            {alerts.payouts_ready > 0 && (
+              <button
+                onClick={() => setTab("delivery")}
+                data-testid="alert-pill-payouts"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-900 font-semibold hover:bg-emerald-200 transition"
+              >
+                ✅ {alerts.payouts_ready} payouts ready
+              </button>
+            )}
+            {alerts.disputes_open > 0 && (
+              <button
+                onClick={() => setTab("delivery")}
+                data-testid="alert-pill-disputes"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-100 text-red-900 font-semibold hover:bg-red-200 transition"
+              >
+                <Ban className="w-3 h-3" /> {alerts.disputes_open} dispute{alerts.disputes_open > 1 ? "s" : ""} open
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="mt-8">
           {tab === "analytics" && <AdminAnalytics />}

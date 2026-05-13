@@ -204,6 +204,7 @@ function AssignmentsPane() {
   const [restOrders, setRestOrders] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [filter, setFilter] = useState(""); // status filter
+  const [actingIds, setActingIds] = useState(new Set());
 
   const load = useCallback(async () => {
     try {
@@ -220,17 +221,20 @@ function AssignmentsPane() {
   useEffect(() => { load(); }, [load]);
 
   const assign = async (row) => {
+    if (actingIds.has(row.id)) return;
     const id = prompt(
       `Pick a driver to assign:\n\n${drivers.map((d, i) => `${i + 1}. ${d.name} (${d.email})`).join("\n")}\n\nEnter the driver number:`
     );
     const idx = parseInt(id, 10) - 1;
     if (isNaN(idx) || idx < 0 || !drivers[idx]) return;
+    setActingIds((p) => { const n = new Set(p); n.add(row.id); return n; });
     try {
       const base = row._kind === "rest" ? `/admin/restaurant-orders/${row.id}` : `/admin/order-splits/${row.id}`;
       await api.post(`${base}/assign-driver`, { driver_id: drivers[idx].id });
       toast.success(`Assigned to ${drivers[idx].name}`);
       load();
     } catch (err) { toast.error(formatDetail(err.response?.data?.detail)); }
+    finally { setActingIds((p) => { const n = new Set(p); n.delete(row.id); return n; }); }
   };
 
   const all = [
@@ -283,8 +287,13 @@ function AssignmentsPane() {
                 <td className="px-3 py-2"><Pill value={row.payment_status} /></td>
                 <td className="px-3 py-2 text-right">
                   {!row.driver_id || row.delivery_status === "unassigned" || row.delivery_status === "delivery_failed" ? (
-                    <button onClick={() => assign(row)} data-testid={`assign-${row.id.slice(0,8)}`} className="bg-[#1A1A1A] hover:bg-black text-white text-xs font-semibold px-3 py-1.5 rounded-full">
-                      Assign driver
+                    <button
+                      onClick={() => assign(row)}
+                      disabled={actingIds.has(row.id)}
+                      data-testid={`assign-${row.id.slice(0,8)}`}
+                      className="bg-[#1A1A1A] hover:bg-black disabled:bg-[#1A1A1A]/40 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1.5 rounded-full"
+                    >
+                      {actingIds.has(row.id) ? "Assigning…" : "Assign driver"}
                     </button>
                   ) : (
                     <span className="text-xs text-[var(--js-text-secondary)]">Assigned</span>
@@ -303,6 +312,7 @@ function AssignmentsPane() {
 // ---------------- CASH HANDOVERS ----------------
 function CashHandoversPane() {
   const [data, setData] = useState({ splits: [], restaurant_orders: [], totals: {} });
+  const [actingIds, setActingIds] = useState(new Set());
   const load = useCallback(async () => {
     try {
       const r = await api.get("/admin/cash-handovers");
@@ -312,13 +322,16 @@ function CashHandoversPane() {
   useEffect(() => { load(); }, [load]);
 
   const receive = async (row) => {
+    if (actingIds.has(row.id)) return;
     const base = row._kind === "rest" ? `/admin/cash-handovers/restaurant-order/${row.id}/receive` : `/admin/cash-handovers/split/${row.id}/receive`;
     if (!confirm(`Confirm cash of ${row.order_total_usd?.toFixed?.(2)} USD received from driver ${row.driver_name || row.driver_id}?`)) return;
+    setActingIds((p) => { const n = new Set(p); n.add(row.id); return n; });
     try {
       await api.post(base);
       toast.success("Cash received");
       load();
     } catch (err) { toast.error(formatDetail(err.response?.data?.detail)); }
+    finally { setActingIds((p) => { const n = new Set(p); n.delete(row.id); return n; }); }
   };
 
   const all = [
@@ -361,8 +374,13 @@ function CashHandoversPane() {
                 <td className="px-3 py-2 font-semibold">{formatUSD(r.order_total_usd)}</td>
                 <td className="px-3 py-2 text-xs">{(r.cash_collected_at || "").slice(0, 16).replace("T", " ")}</td>
                 <td className="px-3 py-2 text-right">
-                  <button onClick={() => receive(r)} data-testid={`cash-receive-${r.id.slice(0,8)}`} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 rounded-full flex items-center gap-1 inline-flex">
-                    <CheckCircle2 className="w-3 h-3" /> Mark received
+                  <button
+                    onClick={() => receive(r)}
+                    disabled={actingIds.has(r.id)}
+                    data-testid={`cash-receive-${r.id.slice(0,8)}`}
+                    className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1.5 rounded-full flex items-center gap-1 inline-flex"
+                  >
+                    <CheckCircle2 className="w-3 h-3" /> {actingIds.has(r.id) ? "Receiving…" : "Mark received"}
                   </button>
                 </td>
               </tr>
@@ -380,6 +398,8 @@ function PayoutsPane() {
   const [payouts, setPayouts] = useState([]);
   const [detail, setDetail] = useState(null);
   const [filter, setFilter] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [payingIds, setPayingIds] = useState(new Set());
 
   const load = useCallback(async () => {
     try {
@@ -390,21 +410,27 @@ function PayoutsPane() {
   useEffect(() => { load(); }, [load]);
 
   const generate = async () => {
+    if (generating) return;
+    setGenerating(true);
     try {
       const r = await api.post("/admin/payouts/generate", { seller_id: null });
       const n = r.data?.created || 0;
       toast.success(n > 0 ? `${n} payout(s) generated` : "No eligible orders");
       load();
     } catch (err) { toast.error(formatDetail(err.response?.data?.detail)); }
+    finally { setGenerating(false); }
   };
 
   const markPaid = async (p) => {
+    if (payingIds.has(p.id)) return;
     if (!confirm(`Mark payout of ${formatUSD(p.amount_usd)} to ${p.seller_name} as paid?`)) return;
+    setPayingIds((prev) => { const n = new Set(prev); n.add(p.id); return n; });
     try {
       await api.post(`/admin/payouts/${p.id}/mark-paid`);
       toast.success("Payout marked paid");
       load();
     } catch (err) { toast.error(formatDetail(err.response?.data?.detail)); }
+    finally { setPayingIds((prev) => { const n = new Set(prev); n.delete(p.id); return n; }); }
   };
 
   const open = async (p) => {
@@ -422,8 +448,13 @@ function PayoutsPane() {
           <option value="pending_payout">Pending payout</option>
           <option value="paid">Paid</option>
         </select>
-        <button onClick={generate} data-testid="generate-payouts" className="bg-[#C84B31] hover:bg-[#A83A23] text-white text-sm font-semibold px-4 py-2 rounded-full">
-          Generate payouts (all eligible)
+        <button
+          onClick={generate}
+          disabled={generating}
+          data-testid="generate-payouts"
+          className="bg-[#C84B31] hover:bg-[#A83A23] disabled:bg-[#C84B31]/40 disabled:cursor-not-allowed text-white text-sm font-semibold px-4 py-2 rounded-full"
+        >
+          {generating ? "Generating…" : "Generate payouts (all eligible)"}
         </button>
       </div>
 
@@ -455,8 +486,13 @@ function PayoutsPane() {
                 <td className="px-3 py-2 text-right space-x-1">
                   <button onClick={() => open(p)} className="text-xs px-2 py-1 rounded-full hover:bg-gray-100"><Eye className="w-4 h-4 inline" /></button>
                   {p.status !== "paid" && (
-                    <button onClick={() => markPaid(p)} data-testid={`mark-paid-${p.id.slice(0,8)}`} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1 rounded-full">
-                      Mark paid
+                    <button
+                      onClick={() => markPaid(p)}
+                      disabled={payingIds.has(p.id)}
+                      data-testid={`mark-paid-${p.id.slice(0,8)}`}
+                      className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1 rounded-full"
+                    >
+                      {payingIds.has(p.id) ? "Saving…" : "Mark paid"}
                     </button>
                   )}
                 </td>

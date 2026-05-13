@@ -4,6 +4,7 @@ import api, { formatUSD, formatPrice, extractErrorMessage } from "@/lib/api";
 import { useCart } from "@/context/CartContext";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import OrderStatusTimeline from "@/components/OrderStatusTimeline";
 import { Package, MapPin, Phone, Truck, CheckCircle2, Clock, Star, X, XCircle, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 
@@ -500,6 +501,15 @@ export default function Orders() {
                       </div>
                     </div>
 
+                    <div className="mb-4">
+                      <OrderStatusTimeline
+                        kind="restaurant"
+                        status={o.status}
+                        deliveryStatus={o.delivery_status}
+                        cancelled={o.status === "cancel_approved" || o.status === "cancelled"}
+                      />
+                    </div>
+
                     {updateBanner && (
                       <div
                         data-testid={`order-update-banner-${o.id}`}
@@ -604,6 +614,15 @@ export default function Orders() {
                     <span className={`inline-flex items-center gap-1.5 ${s.bg} ${s.text} font-bold text-xs px-3 py-1.5 rounded-full`} data-testid={`order-status-${o.id}`}>
                       <Icon className="w-3.5 h-3.5" /> {o.status}
                     </span>
+                  </div>
+
+                  <div className="mb-4">
+                    <OrderStatusTimeline
+                      kind="marketplace"
+                      status={o.status}
+                      deliveryStatus={splitsOutForDelivery.length > 0 ? "out_for_delivery" : (splits[0]?.delivery_status)}
+                      cancelled={o.status === "Cancelled"}
+                    />
                   </div>
 
                   {/* Delivery OTP Display for Marketplace Splits */}

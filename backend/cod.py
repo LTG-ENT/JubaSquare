@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import uuid
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Literal, Any
 
 from fastapi import APIRouter, HTTPException, Depends, Body
@@ -1936,6 +1936,174 @@ def register_endpoints():
         rows = await db.seller_order_splits.find({"order_id": order_id}, {"_id": 0}).sort("created_at", -1).to_list(50)
         return redact_many_for_customer(rows)
 
+    # ---------------------------------------------------------------------------
+    # Admin: Delivery Pricing Rules Management
+    # ---------------------------------------------------------------------------
+    @new_router.get("/admin/delivery-pricing-rules")
+    async def admin_get_delivery_pricing_rules(_: dict = admin_dep):
+        """Get all delivery pricing rules."""
+        rules = await db.delivery_pricing_rules.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+        return rules
+
+    @new_router.post("/admin/delivery-pricing-rules")
+    async def admin_create_delivery_pricing_rule(body: DeliveryPricingRuleIn, user: dict = admin_dep):
+        """Create a new delivery pricing rule."""
+        rule_id = str(uuid.uuid4())
+        now = now_iso()
+        rule = {
+            "id": rule_id,
+            "pickup_area": body.pickup_area.strip(),
+            "delivery_area": body.delivery_area.strip(),
+            "order_type": body.order_type,
+            "shop_id": body.shop_id,
+            "restaurant_id": body.restaurant_id,
+            "delivery_fee_usd": body.delivery_fee_usd,
+            "active": body.active,
+            "created_at": now,
+            "updated_at": now,
+            "created_by_admin_id": user["id"],
+        }
+        await db.delivery_pricing_rules.insert_one(rule)
+        rule.pop("_id", None)
+        return rule
+
+    @new_router.put("/admin/delivery-pricing-rules/{rule_id}")
+    async def admin_update_delivery_pricing_rule(rule_id: str, body: DeliveryPricingRuleIn, user: dict = admin_dep):
+        """Update an existing delivery pricing rule."""
+        existing = await db.delivery_pricing_rules.find_one({"id": rule_id}, {"_id": 0})
+        if not existing:
+            raise HTTPException(404, "Delivery pricing rule not found")
+        update = {
+            "pickup_area": body.pickup_area.strip(),
+            "delivery_area": body.delivery_area.strip(),
+            "order_type": body.order_type,
+            "shop_id": body.shop_id,
+            "restaurant_id": body.restaurant_id,
+            "delivery_fee_usd": body.delivery_fee_usd,
+            "active": body.active,
+            "updated_at": now_iso(),
+        }
+        await db.delivery_pricing_rules.update_one({"id": rule_id}, {"$set": update})
+        updated = await db.delivery_pricing_rules.find_one({"id": rule_id}, {"_id": 0})
+        return updated
+
+    @new_router.delete("/admin/delivery-pricing-rules/{rule_id}")
+    async def admin_delete_delivery_pricing_rule(rule_id: str, _: dict = admin_dep):
+        """Delete a delivery pricing rule."""
+        result = await db.delivery_pricing_rules.delete_one({"id": rule_id})
+        if result.deleted_count == 0:
+            raise HTTPException(404, "Delivery pricing rule not found")
+        return {"ok": True}
+
+    @new_router.get("/admin/delivery-pricing-rules/default-fee")
+    async def admin_get_default_delivery_fee(_: dict = admin_dep):
+        """Get the default delivery fee."""
+        settings = await db.settings.find_one({"key": "default_delivery_fee_usd"}, {"_id": 0})
+        return {"default_delivery_fee_usd": settings.get("value", 2.0) if settings else 2.0}
+
+    @new_router.post("/admin/delivery-pricing-rules/default-fee")
+    async def admin_set_default_delivery_fee(body: dict, _: dict = admin_dep):
+        """Set the default delivery fee."""
+        fee = float(body.get("default_delivery_fee_usd", 2.0))
+        if fee < 0:
+            raise HTTPException(400, "Delivery fee cannot be negative")
+        await db.settings.update_one(
+            {"key": "default_delivery_fee_usd"},
+            {"$set": {"key": "default_delivery_fee_usd", "value": fee, "updated_at": now_iso()}},
+            upsert=True
+        )
+        return {"default_delivery_fee_usd": fee}
+
+    # ---------------------------------------------------------------------------
+    # Admin alerts (badge counts for dashboard tabs)
+    # ---------------------------------------------------------------------------
+    @new_router.get("/admin/alerts")
+    async def admin_alerts(_: dict = admin_dep):
+        """Counts powering admin tab badges:
+        - orders_needing_driver: splits/orders waiting for driver assignment
+        - cash_pending: splits/orders where driver collected cash but admin hasn't received yet
+        - payouts_ready: payouts in pending/ready state and seller splits/orders ready_for_payout but not yet generated
+        - disputes_open: splits with dispute_status == "opened"
+        - cancellations_open: restaurant orders with status == "cancel_requested"
+        """
+        # Orders needing driver = unassigned OR driver rejected and needs reassignment
+        needs_driver_q = {
+            "$or": [
+                {"delivery_status": "unassigned"},
+                {"delivery_status": "needs_driver_assignment"},
+                {"assignment_status": "rejected_by_driver"},
+            ]
+        }
+        splits_needing = await db.seller_order_splits.count_documents(needs_driver_q)
+        rests_needing = await db.restaurant_orders.count_documents(
+            {**needs_driver_q, "payment_method": PAYMENT_METHOD_COD}
+        )
+
+        # Cash pending handover
+        splits_cash_pending = await db.seller_order_splits.count_documents({"cash_handover_status": "pending"})
+        rests_cash_pending = await db.restaurant_orders.count_documents({"cash_handover_status": "pending"})
+
+        # Payouts ready: existing payouts in pending status + splits/orders ready_for_payout that have not been bundled
+        payouts_pending = await db.seller_payouts.count_documents({"status": {"$in": ["pending", "ready"]}})
+        splits_ready_for_payout = await db.seller_order_splits.count_documents(
+            {"payout_status": "ready_for_payout", "payout_id": None}
+        )
+        rests_ready_for_payout = await db.restaurant_orders.count_documents(
+            {"payout_status": "ready_for_payout", "payout_id": None}
+        )
+
+        # Disputes
+        disputes_splits = await db.seller_order_splits.count_documents({"dispute_status": "opened"})
+        disputes_rests = await db.restaurant_orders.count_documents({"dispute_status": "opened"})
+
+        # Cancellation requests (restaurant orders awaiting admin decision)
+        cancel_requests = await db.restaurant_orders.count_documents({"status": "cancel_requested"})
+
+        return {
+            "orders_needing_driver": int(splits_needing + rests_needing),
+            "cash_pending": int(splits_cash_pending + rests_cash_pending),
+            "payouts_ready": int(payouts_pending + splits_ready_for_payout + rests_ready_for_payout),
+            "disputes_open": int(disputes_splits + disputes_rests),
+            "cancellations_open": int(cancel_requests),
+        }
+
+    # ---------------------------------------------------------------------------
+    # Driver cash summary (for "Cash to hand over" section on Driver Dashboard)
+    # ---------------------------------------------------------------------------
+    @new_router.get("/driver/cash-summary")
+    async def driver_cash_summary(user: dict = driver_dep):
+        """Returns the driver's pending-vs-handed-over cash totals + per-order list."""
+        splits_pending = await db.seller_order_splits.find(
+            {"driver_id": user["id"], "cash_handover_status": "pending"},
+            {"_id": 0, "id": 1, "order_id": 1, "shop_name": 1, "customer_name": 1, "order_total_usd": 1, "cash_collected_at": 1},
+        ).sort("cash_collected_at", -1).to_list(500)
+        rest_pending = await db.restaurant_orders.find(
+            {"driver_id": user["id"], "cash_handover_status": "pending"},
+            {"_id": 0, "id": 1, "restaurant_name": 1, "customer_name": 1, "order_total_usd": 1, "cash_collected_at": 1},
+        ).sort("cash_collected_at", -1).to_list(500)
+        # Already handed over today (since 00:00 UTC) for context
+        today_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00")
+        splits_received = await db.seller_order_splits.count_documents({
+            "driver_id": user["id"], "cash_handover_status": "received", "cash_received_at": {"$gte": today_iso},
+        })
+        rests_received = await db.restaurant_orders.count_documents({
+            "driver_id": user["id"], "cash_handover_status": "received", "cash_received_at": {"$gte": today_iso},
+        })
+        pending_total = round(
+            sum(float(s.get("order_total_usd", 0)) for s in splits_pending)
+            + sum(float(o.get("order_total_usd", 0)) for o in rest_pending),
+            2,
+        )
+        return {
+            "pending_total_usd": pending_total,
+            "pending_count": int(len(splits_pending) + len(rest_pending)),
+            "received_today_count": int(splits_received + rests_received),
+            "items": [
+                *[{"kind": "marketplace", **s} for s in splits_pending],
+                *[{"kind": "restaurant", **o} for o in rest_pending],
+            ],
+        }
+
     # Replace module-level router
     global router
     router = new_router
@@ -2160,97 +2328,6 @@ async def backfill_existing_orders():
             await db.restaurant_orders.update_one({"id": o["id"]}, {"$set": cod})
         except Exception as e:
             log.warning(f"backfill restaurant order {o['id']} failed: {e}")
-
-
-    # ---------------------------------------------------------------------------
-    # Admin: Delivery Pricing Rules Management
-    # ---------------------------------------------------------------------------
-    @new_router.get("/admin/delivery-pricing-rules")
-    async def admin_get_delivery_pricing_rules(_: dict = admin_dep):
-        """Get all delivery pricing rules."""
-        rules = await db.delivery_pricing_rules.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
-        return rules
-
-
-    @new_router.post("/admin/delivery-pricing-rules")
-    async def admin_create_delivery_pricing_rule(body: DeliveryPricingRuleIn, user: dict = admin_dep):
-        """Create a new delivery pricing rule."""
-        rule_id = str(uuid.uuid4())
-        now = now_iso()
-        
-        rule = {
-            "id": rule_id,
-            "pickup_area": body.pickup_area.strip(),
-            "delivery_area": body.delivery_area.strip(),
-            "order_type": body.order_type,
-            "shop_id": body.shop_id,
-            "restaurant_id": body.restaurant_id,
-            "delivery_fee_usd": body.delivery_fee_usd,
-            "active": body.active,
-            "created_at": now,
-            "updated_at": now,
-            "created_by_admin_id": user["id"],
-        }
-        
-        await db.delivery_pricing_rules.insert_one(rule)
-        rule.pop("_id", None)
-        return rule
-
-
-    @new_router.put("/admin/delivery-pricing-rules/{rule_id}")
-    async def admin_update_delivery_pricing_rule(rule_id: str, body: DeliveryPricingRuleIn, user: dict = admin_dep):
-        """Update an existing delivery pricing rule."""
-        existing = await db.delivery_pricing_rules.find_one({"id": rule_id}, {"_id": 0})
-        if not existing:
-            raise HTTPException(404, "Delivery pricing rule not found")
-        
-        update = {
-            "pickup_area": body.pickup_area.strip(),
-            "delivery_area": body.delivery_area.strip(),
-            "order_type": body.order_type,
-            "shop_id": body.shop_id,
-            "restaurant_id": body.restaurant_id,
-            "delivery_fee_usd": body.delivery_fee_usd,
-            "active": body.active,
-            "updated_at": now_iso(),
-        }
-        
-        await db.delivery_pricing_rules.update_one({"id": rule_id}, {"$set": update})
-        
-        # Return updated rule
-        updated = await db.delivery_pricing_rules.find_one({"id": rule_id}, {"_id": 0})
-        return updated
-
-
-    @new_router.delete("/admin/delivery-pricing-rules/{rule_id}")
-    async def admin_delete_delivery_pricing_rule(rule_id: str, _: dict = admin_dep):
-        """Delete a delivery pricing rule."""
-        result = await db.delivery_pricing_rules.delete_one({"id": rule_id})
-        if result.deleted_count == 0:
-            raise HTTPException(404, "Delivery pricing rule not found")
-        return {"ok": True}
-
-
-    @new_router.get("/admin/delivery-pricing-rules/default-fee")
-    async def admin_get_default_delivery_fee(_: dict = admin_dep):
-        """Get the default delivery fee."""
-        settings = await db.settings.find_one({"key": "default_delivery_fee_usd"}, {"_id": 0})
-        return {"default_delivery_fee_usd": settings.get("value", 2.0) if settings else 2.0}
-
-
-    @new_router.post("/admin/delivery-pricing-rules/default-fee")
-    async def admin_set_default_delivery_fee(body: dict, _: dict = admin_dep):
-        """Set the default delivery fee."""
-        fee = float(body.get("default_delivery_fee_usd", 2.0))
-        if fee < 0:
-            raise HTTPException(400, "Delivery fee cannot be negative")
-        
-        await db.settings.update_one(
-            {"key": "default_delivery_fee_usd"},
-            {"$set": {"key": "default_delivery_fee_usd", "value": fee, "updated_at": now_iso()}},
-            upsert=True
-        )
-        return {"default_delivery_fee_usd": fee}
 
 
 # ---------------------------------------------------------------------------

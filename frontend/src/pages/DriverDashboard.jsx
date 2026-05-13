@@ -69,10 +69,12 @@ export default function DriverDashboard() {
   const { currency = "USD", exchangeRate = 1 } = useCart() || {}; // Get currency and exchange rate with defaults
   const [data, setData] = useState({ splits: [], restaurant_orders: [] });
   const [requests, setRequests] = useState({ splits: [], restaurant_orders: [] });
+  const [cashSummary, setCashSummary] = useState({ pending_total_usd: 0, pending_count: 0, received_today_count: 0, items: [] });
   const [filter, setFilter] = useState(""); // delivery_status filter
   const [open, setOpen] = useState(null); // { ...row, _kind }
   const [loading, setLoading] = useState(true);
   const [requestsLoading, setRequestsLoading] = useState(false);
+  const [actingRequestIds, setActingRequestIds] = useState(new Set());
 
   // Load accepted assignments
   const load = useCallback(async () => {
@@ -96,18 +98,30 @@ export default function DriverDashboard() {
     } finally { setRequestsLoading(false); }
   }, []);
 
-  useEffect(() => { 
+  // Load cash summary (pending handover totals)
+  const loadCashSummary = useCallback(async () => {
+    try {
+      const r = await api.get("/driver/cash-summary");
+      setCashSummary(r.data || { pending_total_usd: 0, pending_count: 0, received_today_count: 0, items: [] });
+    } catch (e) {
+      // silent
+    }
+  }, []);
+
+  useEffect(() => {
     load();
     loadRequests();
-  }, [load, loadRequests]);
+    loadCashSummary();
+  }, [load, loadRequests, loadCashSummary]);
 
-  // Auto-refresh requests every 15 seconds
+  // Auto-refresh requests every 15 seconds, cash summary every 30s
   useEffect(() => {
     const interval = setInterval(() => {
       loadRequests();
+      loadCashSummary();
     }, 15000);
     return () => clearInterval(interval);
-  }, [loadRequests]);
+  }, [loadRequests, loadCashSummary]);
 
   const all = [
     ...(data.splits || []).map((s) => ({ ...s, _kind: "split" })),
@@ -119,12 +133,14 @@ export default function DriverDashboard() {
     ...(requests.restaurant_orders || []).map((r) => ({ ...r, _kind: "rest" })),
   ];
 
-  // Handle accept/reject
+  // Handle accept/reject (duplicate-action protected)
   const handleAcceptReject = async (item, action, rejectReason = null) => {
+    if (actingRequestIds.has(item.id)) return; // already in-flight — prevent double click
+    setActingRequestIds((prev) => { const n = new Set(prev); n.add(item.id); return n; });
     const endpoint = item._kind === "rest"
       ? `/driver/restaurant-orders/${item.id}/${action === "accept" ? "accept-offer" : "decline-offer"}`
       : `/driver/splits/${item.id}/${action === "accept" ? "accept-offer" : "decline-offer"}`;
-    
+
     try {
       const body = action === "reject" && rejectReason ? { action: "reject", reject_reason: rejectReason } : {};
       await api.post(endpoint, body);
@@ -133,6 +149,8 @@ export default function DriverDashboard() {
       load(); // Refresh assignments
     } catch (e) {
       toast.error(formatDetail(e.response?.data?.detail) || `Failed to ${action}`);
+    } finally {
+      setActingRequestIds((prev) => { const n = new Set(prev); n.delete(item.id); return n; });
     }
   };
 
@@ -158,6 +176,42 @@ export default function DriverDashboard() {
         <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--js-text-secondary)] font-bold mb-1">Driver Dashboard</p>
         <h1 className="font-display font-bold text-3xl text-[var(--js-text)]">My deliveries</h1>
         <p className="text-sm text-[var(--js-text-secondary)]">Hi {user?.name?.split(" ")?.[0]} — here are the orders assigned to you.</p>
+
+        {/* Cash to hand over summary */}
+        <div
+          data-testid="driver-cash-summary"
+          className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3"
+        >
+          <div className="rounded-2xl border border-[#E9C46A]/40 bg-gradient-to-br from-[#E9C46A]/15 to-white p-4">
+            <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-[var(--js-text-secondary)] flex items-center gap-1">
+              <Coins className="w-3 h-3" /> Cash to hand over
+            </p>
+            <p
+              data-testid="cash-pending-total"
+              className="font-display font-bold text-2xl mt-1 text-[var(--js-text)]"
+            >
+              {formatPrice(cashSummary.pending_total_usd || 0, exchangeRate, currency)}
+            </p>
+            <p className="text-xs text-[var(--js-text-secondary)] mt-0.5">
+              From {cashSummary.pending_count || 0} order{cashSummary.pending_count === 1 ? "" : "s"}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+            <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-[var(--js-text-secondary)]">Handed over today</p>
+            <p
+              data-testid="cash-received-today"
+              className="font-display font-bold text-2xl mt-1 text-emerald-700"
+            >
+              {cashSummary.received_today_count || 0}
+            </p>
+            <p className="text-xs text-[var(--js-text-secondary)] mt-0.5">Cash receipts received by admin</p>
+          </div>
+          <div className="rounded-2xl border border-[var(--js-border)] bg-[var(--js-subtle)] p-4 flex items-center justify-center text-center">
+            <p className="text-xs text-[var(--js-text-secondary)] leading-snug">
+              Hand over cash to admin to clear this list. Amounts shown in your selected currency.
+            </p>
+          </div>
+        </div>
 
         {/* New Delivery Requests Section */}
         {allRequests.length > 0 && (
@@ -212,16 +266,20 @@ export default function DriverDashboard() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => handleAcceptReject(req, "accept")}
-                        className="flex-1 bg-[#2A9D8F] hover:bg-[#238276] text-white font-semibold py-2.5 rounded-lg transition flex items-center justify-center gap-1"
+                        disabled={actingRequestIds.has(req.id)}
+                        data-testid={`request-accept-${req.id}`}
+                        className="flex-1 bg-[#2A9D8F] hover:bg-[#238276] disabled:bg-[#2A9D8F]/50 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg transition flex items-center justify-center gap-1"
                       >
-                        <CheckCircle2 className="w-4 h-4" /> Accept
+                        <CheckCircle2 className="w-4 h-4" /> {actingRequestIds.has(req.id) ? "Accepting…" : "Accept"}
                       </button>
                       <button
                         onClick={() => {
                           const reason = prompt("Reason for rejecting (optional):");
                           if (reason !== null) handleAcceptReject(req, "reject", reason);
                         }}
-                        className="flex-1 bg-white hover:bg-gray-50 text-[#D90429] border-2 border-[#D90429] font-semibold py-2.5 rounded-lg transition flex items-center justify-center gap-1"
+                        disabled={actingRequestIds.has(req.id)}
+                        data-testid={`request-reject-${req.id}`}
+                        className="flex-1 bg-white hover:bg-gray-50 disabled:bg-gray-50 disabled:cursor-not-allowed text-[#D90429] border-2 border-[#D90429] font-semibold py-2.5 rounded-lg transition flex items-center justify-center gap-1"
                       >
                         <XCircle className="w-4 h-4" /> Reject
                       </button>
@@ -306,6 +364,7 @@ export default function DriverDashboard() {
 }
 
 function DeliveryDetail({ row, reload, setOpen }) {
+  const { currency = "USD", exchangeRate = 1 } = useCart() || {};
   const [r, setR] = useState(row);
   const [otp, setOtp] = useState("");
   const [signature, setSignature] = useState("");
@@ -399,7 +458,7 @@ function DeliveryDetail({ row, reload, setOpen }) {
           {(r.items || r.items_secure || []).map((it, i) => (
             <li key={i} className="flex justify-between">
               <span>{it.name} × {it.quantity}</span>
-              <span className="font-medium">{formatPrice(it.line_total_usd || (it.price_usd * it.quantity, exchangeRate, currency))}</span>
+              <span className="font-medium">{formatPrice(it.line_total_usd || (it.price_usd * it.quantity), exchangeRate, currency)}</span>
             </li>
           ))}
         </ul>
