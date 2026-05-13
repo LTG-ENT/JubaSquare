@@ -2142,24 +2142,28 @@ async def create_restaurant_order(body: RestaurantOrderIn, user: dict = Depends(
     if not restaurant.get("is_open", True):
         raise HTTPException(400, "Restaurant is currently closed. Please try again later.")
     
-    # Calculate delivery fee
+    # SECURITY: Calculate delivery fee using admin pricing rules. Never trust frontend prices.
+    from cod import _calculate_delivery_fee
+    
     delivery_fee = 0.0
+    pickup_area = ""
+    delivery_area = ""
+    
     if body.delivery_type == "delivery":
-        delivery_pricing = restaurant.get("delivery_pricing", {})
-        pricing_type = delivery_pricing.get("type", "fixed")
+        # Get restaurant area as pickup area
+        pickup_area = restaurant.get("area", "")
+        # Extract delivery area from address or use a default
+        # You might need to add an explicit area field to RestaurantOrderIn if needed
+        delivery_area = body.customer_address.split(",")[0].strip() if body.customer_address else ""
         
-        if pricing_type == "free":
-            delivery_fee = 0.0
-        elif pricing_type == "fixed":
-            delivery_fee = float(delivery_pricing.get("fixed_fee", 0.0))
-        elif pricing_type == "per_area":
-            # Find matching area fee
-            area_fees = delivery_pricing.get("area_fees", [])
-            # Extract area from address or use default
-            for area_fee in area_fees:
-                if area_fee.get("area") in body.customer_address:
-                    delivery_fee = float(area_fee.get("fee", 0.0))
-                    break
+        # Calculate using admin rules
+        delivery_fee = await _calculate_delivery_fee(
+            pickup_area=pickup_area,
+            delivery_area=delivery_area,
+            order_type="restaurant",
+            shop_id=None,
+            restaurant_id=body.restaurant_id
+        )
     
     # SECURITY: Recompute item prices from DB (never trust frontend prices).
     item_ids = [it.item_id for it in body.items]
@@ -2193,10 +2197,14 @@ async def create_restaurant_order(body: RestaurantOrderIn, user: dict = Depends(
         "id": str(uuid.uuid4()),
         "restaurant_id": body.restaurant_id,
         "restaurant_name": restaurant.get("name"),
+        "restaurant_area": restaurant.get("area", ""),
         "customer_id": user["id"],
         "customer_name": body.customer_name,
         "customer_phone": body.customer_phone,
         "customer_address": body.customer_address,
+        "customer_area": delivery_area,  # NEW: Store delivery area
+        "pickup_area": pickup_area,  # NEW: Store pickup area for pricing reference
+        "delivery_area": delivery_area,  # NEW: Store delivery area for pricing reference
         "items": secure_items,
         "delivery_type": body.delivery_type,
         "payment_method": body.payment_method,
@@ -2878,29 +2886,38 @@ async def place_order(body: OrderIn, user: dict = Depends(get_current_user)):
             "sides": [],
         })
 
-    # Compute per-shop delivery fee based on customer area
+    # SECURITY: Calculate delivery fee using admin pricing rules. Never trust frontend prices.
+    # Import the helper from cod module
+    from cod import _calculate_delivery_fee
+    
     delivery_fee = 0.0
     delivery_breakdown: List[dict] = []
     shop_ids_in_order = list({p["shop_id"] for p in products})
     shops: List[dict] = []
+    
     if shop_ids_in_order:
         shops = await db.shops.find({"id": {"$in": shop_ids_in_order}}, {"_id": 0}).to_list(500)
         for sh in shops:
-            mode = sh.get("delivery_mode", "free")
-            fee = 0.0
-            if mode == "fixed":
-                fee = float(sh.get("delivery_fee_usd") or 0)
-            elif mode == "per_area":
-                for entry in sh.get("delivery_per_area", []) or []:
-                    if (entry.get("area") or "").lower() == body.area.lower():
-                        fee = float(entry.get("fee_usd") or 0)
-                        break
+            # Calculate delivery fee using admin rules
+            # pickup_area = shop area, delivery_area = customer area
+            pickup_area = sh.get("area", "")
+            delivery_area = body.area
+            
+            fee = await _calculate_delivery_fee(
+                pickup_area=pickup_area,
+                delivery_area=delivery_area,
+                order_type="marketplace",
+                shop_id=sh["id"],
+                restaurant_id=None
+            )
+            
             delivery_fee += fee
             delivery_breakdown.append({
                 "shop_id": sh["id"],
                 "shop_name": sh.get("name", "—"),
                 "fee_usd": round(fee, 2),
-                "mode": mode,
+                "pickup_area": pickup_area,
+                "delivery_area": delivery_area,
             })
 
     total = round(subtotal + delivery_fee, 2)

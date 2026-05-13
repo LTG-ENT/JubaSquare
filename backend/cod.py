@@ -335,7 +335,11 @@ async def create_marketplace_splits(order: dict) -> List[dict]:
     global_rate = float(sysconf.get("commission_rate", 0.10))
 
     delivery_by_shop = {
-        b.get("shop_id"): float(b.get("fee_usd", 0))
+        b.get("shop_id"): {
+            "fee_usd": float(b.get("fee_usd", 0)),
+            "pickup_area": b.get("pickup_area", ""),
+            "delivery_area": b.get("delivery_area", ""),
+        }
         for b in (order.get("delivery_breakdown") or [])
     }
 
@@ -378,7 +382,11 @@ async def create_marketplace_splits(order: dict) -> List[dict]:
 
     splits: List[dict] = []
     for (seller_id, shop_id), b in buckets.items():
-        delivery_fee = delivery_by_shop.get(shop_id, 0.0)
+        delivery_info = delivery_by_shop.get(shop_id, {"fee_usd": 0.0, "pickup_area": "", "delivery_area": ""})
+        delivery_fee = delivery_info["fee_usd"]
+        pickup_area = delivery_info["pickup_area"]
+        delivery_area = delivery_info["delivery_area"]
+        
         shop = shops_by_id.get(shop_id, {})
         commission_rate = shop.get("commission_rate")
         rate = float(commission_rate) if commission_rate is not None else global_rate
@@ -401,6 +409,8 @@ async def create_marketplace_splits(order: dict) -> List[dict]:
             "shop_id": shop_id,
             "shop_name": b["shop_name"],
             "shop_area": b["shop_area"],
+            "pickup_area": pickup_area,  # NEW: Store pickup area for pricing reference
+            "delivery_area": delivery_area,  # NEW: Store delivery area for pricing reference
             "items": b["items"],
             "product_subtotal_usd": product_subtotal,
             "delivery_fee_usd": round(delivery_fee, 2),
