@@ -735,32 +735,45 @@ def register_endpoints():
 
     @new_router.post("/admin/order-splits/{split_id}/assign-driver")
     async def assign_driver_to_split(split_id: str, body: AssignDriverIn, _: dict = admin_dep):
+        """Admin assigns driver to a split. Driver must accept before proceeding to pickup."""
         split = await _find_split(split_id)
-        if split.get("delivery_status") not in {"unassigned", "delivery_failed"}:
-            # allow re-assignment if previous failed, but otherwise driver only set once
-            if split.get("driver_id"):
+        if split.get("delivery_status") not in {"unassigned", "delivery_failed", "needs_driver_assignment"}:
+            # allow re-assignment if previous failed or needs reassignment
+            if split.get("driver_id") and split.get("assignment_status") not in {"rejected_by_driver", "unassigned"}:
                 raise HTTPException(400, f"Split already assigned (status: {split.get('delivery_status')})")
+        
         driver = await db.users.find_one({"id": body.driver_id, "role": "driver"}, {"_id": 0, "name": 1, "id": 1})
         if not driver:
             raise HTTPException(404, "Driver not found")
+        
+        now = now_iso()
         update = {
             "driver_id": driver["id"],
             "driver_name": driver["name"],
-            "assigned_at": now_iso(),
-            "delivery_status": "assigned",
-            "pickup_status": "pending_pickup",
-            "updated_at": now_iso(),
+            "assigned_at": now,
+            "assignment_status": "offered_to_driver",  # Driver must accept
+            "driver_response_status": "pending",
+            "delivery_status": "offered",
+            "updated_at": now,
         }
         await db.seller_order_splits.update_one({"id": split_id}, {"$set": update})
+        
+        # Update driver's last_offered_at for round-robin
+        await db.users.update_one(
+            {"id": driver["id"]},
+            {"$set": {"last_offered_at": now}}
+        )
+        
         try:
             await create_notification(
                 user_id=driver["id"],
-                message=f"New delivery assigned: {split['shop_name']} → {split.get('customer_name', '')}",
-                ntype="order",
+                message=f"New delivery request: {split['shop_name']} → {split.get('customer_name', '')}. Please accept or reject.",
+                ntype="delivery_request",
                 meta={"split_id": split_id, "order_type": "marketplace"},
             )
         except Exception:
             pass
+        
         return await _find_split(split_id)
 
     # -------- ADMIN: restaurant orders COD --------
@@ -779,32 +792,45 @@ def register_endpoints():
 
     @new_router.post("/admin/restaurant-orders/{order_id}/assign-driver")
     async def assign_driver_to_rest(order_id: str, body: AssignDriverIn, _: dict = admin_dep):
+        """Admin assigns driver to restaurant order. Driver must accept before proceeding."""
         o = await _find_rest_order(order_id)
-        if o.get("driver_id") and o.get("delivery_status") not in {"unassigned", "delivery_failed"}:
+        if o.get("driver_id") and o.get("assignment_status") not in {"rejected_by_driver", "unassigned", "needs_driver_assignment"}:
             raise HTTPException(400, f"Order already assigned (status: {o.get('delivery_status')})")
+        
         driver = await db.users.find_one({"id": body.driver_id, "role": "driver"}, {"_id": 0, "name": 1, "id": 1})
         if not driver:
             raise HTTPException(404, "Driver not found")
+        
+        now = now_iso()
         await db.restaurant_orders.update_one(
             {"id": order_id},
             {"$set": {
                 "driver_id": driver["id"],
                 "driver_name": driver["name"],
-                "assigned_at": now_iso(),
-                "delivery_status": "assigned",
-                "pickup_status": "pending_pickup",
-                "updated_at": now_iso(),
+                "assigned_at": now,
+                "assignment_status": "offered_to_driver",
+                "driver_response_status": "pending",
+                "delivery_status": "offered",
+                "updated_at": now,
             }},
         )
+        
+        # Update driver's last_offered_at for round-robin
+        await db.users.update_one(
+            {"id": driver["id"]},
+            {"$set": {"last_offered_at": now}}
+        )
+        
         try:
             await create_notification(
                 user_id=driver["id"],
-                message=f"New restaurant delivery: {o.get('restaurant_name', '')}",
-                ntype="order",
+                message=f"New delivery request: {o.get('restaurant_name', 'Restaurant')} → {o.get('customer_name', 'Customer')}. Please accept or reject.",
+                ntype="delivery_request",
                 meta={"order_id": order_id, "order_type": "restaurant"},
             )
         except Exception:
             pass
+        
         return await _find_rest_order(order_id)
 
     # -------- ADMIN: cash handovers --------
@@ -1176,6 +1202,32 @@ def register_endpoints():
                 o.pop(k, None)
         return {"splits": splits, "restaurant_orders": rest_orders}
 
+    @new_router.get("/driver/delivery-requests")
+    async def driver_delivery_requests(user: dict = driver_dep):
+        """Get pending delivery requests that driver needs to accept/reject."""
+        # Find splits and orders offered to this driver
+        splits = await db.seller_order_splits.find({
+            "driver_id": user["id"],
+            "assignment_status": "offered_to_driver",
+            "driver_response_status": "pending"
+        }, {"_id": 0}).sort("assigned_at", -1).to_list(500)
+        
+        rest_orders = await db.restaurant_orders.find({
+            "driver_id": user["id"],
+            "assignment_status": "offered_to_driver",
+            "driver_response_status": "pending"
+        }, {"_id": 0}).sort("assigned_at", -1).to_list(500)
+        
+        # Sanitize: hide commission & seller_earning for drivers
+        for s in splits:
+            for k in ("commission_rate", "platform_commission_usd", "seller_earning_usd"):
+                s.pop(k, None)
+        for o in rest_orders:
+            for k in ("commission_rate", "platform_commission_usd", "seller_earning_usd"):
+                o.pop(k, None)
+        
+        return {"splits": splits, "restaurant_orders": rest_orders}
+
     @new_router.get("/driver/assignments/split/{split_id}")
     async def driver_split_detail(split_id: str, user: dict = driver_dep):
         s = await _find_split(split_id)
@@ -1269,6 +1321,135 @@ def register_endpoints():
                     )
             except Exception:
                 pass
+        return {"ok": True, "reoffered_to": (next_driver or {}).get("id")}
+
+    # ---- Driver accept/decline for marketplace splits ----
+    @new_router.post("/driver/splits/{split_id}/accept-offer")
+    async def driver_accept_offer_split(split_id: str, user: dict = driver_dep):
+        """Driver accepts a pending offered split — flips assignment_status to accepted_by_driver."""
+        s = await _find_split(split_id)
+        _check_driver_owns(s, user)
+        if s.get("assignment_status") != "offered_to_driver":
+            raise HTTPException(400, f"Split is not offered (current: {s.get('assignment_status')})")
+        
+        now = now_iso()
+        await db.seller_order_splits.update_one(
+            {"id": split_id},
+            {"$set": {
+                "assignment_status": "accepted_by_driver",
+                "driver_response_status": "accepted",
+                "driver_accepted_at": now,
+                "delivery_status": "assigned",
+                "pickup_status": "pending_pickup",
+                "updated_at": now,
+            }},
+        )
+        
+        # Create audit log
+        try:
+            await db.audit_logs.insert_one({
+                "id": str(uuid.uuid4()),
+                "action": "driver_accepted",
+                "entity_type": "seller_order_split",
+                "entity_id": split_id,
+                "order_id": s.get("order_id"),
+                "user_id": user["id"],
+                "user_role": "driver",
+                "user_email": user.get("email"),
+                "timestamp": now,
+                "notes": f"Driver {user.get('name', 'Unknown')} accepted delivery",
+                "_id_": None,
+            })
+        except Exception as e:
+            print(f"Audit log failed: {e}")
+        
+        try:
+            await create_notification(
+                user_id=s.get("seller_id"),
+                message=f"Driver accepted delivery for order from {s.get('shop_name', 'your shop')}",
+                ntype="order",
+                meta={"split_id": split_id, "order_id": s.get("order_id")},
+            )
+        except Exception:
+            pass
+        
+        return await _find_split(split_id)
+
+    @new_router.post("/driver/splits/{split_id}/decline-offer")
+    async def driver_decline_offer_split(split_id: str, body: DriverAcceptRejectIn, user: dict = driver_dep):
+        """Driver declines the offered split. Re-offer to next driver."""
+        s = await _find_split(split_id)
+        _check_driver_owns(s, user)
+        if s.get("assignment_status") != "offered_to_driver":
+            raise HTTPException(400, f"Split is not offered (current: {s.get('assignment_status')})")
+        
+        # Mark as rejected and add to declined list
+        declined_ids = s.get("declined_driver_ids", [])
+        if user["id"] not in declined_ids:
+            declined_ids.append(user["id"])
+        
+        now = now_iso()
+        await db.seller_order_splits.update_one(
+            {"id": split_id},
+            {"$set": {
+                "assignment_status": "rejected_by_driver",
+                "driver_response_status": "rejected",
+                "driver_rejected_at": now,
+                "driver_reject_reason": body.reject_reason or "No reason provided",
+                "declined_driver_ids": declined_ids,
+                "driver_id": None,
+                "driver_name": None,
+                "delivery_status": "needs_driver_assignment",
+                "updated_at": now,
+            }},
+        )
+        
+        # Try to assign to next driver (round-robin excluding declined drivers)
+        next_driver = await _next_round_robin_driver(declined_by=declined_ids)
+        if next_driver:
+            await db.seller_order_splits.update_one(
+                {"id": split_id},
+                {"$set": {
+                    "driver_id": next_driver["id"],
+                    "driver_name": next_driver["name"],
+                    "assigned_at": now,
+                    "assignment_status": "offered_to_driver",
+                    "driver_response_status": "pending",
+                    "delivery_status": "offered",
+                    "updated_at": now,
+                }},
+            )
+            await db.users.update_one(
+                {"id": next_driver["id"]},
+                {"$set": {"last_offered_at": now}}
+            )
+            try:
+                await create_notification(
+                    user_id=next_driver["id"],
+                    message=f"New delivery request: {s.get('shop_name', 'Shop')} → {s.get('customer_name', 'Customer')}",
+                    ntype="delivery_request",
+                    meta={"split_id": split_id, "order_type": "marketplace"},
+                )
+            except Exception:
+                pass
+        else:
+            # No drivers left - needs manual assignment
+            await db.seller_order_splits.update_one(
+                {"id": split_id},
+                {"$set": {"assignment_status": "needs_manual_assignment"}},
+            )
+            try:
+                admins = await db.users.find({"role": "admin"}, {"_id": 0, "id": 1}).to_list(50)
+                for a in admins:
+                    await create_notification(
+                        user_id=a["id"],
+                        message=f"All drivers declined split #{split_id[:8]} — needs manual assignment.",
+                        ntype="order",
+                        meta={"split_id": split_id, "order_type": "marketplace"},
+                    )
+            except Exception:
+                pass
+        
         return {"ok": True, "reoffered_to": (next_driver or {}).get("id")}
 
     @new_router.post("/driver/splits/{split_id}/pickup")
