@@ -556,6 +556,7 @@ class OTPIn(BaseModel):
 class DeliverIn(BaseModel):
     otp: str = Field(min_length=1, max_length=12)
     signature_b64: str = Field(min_length=10)
+    picture_b64: str | None = None  # Optional photo of delivered package
     receiver_name: str = Field(min_length=1, max_length=120)
 
 
@@ -1308,17 +1309,50 @@ def register_endpoints():
         if not body.receiver_name.strip():
             raise HTTPException(400, "Receiver name required")
         now = now_iso()
+        
+        # Build update dict
+        update_dict = {
+            "delivery_status": "delivered",
+            "proof_of_delivery_status": "submitted",
+            "signature_b64": body.signature_b64,
+            "receiver_name": body.receiver_name.strip(),
+            "delivered_at": now,
+            "updated_at": now,
+        }
+        
+        # Add picture if provided
+        if body.picture_b64:
+            update_dict["delivery_picture_b64"] = body.picture_b64
+        
+        # Auto-collect cash for COD orders
+        if s.get("payment_method") == "cash_on_delivery":
+            update_dict["payment_status"] = "collected_by_driver"
+            update_dict["cash_handover_status"] = "pending"
+            update_dict["cash_collected_at"] = now
+        
         await db.seller_order_splits.update_one(
             {"id": split_id},
-            {"$set": {
-                "delivery_status": "delivered",
-                "proof_of_delivery_status": "submitted",
-                "signature_b64": body.signature_b64,
-                "receiver_name": body.receiver_name.strip(),
-                "delivered_at": now,
-                "updated_at": now,
-            }},
+            {"$set": update_dict},
         )
+        
+        # Create audit log
+        try:
+            await db.audit_logs.insert_one({
+                "id": str(uuid.uuid4()),
+                "action": "delivered",
+                "entity_type": "seller_order_split",
+                "entity_id": split_id,
+                "order_id": s.get("order_id"),
+                "user_id": user["id"],
+                "user_role": "driver",
+                "user_email": user.get("email"),
+                "timestamp": now,
+                "notes": f"Delivered to {body.receiver_name.strip()}",
+                "_id_": None,
+            })
+        except Exception as e:
+            print(f"Audit log failed: {e}")
+        
         try:
             await create_notification(
                 user_id=s["customer_id"],
@@ -1332,19 +1366,24 @@ def register_endpoints():
 
     @new_router.post("/driver/splits/{split_id}/cash-collected")
     async def driver_cash(split_id: str, user: dict = driver_dep):
+        """DEPRECATED: Cash is now auto-collected when delivery is confirmed.
+        This endpoint is kept for backward compatibility but does nothing."""
         s = await _find_split(split_id)
         _check_driver_owns(s, user)
-        if s.get("delivery_status") != "delivered":
-            raise HTTPException(400, "Mark delivered first before collecting cash")
-        await db.seller_order_splits.update_one(
-            {"id": split_id},
-            {"$set": {
-                "payment_status": "collected_by_driver",
-                "cash_handover_status": "pending",
-                "cash_collected_at": now_iso(),
-                "updated_at": now_iso(),
-            }},
-        )
+        # If already collected or delivered, just return success
+        if s.get("payment_status") in ("collected_by_driver", "received_by_admin"):
+            return await _find_split(split_id)
+        # Otherwise, if delivered, mark as collected
+        if s.get("delivery_status") == "delivered":
+            await db.seller_order_splits.update_one(
+                {"id": split_id},
+                {"$set": {
+                    "payment_status": "collected_by_driver",
+                    "cash_handover_status": "pending",
+                    "cash_collected_at": now_iso(),
+                    "updated_at": now_iso(),
+                }},
+            )
         return await _find_split(split_id)
 
     @new_router.post("/driver/splits/{split_id}/delivery-failed")
@@ -1433,35 +1472,73 @@ def register_endpoints():
         if not body.receiver_name.strip():
             raise HTTPException(400, "Receiver name required")
         now = now_iso()
+        
+        # Build update dict
+        update_dict = {
+            "delivery_status": "delivered",
+            "proof_of_delivery_status": "submitted",
+            "signature_b64": body.signature_b64,
+            "receiver_name": body.receiver_name.strip(),
+            "delivered_at": now,
+            "status": "completed",  # legacy status field
+            "updated_at": now,
+        }
+        
+        # Add picture if provided
+        if body.picture_b64:
+            update_dict["delivery_picture_b64"] = body.picture_b64
+        
+        # Auto-collect cash for COD orders
+        if o.get("payment_method") == "cash_on_delivery":
+            update_dict["payment_status"] = "collected_by_driver"
+            update_dict["cash_handover_status"] = "pending"
+            update_dict["cash_collected_at"] = now
+        
         await db.restaurant_orders.update_one(
             {"id": order_id},
-            {"$set": {
-                "delivery_status": "delivered",
-                "proof_of_delivery_status": "submitted",
-                "signature_b64": body.signature_b64,
-                "receiver_name": body.receiver_name.strip(),
-                "delivered_at": now,
-                "status": "completed",  # legacy status field
-                "updated_at": now,
-            }},
+            {"$set": update_dict},
         )
+        
+        # Create audit log
+        try:
+            await db.audit_logs.insert_one({
+                "id": str(uuid.uuid4()),
+                "action": "delivered",
+                "entity_type": "restaurant_order",
+                "entity_id": order_id,
+                "order_id": order_id,
+                "user_id": user["id"],
+                "user_role": "driver",
+                "user_email": user.get("email"),
+                "timestamp": now,
+                "notes": f"Delivered to {body.receiver_name.strip()}",
+                "_id_": None,
+            })
+        except Exception as e:
+            print(f"Audit log failed: {e}")
+        
         return await _find_rest_order(order_id)
 
     @new_router.post("/driver/restaurant-orders/{order_id}/cash-collected")
     async def driver_cash_rest(order_id: str, user: dict = driver_dep):
+        """DEPRECATED: Cash is now auto-collected when delivery is confirmed.
+        This endpoint is kept for backward compatibility but does nothing."""
         o = await _find_rest_order(order_id)
         _check_driver_owns(o, user)
-        if o.get("delivery_status") != "delivered":
-            raise HTTPException(400, "Mark delivered first")
-        await db.restaurant_orders.update_one(
-            {"id": order_id},
-            {"$set": {
-                "payment_status": "collected_by_driver",
-                "cash_handover_status": "pending",
-                "cash_collected_at": now_iso(),
-                "updated_at": now_iso(),
-            }},
-        )
+        # If already collected or delivered, just return success
+        if o.get("payment_status") in ("collected_by_driver", "received_by_admin"):
+            return await _find_rest_order(order_id)
+        # Otherwise, if delivered, mark as collected
+        if o.get("delivery_status") == "delivered":
+            await db.restaurant_orders.update_one(
+                {"id": order_id},
+                {"$set": {
+                    "payment_status": "collected_by_driver",
+                    "cash_handover_status": "pending",
+                    "cash_collected_at": now_iso(),
+                    "updated_at": now_iso(),
+                }},
+            )
         return await _find_rest_order(order_id)
 
     @new_router.post("/driver/restaurant-orders/{order_id}/delivery-failed")
