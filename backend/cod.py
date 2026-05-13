@@ -600,6 +600,14 @@ class PayoutGenerateIn(BaseModel):
     seller_id: Optional[str] = None  # if None, generate for all eligible sellers
 
 
+class PayoutOTPConfirmIn(BaseModel):
+    otp: str = Field(min_length=4, max_length=8)
+
+
+class PayoutFrequencyIn(BaseModel):
+    payout_frequency: Optional[Literal["daily", "weekly", "monthly"]] = None  # None = use global default
+
+
 class DriverAcceptRejectIn(BaseModel):
     action: Literal["accept", "reject"]
     reject_reason: Optional[str] = None
@@ -977,6 +985,107 @@ def register_endpoints():
         except Exception:
             pass
         return await db.seller_payouts.find_one({"id": payout_id}, {"_id": 0})
+
+    @new_router.post("/admin/payouts/{payout_id}/generate-otp")
+    async def generate_payout_collection_otp(payout_id: str, admin: dict = admin_dep):
+        """Admin clicks 'Generate OTP' on a payout. Backend generates a 4-digit OTP
+        and stores it on the payout doc. The seller will say this OTP to the admin
+        when they show up in person; admin enters it via /confirm-otp to mark paid.
+        OTP is also sent to the seller as a notification so they can find it."""
+        p = await db.seller_payouts.find_one({"id": payout_id})
+        if not p:
+            raise HTTPException(404, "Payout not found")
+        if p.get("status") == "paid":
+            raise HTTPException(400, "Payout is already paid")
+        otp = gen_otp()  # 4-digit
+        now = now_iso()
+        await db.seller_payouts.update_one(
+            {"id": payout_id},
+            {"$set": {
+                "collection_otp": otp,
+                "collection_otp_generated_at": now,
+                "collection_otp_generated_by": admin["id"],
+                "updated_at": now,
+            }},
+        )
+        try:
+            await create_notification(
+                user_id=p["seller_id"],
+                message=f"Payout collection OTP: {otp} — show this to the admin when you collect USD {p['amount_usd']:.2f}.",
+                ntype="commission",
+                meta={"payout_id": payout_id, "otp": otp},
+            )
+        except Exception:
+            pass
+        return {"ok": True, "otp": otp}
+
+    @new_router.post("/admin/payouts/{payout_id}/confirm-otp")
+    async def confirm_payout_collection_otp(payout_id: str, body: PayoutOTPConfirmIn, admin: dict = admin_dep):
+        """Admin enters the OTP the seller said. If it matches the OTP we stored,
+        the payout flips to 'paid'."""
+        p = await db.seller_payouts.find_one({"id": payout_id})
+        if not p:
+            raise HTTPException(404, "Payout not found")
+        if p.get("status") == "paid":
+            return {"ok": True, "already_paid": True}
+        stored = p.get("collection_otp")
+        if not stored:
+            raise HTTPException(400, "No OTP generated for this payout yet")
+        if body.otp.strip() != stored:
+            raise HTTPException(400, "OTP does not match. Ask the seller to re-check.")
+        now = now_iso()
+        await db.seller_payouts.update_one(
+            {"id": payout_id},
+            {"$set": {
+                "status": "paid",
+                "paid_at": now,
+                "paid_by": admin["id"],
+                "paid_via": "in_person_otp",
+                "updated_at": now,
+            }},
+        )
+        await db.seller_order_splits.update_many(
+            {"payout_id": payout_id},
+            {"$set": {"payout_status": "paid", "updated_at": now}},
+        )
+        await db.restaurant_orders.update_many(
+            {"payout_id": payout_id},
+            {"$set": {"payout_status": "paid", "updated_at": now}},
+        )
+        try:
+            await create_notification(
+                user_id=p["seller_id"],
+                message=f"Payout USD {p['amount_usd']:.2f} collected in person. Receipt is in your wallet.",
+                ntype="commission",
+                meta={"payout_id": payout_id},
+            )
+        except Exception:
+            pass
+        return await db.seller_payouts.find_one({"id": payout_id}, {"_id": 0})
+
+    @new_router.put("/admin/shops/{shop_id}/payout-frequency")
+    async def admin_set_shop_payout_frequency(shop_id: str, body: PayoutFrequencyIn, _: dict = admin_dep):
+        """Set per-shop payout cadence. None = use global default."""
+        shop = await db.shops.find_one({"id": shop_id})
+        if not shop:
+            raise HTTPException(404, "Shop not found")
+        if body.payout_frequency is None:
+            await db.shops.update_one({"id": shop_id}, {"$unset": {"payout_frequency": ""}})
+        else:
+            await db.shops.update_one({"id": shop_id}, {"$set": {"payout_frequency": body.payout_frequency}})
+        return await db.shops.find_one({"id": shop_id}, {"_id": 0})
+
+    @new_router.put("/admin/restaurants/{restaurant_id}/payout-frequency")
+    async def admin_set_restaurant_payout_frequency(restaurant_id: str, body: PayoutFrequencyIn, _: dict = admin_dep):
+        """Set per-restaurant payout cadence. None = use global default."""
+        rest = await db.restaurants.find_one({"id": restaurant_id})
+        if not rest:
+            raise HTTPException(404, "Restaurant not found")
+        if body.payout_frequency is None:
+            await db.restaurants.update_one({"id": restaurant_id}, {"$unset": {"payout_frequency": ""}})
+        else:
+            await db.restaurants.update_one({"id": restaurant_id}, {"$set": {"payout_frequency": body.payout_frequency}})
+        return await db.restaurants.find_one({"id": restaurant_id}, {"_id": 0})
 
     # -------- ADMIN: disputes --------
     @new_router.post("/admin/disputes/split/{split_id}/open")

@@ -18,7 +18,7 @@ import { toast } from "sonner";
 const TABS = [
   { id: "analytics", label: "Analytics", icon: BarChart3 },
   { id: "performance", label: "Performance", icon: Activity },
-  { id: "shops", label: "Shops", icon: Store },
+  { id: "shops", label: "Shops & Restaurants", icon: Store },
   { id: "categories", label: "Categories", icon: FolderTree },
   { id: "delivery", label: "Delivery & Payouts", icon: Truck },
   { id: "delivery-pricing", label: "Delivery Pricing", icon: MapPin },
@@ -159,16 +159,24 @@ export default function AdminDashboard() {
 
 function AdminShopsTab() {
   const [shops, setShops] = useState([]);
-  const [detail, setDetail] = useState(null);
+  const [restaurants, setRestaurants] = useState([]);
+  const [detail, setDetail] = useState(null); // { ...row, _kind: 'shop' | 'restaurant' }
   const [commissionDraft, setCommissionDraft] = useState("");
   const [invoiceFrequencyDraft, setInvoiceFrequencyDraft] = useState("");
+  const [payoutFrequencyDraft, setPayoutFrequencyDraft] = useState("");
   const [globalRate, setGlobalRate] = useState(0.10);
   const [globalFrequency, setGlobalFrequency] = useState("weekly");
   const [searchQuery, setSearchQuery] = useState("");
+  const [kindFilter, setKindFilter] = useState("all"); // all | shops | restaurants
 
   const load = async () => {
-    const [s, g] = await Promise.all([api.get("/shops?limit=200"), api.get("/admin/settings")]);
-    setShops(s.data);
+    const [s, r, g] = await Promise.all([
+      api.get("/shops?limit=200"),
+      api.get("/restaurants?limit=200"),
+      api.get("/admin/settings"),
+    ]);
+    setShops((s.data || []).map((x) => ({ ...x, _kind: "shop" })));
+    setRestaurants((r.data || []).map((x) => ({ ...x, _kind: "restaurant" })));
     setGlobalRate(g.data.commission_rate || 0.10);
     setGlobalFrequency(g.data.invoice_frequency || "weekly");
   };
@@ -178,18 +186,32 @@ function AdminShopsTab() {
     setDetail(s);
     setCommissionDraft(s.commission_rate != null ? String(s.commission_rate) : "");
     setInvoiceFrequencyDraft(s.invoice_frequency || "");
+    setPayoutFrequencyDraft(s.payout_frequency || "");
   };
 
-  const verify = async (id) => { await api.put(`/admin/shops/${id}/verify`); toast.success("Verified"); load(); if (detail?.id === id) setDetail({ ...detail, verification: "Verified" }); };
-  const reject = async (id) => { await api.put(`/admin/shops/${id}/reject`); toast.success("Rejected"); load(); if (detail?.id === id) setDetail({ ...detail, verification: "Rejected" }); };
+  const verify = async (row) => {
+    const path = row._kind === "restaurant" ? `/admin/restaurants/${row.id}/verify` : `/admin/shops/${row.id}/verify`;
+    await api.put(path);
+    toast.success("Verified");
+    load();
+    if (detail?.id === row.id) setDetail({ ...detail, verification: "Verified" });
+  };
+  const reject = async (row) => {
+    const path = row._kind === "restaurant" ? `/admin/restaurants/${row.id}/reject` : `/admin/shops/${row.id}/reject`;
+    await api.put(path);
+    toast.success("Rejected");
+    load();
+    if (detail?.id === row.id) setDetail({ ...detail, verification: "Rejected" });
+  };
 
   const saveCommission = async () => {
     const v = commissionDraft === "" ? null : parseFloat(commissionDraft);
     try {
-      const { data } = await api.put(`/admin/shops/${detail.id}/commission`, { commission_rate: v });
+      const base = detail._kind === "restaurant" ? `/admin/restaurants/${detail.id}/commission` : `/admin/shops/${detail.id}/commission`;
+      const { data } = await api.put(base, { commission_rate: v });
       toast.success(v === null ? "Commission reset to global" : `Commission set to ${(v * 100).toFixed(1)}%`);
-      await api.post("/admin/invoices/generate");
-      setDetail(data);
+      try { await api.post("/admin/invoices/generate"); } catch { /* ignore */ }
+      setDetail({ ...data, _kind: detail._kind });
       load();
     } catch (err) {
       toast.error(formatDetail(err.response?.data?.detail));
@@ -199,28 +221,55 @@ function AdminShopsTab() {
   const saveInvoiceFrequency = async () => {
     const freq = invoiceFrequencyDraft === "" ? null : invoiceFrequencyDraft;
     try {
-      const { data } = await api.put(`/admin/shops/${detail.id}/invoice-frequency`, { frequency: freq });
+      const base = detail._kind === "restaurant"
+        ? `/admin/restaurants/${detail.id}/invoice-frequency`
+        : `/admin/shops/${detail.id}/invoice-frequency`;
+      const { data } = await api.put(base, { frequency: freq });
       toast.success(freq === null ? "Invoice frequency reset to global" : `Invoice frequency set to ${freq}`);
-      setDetail(data);
+      setDetail({ ...data, _kind: detail._kind });
       load();
     } catch (err) {
       toast.error(formatDetail(err.response?.data?.detail));
     }
   };
 
-  const filteredShops = useMemo(() => 
-    shops.filter(s => 
-      s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.area.toLowerCase().includes(searchQuery.toLowerCase())
+  const savePayoutFrequency = async () => {
+    const freq = payoutFrequencyDraft === "" ? null : payoutFrequencyDraft;
+    try {
+      const base = detail._kind === "restaurant"
+        ? `/admin/restaurants/${detail.id}/payout-frequency`
+        : `/admin/shops/${detail.id}/payout-frequency`;
+      const { data } = await api.put(base, { payout_frequency: freq });
+      toast.success(freq === null ? "Payout frequency reset to default (weekly)" : `Payout frequency set to ${freq}`);
+      setDetail({ ...data, _kind: detail._kind });
+      load();
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail));
+    }
+  };
+
+  const allRows = useMemo(() => {
+    if (kindFilter === "shops") return shops;
+    if (kindFilter === "restaurants") return restaurants;
+    return [...shops, ...restaurants];
+  }, [shops, restaurants, kindFilter]);
+
+  const filteredShops = useMemo(() =>
+    allRows.filter(s =>
+      (s.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (s.area || "").toLowerCase().includes(searchQuery.toLowerCase())
     ),
-    [shops, searchQuery]
+    [allRows, searchQuery]
   );
 
-  const counts = useMemo(() => ({
-    Verified: shops.filter((s) => s.verification === "Verified").length,
-    Pending: shops.filter((s) => s.verification === "Pending").length,
-    Rejected: shops.filter((s) => s.verification === "Rejected").length,
-  }), [shops]);
+  const counts = useMemo(() => {
+    const merged = [...shops, ...restaurants];
+    return {
+      Verified: merged.filter((s) => s.verification === "Verified").length,
+      Pending: merged.filter((s) => s.verification === "Pending").length,
+      Rejected: merged.filter((s) => s.verification === "Rejected").length,
+    };
+  }, [shops, restaurants]);
 
   const frequencyOptions = [
     { value: "daily", label: "Daily" },
@@ -228,6 +277,12 @@ function AdminShopsTab() {
     { value: "monthly", label: "Monthly" },
     { value: "quarterly", label: "Quarterly" },
     { value: "yearly", label: "Yearly" },
+  ];
+
+  const payoutFrequencyOptions = [
+    { value: "daily", label: "Daily" },
+    { value: "weekly", label: "Weekly" },
+    { value: "monthly", label: "Monthly" },
   ];
 
   return (
@@ -238,15 +293,36 @@ function AdminShopsTab() {
         <Stat label="Rejected" value={counts.Rejected} color="#D90429" />
       </div>
 
-      {/* Search Bar */}
-      <div className="mb-4">
+      {/* Search Bar + kind filter */}
+      <div className="mb-4 flex flex-col sm:flex-row gap-3">
         <input
           type="text"
-          placeholder="Search shops by name or area..."
+          placeholder="Search shops & restaurants by name or area..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full px-4 py-3 border border-[var(--js-border)] rounded-xl text-sm focus:outline-none focus:border-[#C84B31]"
+          className="flex-1 px-4 py-3 border border-[var(--js-border)] rounded-xl text-sm focus:outline-none focus:border-[#C84B31]"
         />
+        <div className="inline-flex bg-white border border-[var(--js-border)] rounded-xl p-1">
+          {[
+            { id: "all", label: `All (${shops.length + restaurants.length})` },
+            { id: "shops", label: `Shops (${shops.length})` },
+            { id: "restaurants", label: `Restaurants (${restaurants.length})` },
+          ].map((k) => (
+            <button
+              key={k.id}
+              type="button"
+              onClick={() => setKindFilter(k.id)}
+              data-testid={`shops-kind-filter-${k.id}`}
+              className={`px-3 py-2 text-xs font-semibold rounded-lg transition ${
+                kindFilter === k.id
+                  ? "bg-[#C84B31] text-white"
+                  : "text-[var(--js-text-secondary)] hover:text-[var(--js-text)]"
+              }`}
+            >
+              {k.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="bg-white border border-[var(--js-border)] rounded-2xl overflow-hidden">
@@ -254,7 +330,8 @@ function AdminShopsTab() {
           <table className="w-full text-sm">
             <thead className="bg-[var(--js-bg)] text-[var(--js-text-secondary)] text-xs uppercase tracking-wider">
               <tr>
-                <th className="text-left p-4 font-bold">Shop</th>
+                <th className="text-left p-4 font-bold">Name</th>
+                <th className="text-left p-4 font-bold hidden sm:table-cell">Type</th>
                 <th className="text-left p-4 font-bold hidden lg:table-cell">Area</th>
                 <th className="text-left p-4 font-bold hidden md:table-cell">Commission</th>
                 <th className="text-left p-4 font-bold">Status</th>
@@ -263,12 +340,19 @@ function AdminShopsTab() {
             </thead>
             <tbody>
               {filteredShops.map((s) => (
-                <tr key={s.id} className="border-t border-[var(--js-border)] hover:bg-[var(--js-bg)] cursor-pointer" onClick={() => openDetail(s)} data-testid={`admin-shop-row-${s.id}`}>
+                <tr key={`${s._kind}-${s.id}`} className="border-t border-[var(--js-border)] hover:bg-[var(--js-bg)] cursor-pointer" onClick={() => openDetail(s)} data-testid={`admin-${s._kind}-row-${s.id}`}>
                   <td className="p-4">
                     <div className="flex items-center gap-3">
-                      <img src={s.image_url} alt="" className="w-10 h-10 rounded-lg object-cover" />
+                      <img src={s.image_url || undefined} alt="" className="w-10 h-10 rounded-lg object-cover bg-gray-100" />
                       <p className="font-semibold text-[var(--js-text)]">{s.name}</p>
                     </div>
+                  </td>
+                  <td className="p-4 hidden sm:table-cell">
+                    <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full ${
+                      s._kind === "restaurant" ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"
+                    }`}>
+                      {s._kind === "restaurant" ? "Restaurant" : "Shop"}
+                    </span>
                   </td>
                   <td className="p-4 text-[var(--js-text-secondary)] hidden lg:table-cell">{s.area}</td>
                   <td className="p-4 hidden md:table-cell text-xs">
@@ -283,15 +367,15 @@ function AdminShopsTab() {
                   </td>
                   <td className="p-4 text-right">
                     <div className="inline-flex gap-2" onClick={(e) => e.stopPropagation()}>
-                      <button onClick={() => verify(s.id)} data-testid={`verify-shop-${s.id}`} className="text-xs font-semibold bg-[#2D6A4F] hover:bg-[#1B4332] text-white px-3 py-1.5 rounded-full">Verify</button>
-                      <button onClick={() => reject(s.id)} data-testid={`reject-shop-${s.id}`} className="text-xs font-semibold bg-[#D90429]/10 text-[#D90429] hover:bg-[#D90429] hover:text-white px-3 py-1.5 rounded-full transition">Reject</button>
+                      <button onClick={() => verify(s)} data-testid={`verify-${s._kind}-${s.id}`} className="text-xs font-semibold bg-[#2D6A4F] hover:bg-[#1B4332] text-white px-3 py-1.5 rounded-full">Verify</button>
+                      <button onClick={() => reject(s)} data-testid={`reject-${s._kind}-${s.id}`} className="text-xs font-semibold bg-[#D90429]/10 text-[#D90429] hover:bg-[#D90429] hover:text-white px-3 py-1.5 rounded-full transition">Reject</button>
                     </div>
                   </td>
                 </tr>
               ))}
               {filteredShops.length === 0 && (
-                <tr><td colSpan={5} className="p-8 text-center text-[var(--js-text-secondary)]">
-                  {searchQuery ? `No shops found matching "${searchQuery}"` : "No shops."}
+                <tr><td colSpan={6} className="p-8 text-center text-[var(--js-text-secondary)]">
+                  {searchQuery ? `No results matching "${searchQuery}"` : "Nothing here yet."}
                 </td></tr>
               )}
             </tbody>

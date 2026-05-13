@@ -30,6 +30,9 @@ import {
   RotateCcw,
   ArrowLeft,
   StickyNote,
+  ChevronDown,
+  ChevronUp,
+  History,
 } from "lucide-react";
 
 // Columns shown on the kitchen board, in left-to-right flow order.
@@ -82,6 +85,7 @@ export default function KitchenDashboard() {
   const [selected, setSelected] = useState(null);
   const [cancelReason, setCancelReason] = useState("");
   const [busy, setBusy] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const loadRestaurant = useCallback(async () => {
     try {
@@ -188,10 +192,26 @@ ${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}<
   const byLane = useMemo(() => {
     const m = Object.fromEntries(LANES.map(l => [l.id, []]));
     for (const o of orders) {
+      // Anything that's cancelled or returned should NOT clutter the live lanes
+      const cancelled = o.status === "cancelled" || o.status === "cancel_approved";
+      const returned = o.return_status === "returned" || o.return_status === "pending_return";
+      if (cancelled || returned) continue;
       const s = o.seller_preparation_status || (o.status === "cancelled" ? "cancelled" : "pending");
       if (m[s]) m[s].push(o);
     }
     return m;
+  }, [orders]);
+
+  // History: cancelled, returned, or delivered orders — kept in a collapsible
+  // panel so the kitchen has visibility into what happened after handover
+  // without cluttering the live lanes.
+  const history = useMemo(() => {
+    return orders.filter((o) => {
+      const cancelled = o.status === "cancelled" || o.status === "cancel_approved";
+      const returned = o.return_status === "returned" || o.return_status === "pending_return";
+      const delivered = o.delivery_status === "delivered";
+      return cancelled || returned || delivered;
+    }).sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
   }, [orders]);
 
   const totals = useMemo(() => ({
@@ -254,8 +274,7 @@ ${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}<
             const Icon = lane.icon;
             const rows = byLane[lane.id] || [];
             return (
-              <div key={lane.id} className={`bg-white border-t-4 ${lane.accent} rounded-2xl p-3 min-h-[200px] flex flex-col`}>
-                <div className="flex items-center justify-between mb-3 pb-2 border-b border-[var(--js-border)]">
+              <div key={lane.id} className={`bg-white border-t-4 ${lane.accent} rounded-2xl p-3 min-h-[200px] flex flex-col`}>                <div className="flex items-center justify-between mb-3 pb-2 border-b border-[var(--js-border)]">
                   <h2 className={`font-bold text-sm flex items-center gap-1.5 ${lane.text}`}>
                     <Icon className="w-4 h-4" /> {lane.label}
                   </h2>
@@ -312,6 +331,85 @@ ${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}<
               </div>
             );
           })}
+        </div>
+
+        {/* History collapsible — cancelled, returned, delivered */}
+        <div className="mt-6">
+          <button
+            type="button"
+            onClick={() => setHistoryOpen((v) => !v)}
+            data-testid="kitchen-history-toggle"
+            className="w-full bg-white border border-[var(--js-border)] rounded-2xl px-4 py-3 flex items-center justify-between hover:bg-[var(--js-bg)] transition"
+          >
+            <span className="flex items-center gap-2 font-semibold text-[var(--js-text)]">
+              <History className="w-4 h-4 text-[var(--js-text-secondary)]" />
+              History
+              <span className="text-xs font-bold bg-gray-100 text-gray-700 rounded-full px-2 py-0.5">
+                {history.length}
+              </span>
+              <span className="text-[10px] text-[var(--js-text-secondary)] font-normal">
+                Cancelled · Returned · Delivered
+              </span>
+            </span>
+            {historyOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+          {historyOpen && (
+            <div
+              data-testid="kitchen-history-panel"
+              className="mt-2 bg-white border border-[var(--js-border)] rounded-2xl divide-y divide-[var(--js-border)]"
+            >
+              {history.length === 0 ? (
+                <p className="text-center text-sm text-[var(--js-text-secondary)] py-8">No past orders yet.</p>
+              ) : (
+                history.map((o) => {
+                  const cancelled = o.status === "cancelled" || o.status === "cancel_approved";
+                  const returned = o.return_status === "returned" || o.return_status === "pending_return";
+                  const delivered = o.delivery_status === "delivered";
+                  const tagBg = cancelled
+                    ? "bg-red-100 text-red-700"
+                    : returned
+                    ? "bg-orange-100 text-orange-700"
+                    : delivered
+                    ? "bg-emerald-100 text-emerald-700"
+                    : "bg-gray-100 text-gray-700";
+                  const tagLabel = cancelled
+                    ? "Cancelled"
+                    : o.return_status === "pending_return"
+                    ? "Return pending"
+                    : returned
+                    ? "Returned to seller"
+                    : "Delivered";
+                  return (
+                    <button
+                      key={o.id}
+                      type="button"
+                      onClick={() => setSelected(o)}
+                      data-testid={`kitchen-history-row-${o.id.slice(0,8)}`}
+                      className="w-full text-left px-4 py-3 hover:bg-[var(--js-bg)] flex items-center justify-between gap-3"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full ${tagBg}`}>
+                          {tagLabel}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="font-semibold text-sm truncate flex items-center gap-1">
+                            <User className="w-3 h-3 shrink-0" /> {o.customer_name || "—"}
+                          </p>
+                          <p className="text-[11px] text-[var(--js-text-secondary)] truncate">
+                            #{o.id.slice(0, 8)} · {(o.items || o.items_secure || []).slice(0, 2).map((it) => `${it.quantity}× ${it.name}`).join(" · ")}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-sm font-bold">{formatUSD(o.order_total_usd || o.total)}</p>
+                        <p className="text-[10px] text-[var(--js-text-secondary)]">{ago(o.updated_at || o.created_at)}</p>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          )}
         </div>
       </div>
 

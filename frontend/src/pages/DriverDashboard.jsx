@@ -369,6 +369,7 @@ function DeliveryDetail({ row, reload, setOpen }) {
   const [otp, setOtp] = useState("");
   const [signature, setSignature] = useState("");
   const [receiver, setReceiver] = useState("");
+  const [proofPhoto, setProofPhoto] = useState(""); // base64 data URL — optional
   const [failReason, setFailReason] = useState("customer_not_available");
   const [failNote, setFailNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -411,9 +412,27 @@ function DeliveryDetail({ row, reload, setOpen }) {
       toast.error("OTP, signature and receiver name are all required");
       return;
     }
-    post("deliver", { otp: otp.trim(), signature_b64: signature, receiver_name: receiver.trim() }).then(() => {
-      setOtp(""); setSignature(""); setReceiver("");
+    post("deliver", {
+      otp: otp.trim(),
+      signature_b64: signature,
+      receiver_name: receiver.trim(),
+      picture_b64: proofPhoto || null,
+    }).then(() => {
+      setOtp(""); setSignature(""); setReceiver(""); setProofPhoto("");
     });
+  };
+
+  const onPhotoPick = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (f.size > 4 * 1024 * 1024) {
+      toast.error("Photo is too large (max 4MB)");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setProofPhoto(String(reader.result || ""));
+    reader.onerror = () => toast.error("Could not read photo");
+    reader.readAsDataURL(f);
   };
 
   const submitFail = (e) => {
@@ -530,6 +549,47 @@ function DeliveryDetail({ row, reload, setOpen }) {
           <input value={receiver} onChange={(e) => setReceiver(e.target.value)} required placeholder="Receiver full name" data-testid="receiver-name" className="w-full px-3 py-2 border border-emerald-300 rounded-lg" />
           <input type="text" inputMode="numeric" value={otp} onChange={(e) => setOtp(e.target.value)} required placeholder="Customer delivery OTP" data-testid="delivery-otp" className="w-full px-4 py-3 text-2xl font-mono tracking-widest text-center border border-emerald-300 rounded-lg" />
           <SignaturePad onChange={setSignature} />
+
+          {/* Optional photo proof */}
+          <div className="bg-white border border-emerald-200 rounded-lg p-3">
+            <label className="block text-xs font-semibold text-emerald-900 mb-2">
+              Photo of handover (optional)
+            </label>
+            {proofPhoto ? (
+              <div className="space-y-2">
+                <img
+                  src={proofPhoto}
+                  alt="Delivery proof"
+                  data-testid="delivery-proof-photo-preview"
+                  className="w-full max-h-40 object-cover rounded-md border border-emerald-200"
+                />
+                <button
+                  type="button"
+                  onClick={() => setProofPhoto("")}
+                  data-testid="delivery-proof-photo-clear"
+                  className="text-xs text-red-700 hover:underline"
+                >
+                  Remove photo
+                </button>
+              </div>
+            ) : (
+              <label className="flex items-center justify-center gap-2 cursor-pointer border-2 border-dashed border-emerald-300 hover:border-emerald-500 rounded-md py-3 text-sm font-semibold text-emerald-800">
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  data-testid="delivery-proof-photo-input"
+                  className="hidden"
+                  onChange={onPhotoPick}
+                />
+                📷 Take or upload photo
+              </label>
+            )}
+            <p className="text-[10px] text-emerald-700 mt-1">
+              Optional — proof if customer disputes delivery. Max 4 MB.
+            </p>
+          </div>
+
           <button type="submit" disabled={busy || !signature} className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white font-semibold py-3 rounded-full flex items-center justify-center gap-2">
             <CheckCircle2 className="w-4 h-4" /> Mark delivered
           </button>

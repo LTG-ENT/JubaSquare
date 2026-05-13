@@ -228,6 +228,13 @@ function RuleModal({ rule, onClose, onSave }) {
     active: rule?.active ?? true,
   });
   const [saving, setSaving] = useState(false);
+  const [areas, setAreas] = useState([]);
+
+  useEffect(() => {
+    api.get("/meta/areas")
+      .then((r) => setAreas(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setAreas([]));
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -288,14 +295,18 @@ function RuleModal({ rule, onClose, onSave }) {
             <label className="block text-sm font-semibold text-[var(--js-text)] mb-1">
               Pickup Area <span className="text-red-500">*</span>
             </label>
-            <input
-              type="text"
+            <select
               value={formData.pickup_area}
               onChange={(e) => setFormData({ ...formData, pickup_area: e.target.value })}
-              placeholder="e.g., Gudele"
-              className="w-full px-3 py-2 border border-[var(--js-border)] rounded-lg"
+              data-testid="rule-pickup-area"
+              className="w-full px-3 py-2 border border-[var(--js-border)] rounded-lg bg-white"
               required
-            />
+            >
+              <option value="">Select pickup area…</option>
+              {areas.map((a) => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
           </div>
 
           {/* Delivery Area */}
@@ -303,14 +314,18 @@ function RuleModal({ rule, onClose, onSave }) {
             <label className="block text-sm font-semibold text-[var(--js-text)] mb-1">
               Delivery Area <span className="text-red-500">*</span>
             </label>
-            <input
-              type="text"
+            <select
               value={formData.delivery_area}
               onChange={(e) => setFormData({ ...formData, delivery_area: e.target.value })}
-              placeholder="e.g., Munuki"
-              className="w-full px-3 py-2 border border-[var(--js-border)] rounded-lg"
+              data-testid="rule-delivery-area"
+              className="w-full px-3 py-2 border border-[var(--js-border)] rounded-lg bg-white"
               required
-            />
+            >
+              <option value="">Select delivery area…</option>
+              {areas.map((a) => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
           </div>
 
           {/* Order Type */}

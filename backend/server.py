@@ -4063,6 +4063,37 @@ async def admin_shop_commission(shop_id: str, body: ShopCommissionIn, _: dict = 
     return await db.shops.find_one({"id": shop_id}, {"_id": 0})
 
 
+@api.put("/admin/restaurants/{restaurant_id}/verify")
+async def admin_verify_restaurant(restaurant_id: str, _: dict = Depends(require_role("admin"))):
+    if not await db.restaurants.find_one({"id": restaurant_id}, {"_id": 0, "id": 1}):
+        raise HTTPException(404, "Restaurant not found")
+    await db.restaurants.update_one({"id": restaurant_id}, {"$set": {"verification": "Verified"}})
+    return await db.restaurants.find_one({"id": restaurant_id}, {"_id": 0})
+
+
+@api.put("/admin/restaurants/{restaurant_id}/reject")
+async def admin_reject_restaurant(restaurant_id: str, _: dict = Depends(require_role("admin"))):
+    if not await db.restaurants.find_one({"id": restaurant_id}, {"_id": 0, "id": 1}):
+        raise HTTPException(404, "Restaurant not found")
+    await db.restaurants.update_one({"id": restaurant_id}, {"$set": {"verification": "Rejected"}})
+    return await db.restaurants.find_one({"id": restaurant_id}, {"_id": 0})
+
+
+@api.put("/admin/restaurants/{restaurant_id}/commission")
+async def admin_restaurant_commission(restaurant_id: str, body: ShopCommissionIn, _: dict = Depends(require_role("admin"))):
+    rest = await db.restaurants.find_one({"id": restaurant_id})
+    if not rest:
+        raise HTTPException(404, "Restaurant not found")
+    rate = body.commission_rate
+    if rate is not None and (rate < 0 or rate > 1):
+        raise HTTPException(400, "Commission rate must be between 0 and 1")
+    if rate is None:
+        await db.restaurants.update_one({"id": restaurant_id}, {"$unset": {"commission_rate": ""}})
+    else:
+        await db.restaurants.update_one({"id": restaurant_id}, {"$set": {"commission_rate": float(rate)}})
+    return await db.restaurants.find_one({"id": restaurant_id}, {"_id": 0})
+
+
 @api.put("/admin/invoice-frequency")
 async def admin_set_global_invoice_frequency(body: InvoiceFrequencyIn, _: dict = Depends(require_role("admin"))):
     """Set global invoice frequency (daily, weekly, monthly, quarterly, yearly)"""
