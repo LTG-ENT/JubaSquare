@@ -2472,52 +2472,64 @@ async def _calculate_delivery_fee(
     3. Generic area rule (order_type = 'all')
     4. Default fee
     """
+    # Normalize areas (trim and lowercase for matching)
+    pickup_area = (pickup_area or "").strip().lower()
+    delivery_area = (delivery_area or "").strip().lower()
+    
+    # Log for debugging
+    log.info(f"[DELIVERY FEE] Calculating: pickup={pickup_area}, delivery={delivery_area}, type={order_type}, shop={shop_id}, restaurant={restaurant_id}")
+    
     # Try shop/restaurant-specific rule first
     if shop_id:
         rule = await db.delivery_pricing_rules.find_one({
             "shop_id": shop_id,
-            "pickup_area": pickup_area,
-            "delivery_area": delivery_area,
+            "pickup_area": {"$regex": f"^{pickup_area}$", "$options": "i"},
+            "delivery_area": {"$regex": f"^{delivery_area}$", "$options": "i"},
             "active": True
         }, {"_id": 0})
         if rule:
+            log.info(f"[DELIVERY FEE] Found shop-specific rule: {rule['delivery_fee_usd']}")
             return float(rule["delivery_fee_usd"])
     
     if restaurant_id:
         rule = await db.delivery_pricing_rules.find_one({
             "restaurant_id": restaurant_id,
-            "pickup_area": pickup_area,
-            "delivery_area": delivery_area,
+            "pickup_area": {"$regex": f"^{pickup_area}$", "$options": "i"},
+            "delivery_area": {"$regex": f"^{delivery_area}$", "$options": "i"},
             "active": True
         }, {"_id": 0})
         if rule:
+            log.info(f"[DELIVERY FEE] Found restaurant-specific rule: {rule['delivery_fee_usd']}")
             return float(rule["delivery_fee_usd"])
     
     # Try order type + area rule
     rule = await db.delivery_pricing_rules.find_one({
         "order_type": order_type,
-        "pickup_area": pickup_area,
-        "delivery_area": delivery_area,
+        "pickup_area": {"$regex": f"^{pickup_area}$", "$options": "i"},
+        "delivery_area": {"$regex": f"^{delivery_area}$", "$options": "i"},
         "shop_id": None,
         "restaurant_id": None,
         "active": True
     }, {"_id": 0})
     if rule:
+        log.info(f"[DELIVERY FEE] Found order-type rule: {rule['delivery_fee_usd']}")
         return float(rule["delivery_fee_usd"])
     
     # Try generic area rule (order_type = 'all')
     rule = await db.delivery_pricing_rules.find_one({
         "order_type": "all",
-        "pickup_area": pickup_area,
-        "delivery_area": delivery_area,
+        "pickup_area": {"$regex": f"^{pickup_area}$", "$options": "i"},
+        "delivery_area": {"$regex": f"^{delivery_area}$", "$options": "i"},
         "shop_id": None,
         "restaurant_id": None,
         "active": True
     }, {"_id": 0})
     if rule:
+        log.info(f"[DELIVERY FEE] Found generic rule: {rule['delivery_fee_usd']}")
         return float(rule["delivery_fee_usd"])
     
     # Fallback to default
+    log.warning(f"[DELIVERY FEE] No rule found, using default")
     settings = await db.settings.find_one({"key": "default_delivery_fee_usd"}, {"_id": 0})
     return float(settings.get("value", 2.0)) if settings else 2.0
 
