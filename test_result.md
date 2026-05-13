@@ -2441,3 +2441,145 @@ backend_continuation:
             - Full OTP flow already tested in previous COD/Driver testing iteration
             
             **NO ISSUES FOUND.** OTP endpoints exist and are properly configured.
+
+
+backend_continuation:
+  - task: "Kitchen history endpoint with include_history parameter"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            Modified GET /api/restaurant-orders/restaurant/{restaurant_id} to accept optional include_history boolean parameter.
+            When false (default): excludes orders with seller_preparation_status="handed_to_driver" OR status in ["completed", "cancelled", "cancel_approved"] OR delivery_status in ["delivered", "returned_to_seller"]
+            When true: returns all orders including historical ones for the history panel.
+        - working: true
+          agent: "testing"
+          comment: |
+            ✅ PASSED all tests:
+            - WITHOUT include_history param: Returns only active orders (excludes handed_to_driver, completed, cancelled) ✓
+            - WITH include_history=true: Returns all orders including historical ones ✓
+            - Filtering logic verified and working correctly ✓
+            - Seller authentication and authorization working ✓
+
+  - task: "Admin shops & restaurants combined endpoint"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            Created GET /api/admin/shops-and-restaurants endpoint with filtering and pagination.
+            Query params:
+            - type_filter: Optional["shops", "restaurants", null] - filters by type
+            - verification: Optional verification status
+            - limit/skip: Pagination (applies to both arrays independently)
+            Response: {shops: [], restaurants: [], total_shops: int, total_restaurants: int}
+        - working: true
+          agent: "testing"
+          comment: |
+            ✅ PASSED all tests:
+            - WITHOUT type_filter: Returns both shops and restaurants with correct structure ✓
+            - WITH type_filter="shops": Returns only shops (restaurants array empty) ✓
+            - WITH type_filter="restaurants": Returns only restaurants (shops array empty) ✓
+            - Pagination working correctly ✓
+            - Admin authentication and authorization working ✓
+
+frontend_continuation:
+  - task: "Kitchen history collapsible panel"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/pages/KitchenDashboard.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            Added collapsible History section in KitchenDashboard:
+            - New historyOrders state to store historical orders
+            - New loadHistory() function that calls endpoint with include_history=true
+            - Filters to only show orders with: seller_preparation_status="handed_to_driver" OR cancelled OR returned
+            - History section shows at bottom of page with order count badge
+            - Displays cancelled (red), returned (orange), and delivered (green) orders
+            - Toggle to expand/collapse with ChevronUp/ChevronDown icons
+            - Polling every 15s alongside active orders
+
+  - task: "Admin payout OTP flow UI"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/components/AdminDeliveryTab.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            Implemented two-step OTP payment flow in PayoutsPane:
+            - Added otpModal state to manage OTP generation and confirmation
+            - New "Generate OTP" button calls POST /api/admin/payouts/{id}/generate-otp
+            - OTP modal displays:
+              * 4-digit OTP in large font for admin to show seller
+              * Seller name and payout amount
+              * Input field for admin to enter OTP from seller
+              * Cancel and Confirm buttons
+            - Confirm button calls POST /api/admin/payouts/{id}/confirm-otp with entered OTP
+            - Kept existing "Mark paid" button as fallback for direct payment (no OTP)
+            - Proper disabled states and loading indicators
+            - data-testid attributes for testing: otp-input, confirm-otp-btn
+
+agent_communication:
+    - agent: "main"
+      message: |
+        Continuation features implementation (Iteration 11):
+        
+        **COMPLETED & TESTED:**
+        
+        Backend:
+        1. Kitchen history endpoint - GET /restaurant-orders/restaurant/{id}?include_history=true
+           - Filters active vs historical orders correctly
+           - Tested and working ✓
+        
+        2. Admin shops & restaurants - GET /admin/shops-and-restaurants
+           - Supports type filtering (shops/restaurants/all)
+           - Proper response structure with counts
+           - Tested and working ✓
+        
+        3. OTP payout endpoints - Already existed, smoke tested ✓
+           - POST /admin/payouts/{id}/generate-otp
+           - POST /admin/payouts/{id}/confirm-otp
+        
+        Frontend:
+        1. Kitchen history panel - Collapsible section showing handed_to_driver/cancelled/returned orders
+           - Separate API call with include_history=true
+           - Color-coded tags (red=cancelled, orange=returned, green=delivered)
+           - Needs UI testing
+        
+        2. Admin payout OTP flow - Two-step payment with OTP modal
+           - Generate OTP button → shows 4-digit code to admin
+           - Admin enters OTP from seller → confirms payment
+           - Fallback "Mark paid" button for direct payment
+           - Needs UI testing
+        
+        **REMAINING (NOT IMPLEMENTED):**
+        1. Admin Shops & Restaurants tab rename + filter toggle
+        2. Driver photo upload UI in delivery flow
+        3. Per-shop payout frequency UI in shop edit modal
+        4. Verify delivery pricing uses /api/meta/areas
+        
+        **NEXT STEPS:**
+        - User chose to test current implementations first (option b)
+        - Backend tests all passed ✓
+        - Frontend UI testing needed for Kitchen history and Payout OTP flow
+        - After testing, can implement remaining 4 features if user approves
