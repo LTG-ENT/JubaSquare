@@ -206,6 +206,7 @@ function AssignmentsPane() {
   const [drivers, setDrivers] = useState([]);
   const [filter, setFilter] = useState(""); // status filter
   const [actingIds, setActingIds] = useState(new Set());
+  const { currency, exchangeRate } = useCart();
 
   const load = useCallback(async () => {
     try {
@@ -282,7 +283,7 @@ function AssignmentsPane() {
                   <div className="font-medium">{row.customer_name}</div>
                   <div className="text-xs text-[var(--js-text-secondary)]">{row.customer_phone || row.phone} • {row.customer_area || row.area}</div>
                 </td>
-                <td className="px-3 py-2 font-semibold">{formatUSD(row.order_total_usd)}</td>
+                <td className="px-3 py-2 font-semibold">{formatPrice(row.order_total_usd, exchangeRate, currency)}</td>
                 <td className="px-3 py-2">{row.driver_name || "—"}</td>
                 <td className="px-3 py-2"><Pill value={row.delivery_status} /></td>
                 <td className="px-3 py-2"><Pill value={row.payment_status} /></td>
@@ -314,6 +315,8 @@ function AssignmentsPane() {
 function CashHandoversPane() {
   const [data, setData] = useState({ splits: [], restaurant_orders: [], totals: {} });
   const [actingIds, setActingIds] = useState(new Set());
+  const { currency, exchangeRate } = useCart();
+  
   const load = useCallback(async () => {
     try {
       const r = await api.get("/admin/cash-handovers");
@@ -347,7 +350,7 @@ function CashHandoversPane() {
       <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6 flex items-center justify-between">
         <div>
           <p className="text-xs uppercase tracking-wider font-bold text-amber-800">Total cash with drivers</p>
-          <p className="text-2xl font-bold text-amber-900">{formatUSD(totalPending)}</p>
+          <p className="text-2xl font-bold text-amber-900">{formatPrice(totalPending, exchangeRate, currency)}</p>
         </div>
         <Coins className="w-8 h-8 text-amber-700" />
       </div>
@@ -372,7 +375,7 @@ function CashHandoversPane() {
                 <td className="px-3 py-2">{r.driver_name || "—"}</td>
                 <td className="px-3 py-2">{r.shop_name || r.restaurant_name}</td>
                 <td className="px-3 py-2">{r.customer_name}</td>
-                <td className="px-3 py-2 font-semibold">{formatUSD(r.order_total_usd)}</td>
+                <td className="px-3 py-2 font-semibold">{formatPrice(r.order_total_usd, exchangeRate, currency)}</td>
                 <td className="px-3 py-2 text-xs">{(r.cash_collected_at || "").slice(0, 16).replace("T", " ")}</td>
                 <td className="px-3 py-2 text-right">
                   <button
@@ -455,7 +458,7 @@ function PayoutsPane() {
 
   const markPaid = async (p) => {
     if (payingIds.has(p.id)) return;
-    if (!confirm(`Mark payout of ${formatUSD(p.amount_usd)} to ${p.seller_name} as paid directly (no OTP)?`)) return;
+    if (!confirm(`Mark payout of ${formatPrice(p.amount_usd, p.exchange_rate_ssp || exchangeRate, currency)} to ${p.seller_name} as paid directly (no OTP)?`)) return;
     setPayingIds((prev) => { const n = new Set(prev); n.add(p.id); return n; });
     try {
       await api.post(`/admin/payouts/${p.id}/mark-paid`);
@@ -553,8 +556,8 @@ function PayoutsPane() {
             </div>
             <div className="p-5 space-y-4">
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div><p className="text-xs text-[var(--js-text-secondary)]">Amount</p><p className="font-bold text-lg text-emerald-700">{formatUSD(detail.amount_usd)}</p></div>
-                <div><p className="text-xs text-[var(--js-text-secondary)]">Commission deducted</p><p className="font-bold text-lg">{formatUSD(detail.commission_deducted_usd)}</p></div>
+                <div><p className="text-xs text-[var(--js-text-secondary)]">Amount</p><p className="font-bold text-lg text-emerald-700">{formatPrice(detail.amount_usd, detail.exchange_rate_ssp || exchangeRate, currency)}</p></div>
+                <div><p className="text-xs text-[var(--js-text-secondary)]">Commission deducted</p><p className="font-bold text-lg">{formatPrice(detail.commission_deducted_usd, detail.exchange_rate_ssp || exchangeRate, currency)}</p></div>
                 <div><p className="text-xs text-[var(--js-text-secondary)]">Status</p><Pill value={detail.status} /></div>
                 <div><p className="text-xs text-[var(--js-text-secondary)]">Paid at</p><p className="text-sm">{detail.paid_at || "—"}</p></div>
               </div>
@@ -565,14 +568,14 @@ function PayoutsPane() {
                     <li key={s.id} className="flex justify-between border-b py-1">
                       <span className="font-mono text-xs">{s.id.slice(0, 8)}</span>
                       <span>{s.customer_name}</span>
-                      <span className="font-semibold">{formatUSD(s.seller_earning_usd)}</span>
+                      <span className="font-semibold">{formatPrice(s.seller_earning_usd, detail.exchange_rate_ssp || exchangeRate, currency)}</span>
                     </li>
                   ))}
                   {(detail.restaurant_orders || []).map((s) => (
                     <li key={s.id} className="flex justify-between border-b py-1">
                       <span className="font-mono text-xs">R {s.id.slice(0, 8)}</span>
                       <span>{s.customer_name}</span>
-                      <span className="font-semibold">{formatUSD(s.seller_earning_usd)}</span>
+                      <span className="font-semibold">{formatPrice(s.seller_earning_usd, detail.exchange_rate_ssp || exchangeRate, currency)}</span>
                     </li>
                   ))}
                 </ul>
@@ -660,6 +663,8 @@ function PayoutsPane() {
 function DisputesPane() {
   const [list, setList] = useState([]);
   const [allSplits, setAllSplits] = useState([]);
+  const { currency, exchangeRate } = useCart();
+  
   const load = useCallback(async () => {
     try {
       const r = await api.get("/admin/order-splits");
@@ -719,7 +724,7 @@ function DisputesPane() {
                 <td className="px-3 py-2">{s.dispute_reason || "—"}</td>
                 <td className="px-3 py-2">{s.shop_name}</td>
                 <td className="px-3 py-2">{s.customer_name}</td>
-                <td className="px-3 py-2 font-semibold">{formatUSD(s.order_total_usd)}</td>
+                <td className="px-3 py-2 font-semibold">{formatPrice(s.order_total_usd, exchangeRate, currency)}</td>
                 <td className="px-3 py-2 text-right">
                   <button onClick={() => resolve(s)} className="bg-emerald-600 text-white text-xs font-semibold px-3 py-1.5 rounded-full">Resolve</button>
                 </td>
