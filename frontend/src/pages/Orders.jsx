@@ -5,6 +5,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Package, MapPin, Phone, Truck, CheckCircle2, Clock, Star, X } from "lucide-react";
 import { toast } from "sonner";
+import OrderChatButton from "@/components/OrderChatButton";
 
 const STATUS_STYLES = {
   Pending: { bg: "bg-[#E9C46A]", text: "text-[#1A1A1A]", icon: Clock },
@@ -465,7 +466,10 @@ export default function Orders() {
                       <span className="inline-flex items-center gap-1"><MapPin className="w-3 h-3" /> {o.area}</span>
                       {o.phone && <span className="inline-flex items-center gap-1"><Phone className="w-3 h-3" /> {o.phone}</span>}
                     </div>
-                    <p className="font-display font-bold text-lg text-[#1A1A1A]">{formatUSD(o.subtotal_usd)}</p>
+                    <div className="flex items-center gap-3">
+                      <OrderChatButton orderId={o.id} />
+                      <p className="font-display font-bold text-lg text-[#1A1A1A]">{formatUSD(o.subtotal_usd)}</p>
+                    </div>
                   </div>
                 </div>
               );

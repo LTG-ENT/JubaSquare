@@ -123,6 +123,11 @@ export const CartProvider = ({ children }) => {
   };
 
   const subtotalUSD = items.reduce((s, i) => s + i.price_usd * i.quantity, 0);
+  // Per-line SSP using each line's own seller rate (falls back to global rate)
+  const subtotalSSP = items.reduce(
+    (s, i) => s + i.price_usd * i.quantity * (i.exchange_rate_ssp || exchangeRate || 600),
+    0,
+  );
   const count = items.reduce((s, i) => s + i.quantity, 0);
 
   const toggleCurrency = () => setCurrency((c) => (c === "USD" ? "SSP" : "USD"));
@@ -130,7 +135,7 @@ export const CartProvider = ({ children }) => {
   return (
     <CartContext.Provider
       value={{
-        items, area, exchangeRate, count, subtotalUSD, currency,
+        items, area, exchangeRate, count, subtotalUSD, subtotalSSP, currency,
         cartMode, restaurantId, restaurantName,
         addItem, removeItem, setQuantity, clear, setArea, setExchangeRate,
         setCurrency, toggleCurrency,

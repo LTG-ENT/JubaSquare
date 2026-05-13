@@ -10,7 +10,7 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 
 export default function Cart() {
-  const { items, removeItem, setQuantity, subtotalUSD, area, setArea, clear, exchangeRate, setExchangeRate, currency, cartMode, restaurantId } = useCart();
+  const { items, removeItem, setQuantity, subtotalUSD, subtotalSSP, area, setArea, clear, exchangeRate, setExchangeRate, currency, cartMode, restaurantId } = useCart();
   const { user } = useAuth();
   const navigate = useNavigate();
   
@@ -89,6 +89,24 @@ export default function Cart() {
 
   const total = (quote.total_usd ?? subtotalUSD);
 
+  // SSP-equivalent total = sum-of-lines-at-per-shop-rate + delivery (at global rate)
+  const deliveryFeeUSD = quote.delivery_fee_usd || 0;
+  const totalSSP = subtotalSSP + deliveryFeeUSD * (exchangeRate || 600);
+
+  // Formatters that honor per-line rates when displaying SSP totals
+  const fmtSubtotal = currency === "USD"
+    ? `$${subtotalUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : `SSP ${Math.round(subtotalSSP).toLocaleString()}`;
+  const fmtSubtotalAlt = currency === "USD"
+    ? `SSP ${Math.round(subtotalSSP).toLocaleString()}`
+    : `$${subtotalUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const fmtTotal = currency === "USD"
+    ? `$${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : `SSP ${Math.round(totalSSP).toLocaleString()}`;
+  const fmtTotalAlt = currency === "USD"
+    ? `SSP ${Math.round(totalSSP).toLocaleString()}`
+    : `$${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
@@ -119,8 +137,8 @@ export default function Cart() {
                     <p className="font-semibold text-[#1A1A1A]">{i.name}</p>
                     <p className="text-[10px] uppercase tracking-wider text-[#5C5C5C] font-bold mt-0.5">{i.item_type === "menu_item" ? "Menu Item" : "Product"}</p>
                     <div className="mt-2">
-                      <p className="font-display font-bold text-[#1A1A1A]">{formatPrice(i.price_usd, exchangeRate, currency)}</p>
-                      <p className="text-xs text-[#5C5C5C]">≈ {formatPriceAlt(i.price_usd, exchangeRate, currency)}</p>
+                      <p className="font-display font-bold text-[#1A1A1A]">{formatPrice(i.price_usd, i.exchange_rate_ssp || exchangeRate, currency)}</p>
+                      <p className="text-xs text-[#5C5C5C]">≈ {formatPriceAlt(i.price_usd, i.exchange_rate_ssp || exchangeRate, currency)}</p>
                     </div>
                   </div>
                   <div className="flex flex-col items-end justify-between">
@@ -183,7 +201,7 @@ export default function Cart() {
               <div className="border-t border-[#E2E2D9] pt-4 space-y-1.5">
                 <div className="flex justify-between text-sm text-[#5C5C5C]">
                   <span>Subtotal</span>
-                  <span data-testid="cart-subtotal">{formatPrice(subtotalUSD, exchangeRate, currency)}</span>
+                  <span data-testid="cart-subtotal">{fmtSubtotal}</span>
                 </div>
 
                 {quote.delivery_breakdown && quote.delivery_breakdown.length > 0 && (
@@ -211,9 +229,9 @@ export default function Cart() {
 
                 <div className="flex justify-between font-bold text-lg pt-2 border-t border-[#E2E2D9]">
                   <span>Total</span>
-                  <span className="font-display" data-testid="cart-total">{formatPrice(total, exchangeRate, currency)}</span>
+                  <span className="font-display" data-testid="cart-total">{fmtTotal}</span>
                 </div>
-                <p className="text-[11px] text-[#5C5C5C] text-right">≈ {formatPriceAlt(total, exchangeRate, currency)}</p>
+                <p className="text-[11px] text-[#5C5C5C] text-right">≈ {fmtTotalAlt}</p>
               </div>
 
               <button
@@ -222,7 +240,7 @@ export default function Cart() {
                 data-testid="place-order-btn"
                 className="w-full bg-[#C84B31] hover:bg-[#A83A23] disabled:bg-[#A3A39E] text-white font-semibold py-3.5 rounded-full transition"
               >
-                {placing ? "Placing..." : `Place Order · ${formatPrice(total, exchangeRate, currency)}`}
+                {placing ? "Placing..." : `Place Order · ${fmtTotal}`}
               </button>
               {!user && <p className="text-xs text-center text-[#5C5C5C]">You'll be asked to login first.</p>}
             </aside>

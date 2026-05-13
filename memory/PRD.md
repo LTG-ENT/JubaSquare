@@ -120,6 +120,25 @@ Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode fo
 - Callers updated to honor the new boolean return (`ProductCard`, `WholesaleCard`, `ProductDetail`, `Favorites`): success toasts only fire when `addItem` returned `true`. `RestaurantCard` already did this.
 - Verified e2e via Playwright: marketplace-first then menu-add → blocked; restaurant-first then product-add → blocked; cart count stays at 1 in both cases.
 
+### Iter 8 (Feb 2026) — Internal order chat + cart subtotal fix
+- **Cart subtotal bug fixed**: previously the cart context used a stale global rate (default 600 SSP/USD) while ProductDetail used the per-shop seller rate (~7000), so a product priced at 1,500 SSP showed a subtotal of 129. Fix:
+  - Backend already injects `exchange_rate_ssp` on every product. Cart items now carry that field via every `addItem(...)` caller (`ProductCard`, `WholesaleCard`, `ProductDetail`, `Favorites`).
+  - `CartContext` now also exposes `subtotalSSP` (sum of per-line `price_usd × qty × exchange_rate_ssp`).
+  - `Cart.jsx` displays line prices using each line's own rate and uses `subtotalSSP` for the SSP subtotal/total. Delivery (which is platform-wide) still uses the global rate. Verified: adding a 1,500 SSP product now shows subtotal SSP 1,500.
+- **Internal Order Chat (Customer ↔ Seller)** — new two-way messaging tied to orders, on top of the existing one-way `shop_messages`. Polling-based (12s open / 30s closed), text-only v1.
+  - Backend: new `order_messages` collection + endpoints:
+    - `POST /api/orders/{order_id}/chat` — send a message in the (order, seller) thread (auth verifies the user is either the order's customer or one of the order's sellers).
+    - `GET /api/orders/{order_id}/chat?seller_id=...` — list messages and mark them read for the current user.
+    - `GET /api/chats` — my conversations (aggregated by `(order_id, seller_id)` with last message preview, unread count, counterparty name).
+    - `GET /api/chats/unread-count` — badge counter for the FAB.
+    - `GET /api/orders/{order_id}/chat-sellers` — sellers for a given order (so the customer can pick the right thread when an order spans multiple shops).
+    - Notifications: each new message creates a `message`-type notification for the other side.
+  - Frontend:
+    - `FloatingChat.jsx` — Intercom-style bottom-right widget shown to every logged-in user. Closed state = orange chat FAB above the dark-mode toggle, with unread badge. Open state = panel with conversation list → thread view (bubbles, send box).
+    - `OrderChatButton.jsx` — drop-in "Chat about this order" button. Resolves sellers for the order; auto-opens if one, shows a small picker if multiple. Sets `?chat=orderId:sellerId` in the URL which `FloatingChat` consumes to deep-link into a thread.
+    - Mounted globally in `App.js`. Buttons wired into the customer's `Orders.jsx` (marketplace card footer) and the seller's `OrdersTab` (next to status dropdown).
+  - **Verified e2e**: customer sends → seller GET returns it → seller replies → customer `unread = 1`, `/chats` shows thread, FAB badge shows "1", clicking opens the thread with correct bubble sides, typing + Send appends a new bubble live.
+
 ### Iter 7 hotfix (Feb 2026) — AdminSettingsTab Dark Mode build fix
 - **Bug**: `AdminSettingsTab.jsx` was unbuildable. Previous edit inserted the entire `DarkModeToggle` function body in the middle of `GlobalInvoiceFrequency`'s `<button>` JSX (between `disabled={saving}` and `className=...`), orphaning the button's closing tag → `SyntaxError: Unexpected token (1153:23)`.
 - **Fix** (`AdminSettingsTab.jsx`):

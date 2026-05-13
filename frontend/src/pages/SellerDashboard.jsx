@@ -5,6 +5,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ImageUpload from "@/components/ImageUpload";
 import AreaSelectField from "@/components/AreaSelectField";
+import OrderChatButton from "@/components/OrderChatButton";
 import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle, ExternalLink, MessageCircle, Mail, Phone, ChefHat } from "lucide-react";
 import { useSearchParams, Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -1901,16 +1902,19 @@ function OrdersTab() {
                 </td>
                 <td className="p-4 font-bold">{formatUSD(o.subtotal_usd)}</td>
                 <td className="p-4">
-                  <select
-                    value={o.status}
-                    onChange={(e) => updateStatus(o.id, e.target.value)}
-                    data-testid={`seller-order-status-${o.id}`}
-                    className="bg-white border border-[#E2E2D9] rounded-full px-3 py-1.5 text-xs font-semibold focus:border-[#C84B31] focus:outline-none"
-                  >
-                    <option>Pending</option>
-                    <option>In Progress</option>
-                    <option>Delivered</option>
-                  </select>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={o.status}
+                      onChange={(e) => updateStatus(o.id, e.target.value)}
+                      data-testid={`seller-order-status-${o.id}`}
+                      className="bg-white border border-[#E2E2D9] rounded-full px-3 py-1.5 text-xs font-semibold focus:border-[#C84B31] focus:outline-none"
+                    >
+                      <option>Pending</option>
+                      <option>In Progress</option>
+                      <option>Delivered</option>
+                    </select>
+                    <OrderChatButton orderId={o.id} label="Chat" />
+                  </div>
                 </td>
               </tr>
               );

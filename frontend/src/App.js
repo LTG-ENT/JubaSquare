@@ -10,6 +10,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import RouteLoader from "@/components/RouteLoader";
 import DarkModeIconButton from "@/components/DarkModeIconButton";
+import FloatingChat from "@/components/FloatingChat";
 
 // ---------------------------------------------------------------------------
 // Eagerly bundled (small + commonly first-paint on a cold visit)
@@ -100,6 +101,7 @@ export default function App() {
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </Suspense>
+              <FloatingChat />
             </BrowserRouter>
             <DarkModeIconButton />
             <Toaster

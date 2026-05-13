@@ -100,6 +100,7 @@ export default function ProductDetail() {
       name: product.name,
       price_usd: unitPrice,
       image_url: product.image_url,
+      exchange_rate_ssp: product.exchange_rate_ssp,
       quantity: qty,
     });
     if (ok) toast.success(`${qty}× ${product.name} added to cart`);

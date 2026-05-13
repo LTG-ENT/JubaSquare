@@ -523,6 +523,12 @@ class TrendingClickIn(BaseModel):
     target_id: str
 
 
+class OrderChatMessageIn(BaseModel):
+    """A single chat message between customer and seller about an order."""
+    seller_id: str
+    body: str = Field(min_length=1, max_length=2000)
+
+
 class SettingsIn(BaseModel):
     global_rate: Optional[float] = None
     currency_display: Optional[bool] = None
@@ -2992,6 +2998,181 @@ async def update_status(order_id: str, body: StatusIn, _: dict = Depends(require
         )
 
     return await db.orders.find_one({"id": order_id}, {"_id": 0})
+
+
+# ----------------------------------------------------------------------------
+# Order Chat — internal two-way messaging between customer and seller(s)
+# ----------------------------------------------------------------------------
+async def _resolve_order_seller_ids(order_id: str) -> tuple[Optional[dict], list[str]]:
+    """Return (order, [seller_ids]) for the given order, computing sellers from
+    its items via products → shops. Returns (None, []) if the order is missing."""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        return None, []
+    item_ids = [it.get("item_id") for it in order.get("items", []) if it.get("item_id")]
+    if not item_ids:
+        return order, []
+    products = await db.products.find({"id": {"$in": item_ids}}, {"_id": 0, "shop_id": 1}).to_list(2000)
+    shop_ids = list({p.get("shop_id") for p in products if p.get("shop_id")})
+    if not shop_ids:
+        return order, []
+    shops = await db.shops.find({"id": {"$in": shop_ids}}, {"_id": 0, "seller_id": 1}).to_list(500)
+    seller_ids = list({s.get("seller_id") for s in shops if s.get("seller_id")})
+    return order, seller_ids
+
+
+@api.post("/orders/{order_id}/chat")
+async def send_order_chat(order_id: str, body: OrderChatMessageIn, user: dict = Depends(get_current_user)):
+    order, seller_ids = await _resolve_order_seller_ids(order_id)
+    if not order:
+        raise HTTPException(404, "Order not found")
+    is_customer = user["id"] == order.get("customer_id")
+    is_seller = user["id"] in seller_ids and user["id"] == body.seller_id
+    if not (is_customer or is_seller):
+        raise HTTPException(403, "You are not part of this order conversation")
+    if is_customer and body.seller_id not in seller_ids:
+        raise HTTPException(400, "Invalid seller for this order")
+
+    msg = {
+        "id": str(uuid.uuid4()),
+        "order_id": order_id,
+        "customer_id": order.get("customer_id"),
+        "seller_id": body.seller_id,
+        "sender_id": user["id"],
+        "sender_role": "customer" if is_customer else "seller",
+        "body": body.body.strip(),
+        "read_by_customer": is_customer,
+        "read_by_seller": is_seller,
+        "created_at": now_iso(),
+    }
+    await db.order_messages.insert_one(msg)
+    msg.pop("_id", None)
+
+    # Notify the other side
+    if is_customer:
+        await create_notification(
+            user_id=body.seller_id,
+            message=f"New message about Order #{order_id[:8]} from {user.get('name', 'a customer')}.",
+            ntype="message",
+            meta={"order_id": order_id, "seller_id": body.seller_id, "chat": True},
+        )
+    else:
+        await create_notification(
+            user_id=order.get("customer_id"),
+            message=f"New message about Order #{order_id[:8]} from the seller.",
+            ntype="message",
+            meta={"order_id": order_id, "seller_id": body.seller_id, "chat": True},
+        )
+    return msg
+
+
+@api.get("/orders/{order_id}/chat")
+async def get_order_chat(order_id: str, seller_id: str, user: dict = Depends(get_current_user)):
+    order, seller_ids = await _resolve_order_seller_ids(order_id)
+    if not order:
+        raise HTTPException(404, "Order not found")
+    is_customer = user["id"] == order.get("customer_id")
+    is_seller = user["id"] in seller_ids and user["id"] == seller_id
+    if not (is_customer or is_seller):
+        raise HTTPException(403, "You are not part of this order conversation")
+    if is_customer and seller_id not in seller_ids:
+        raise HTTPException(400, "Invalid seller for this order")
+
+    messages = await db.order_messages.find(
+        {"order_id": order_id, "seller_id": seller_id},
+        {"_id": 0},
+    ).sort("created_at", 1).to_list(2000)
+
+    # Mark messages from the other side as read by me
+    read_field = "read_by_customer" if is_customer else "read_by_seller"
+    await db.order_messages.update_many(
+        {"order_id": order_id, "seller_id": seller_id, read_field: False},
+        {"$set": {read_field: True}},
+    )
+    return messages
+
+
+@api.get("/chats")
+async def list_my_chats(user: dict = Depends(get_current_user)):
+    """List all chat threads (one per order-seller pair) the current user is part of."""
+    role = user.get("role")
+    if role == "seller":
+        match = {"seller_id": user["id"]}
+        read_field = "read_by_seller"
+    else:
+        match = {"customer_id": user["id"]}
+        read_field = "read_by_customer"
+
+    pipeline = [
+        {"$match": match},
+        {"$sort": {"created_at": 1}},
+        {
+            "$group": {
+                "_id": {"order_id": "$order_id", "seller_id": "$seller_id"},
+                "customer_id": {"$last": "$customer_id"},
+                "last_body": {"$last": "$body"},
+                "last_role": {"$last": "$sender_role"},
+                "last_at": {"$last": "$created_at"},
+                "unread": {
+                    "$sum": {"$cond": [{"$eq": [f"${read_field}", False]}, 1, 0]}
+                },
+            }
+        },
+        {"$sort": {"last_at": -1}},
+        {"$limit": 100},
+    ]
+    raw = await db.order_messages.aggregate(pipeline).to_list(500)
+
+    # Resolve counterparty names + order short id in one batch
+    seller_ids = list({r["_id"]["seller_id"] for r in raw})
+    customer_ids = list({r["customer_id"] for r in raw if r.get("customer_id")})
+    sellers = await db.users.find({"id": {"$in": seller_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(500)
+    customers = await db.users.find({"id": {"$in": customer_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(500)
+    seller_map = {s["id"]: s.get("name", "Seller") for s in sellers}
+    customer_map = {c["id"]: c.get("name", "Customer") for c in customers}
+
+    out = []
+    for r in raw:
+        order_id = r["_id"]["order_id"]
+        sid = r["_id"]["seller_id"]
+        out.append({
+            "order_id": order_id,
+            "order_short_id": order_id[:8],
+            "seller_id": sid,
+            "customer_id": r.get("customer_id"),
+            "counterparty_name": (
+                seller_map.get(sid, "Seller") if role != "seller"
+                else customer_map.get(r.get("customer_id"), "Customer")
+            ),
+            "last_message": r.get("last_body", ""),
+            "last_at": r.get("last_at"),
+            "last_role": r.get("last_role"),
+            "unread": int(r.get("unread") or 0),
+        })
+    return out
+
+
+@api.get("/chats/unread-count")
+async def my_chat_unread_count(user: dict = Depends(get_current_user)):
+    role = user.get("role")
+    if role == "seller":
+        q = {"seller_id": user["id"], "read_by_seller": False, "sender_role": "customer"}
+    else:
+        q = {"customer_id": user["id"], "read_by_customer": False, "sender_role": "seller"}
+    count = await db.order_messages.count_documents(q)
+    return {"count": count}
+
+
+@api.get("/orders/{order_id}/chat-sellers")
+async def list_order_chat_sellers(order_id: str, user: dict = Depends(get_current_user)):
+    """For an order, return the list of sellers the current user can chat with."""
+    order, seller_ids = await _resolve_order_seller_ids(order_id)
+    if not order:
+        raise HTTPException(404, "Order not found")
+    if user["id"] != order.get("customer_id") and user["id"] not in seller_ids:
+        raise HTTPException(403, "You are not part of this order")
+    sellers = await db.users.find({"id": {"$in": seller_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(50)
+    return [{"seller_id": s["id"], "name": s.get("name", "Seller")} for s in sellers]
 
 
 # ----------------------------------------------------------------------------

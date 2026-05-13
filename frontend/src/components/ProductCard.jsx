@@ -30,6 +30,7 @@ export default function ProductCard({ product, shop }) {
       name: product.name,
       price_usd: product.price_usd,
       image_url: product.image_url,
+      exchange_rate_ssp: product.exchange_rate_ssp,
       quantity: 1,
     });
     if (ok) toast.success(`${product.name} added to cart`);
