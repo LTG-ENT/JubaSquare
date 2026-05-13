@@ -454,12 +454,9 @@ metadata:
 
 test_plan:
   current_focus:
-    - "COD/Driver backend - role + signup/admin user mgmt"
-    - "COD/Driver backend - place_order with splits + price recalc"
-    - "COD/Driver backend - restaurant order COD init + price recalc"
-    - "COD/Driver backend - admin endpoints (drivers, assign, cash, payouts, disputes)"
-    - "COD/Driver backend - driver endpoints (assignments, pickup, deliver, cash, failed, return)"
-    - "COD/Driver backend - seller endpoints (splits, wallet, payouts, accept/prepare/ready/handed/return-received)"
+    - "Kitchen History Endpoint - GET /api/restaurant-orders/restaurant/{restaurant_id}?include_history=true"
+    - "Admin Shops & Restaurants Combined Endpoint - GET /api/admin/shops-and-restaurants"
+    - "OTP Endpoints - POST /api/admin/payouts/{id}/generate-otp & confirm-otp (Smoke Test)"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -2123,6 +2120,44 @@ agent_communication:
 
         Credentials: see /app/memory/test_credentials.md (admin + demo driver). Create seller/customer fresh per test as needed.
 
+    - agent: "testing"
+      message: |
+        ✅ CONTINUATION FEATURES TESTING COMPLETE (3/3 tests PASSED)
+        
+        Tested all three newly implemented backend endpoints for continuation features:
+        
+        **1. Kitchen History Endpoint (PASSED):**
+        - GET /api/restaurant-orders/restaurant/{restaurant_id}?include_history=true
+        - WITHOUT include_history: Returns only active orders (excludes handed_to_driver, completed, cancelled) ✓
+        - WITH include_history=true: Returns all orders including historical ones ✓
+        - Filtering logic working correctly ✓
+        - Seller authentication and authorization working ✓
+        
+        **2. Admin Shops & Restaurants Combined Endpoint (PASSED):**
+        - GET /api/admin/shops-and-restaurants
+        - WITHOUT type_filter: Returns both shops and restaurants ✓
+        - WITH type_filter="shops": Returns only shops (restaurants array empty) ✓
+        - WITH type_filter="restaurants": Returns only restaurants (shops array empty) ✓
+        - Response structure correct: {shops: [], restaurants: [], total_shops: int, total_restaurants: int} ✓
+        - Pagination working correctly (limit parameter) ✓
+        - Admin authentication and authorization working ✓
+        
+        **3. OTP Endpoints (Smoke Test PASSED):**
+        - POST /api/admin/payouts/{id}/generate-otp: Endpoint exists and callable ✓
+        - POST /api/admin/payouts/{id}/confirm-otp: Endpoint exists and callable ✓
+        - Both endpoints properly gated to admin role ✓
+        - Return appropriate responses (404 for non-existent payouts) ✓
+        
+        **Test Setup:**
+        - Created test accounts: seller@demo.com, customer@demo.com ✓
+        - Admin account: admin@ltg.com (from backend/.env) ✓
+        - Created test restaurant for kitchen history testing ✓
+        - All authentication flows working correctly ✓
+        
+        **NO CRITICAL ISSUES FOUND.**
+        
+        All three continuation feature endpoints working correctly with proper authentication, authorization, filtering, and response structures. Ready for frontend integration.
+
 agent_communication:
     - agent: "testing"
       message: |
@@ -2288,3 +2323,121 @@ backend_otp_fix:
             The fix correctly implements the security requirement that customers should only see their own delivery OTP (customer_delivery_otp) and should NOT see seller/driver OTPs (seller_pickup_otp, return_otp).
             
             **NO ISSUES FOUND.** All endpoints working correctly with proper OTP visibility controls.
+
+backend_continuation:
+  - task: "Kitchen History Endpoint - GET /api/restaurant-orders/restaurant/{restaurant_id}?include_history=true"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: |
+            ✅ PASSED all Kitchen History Endpoint tests:
+            
+            **Test 1: WITHOUT include_history param (default behavior):**
+            - GET /api/restaurant-orders/restaurant/{restaurant_id} returns 200 ✓
+            - Returns only active orders (excludes historical orders) ✓
+            - Verified no orders with seller_preparation_status="handed_to_driver" ✓
+            - Verified no orders with status in ["completed", "cancelled", "cancel_approved"] ✓
+            - Verified no orders with delivery_status in ["delivered", "returned_to_seller"] ✓
+            
+            **Test 2: WITH include_history=true:**
+            - GET /api/restaurant-orders/restaurant/{restaurant_id}?include_history=true returns 200 ✓
+            - Returns all orders including historical ones ✓
+            - Verified count >= orders without include_history ✓
+            - Historical orders correctly included when they exist ✓
+            
+            **Test Setup:**
+            - Created test restaurant for seller successfully ✓
+            - Seller authentication working correctly ✓
+            - Endpoint properly gated to seller/admin roles ✓
+            
+            **Filtering Logic Verified:**
+            - Default (include_history=false): Excludes orders where:
+              • seller_preparation_status = "handed_to_driver" OR
+              • status in ["completed", "cancelled", "cancel_approved"] OR
+              • delivery_status in ["delivered", "returned_to_seller"]
+            - With include_history=true: Returns ALL orders regardless of status
+            
+            **NO ISSUES FOUND.** Kitchen history endpoint working correctly with proper filtering.
+
+  - task: "Admin Shops & Restaurants Combined Endpoint - GET /api/admin/shops-and-restaurants"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: |
+            ✅ PASSED all Admin Shops & Restaurants Combined Endpoint tests:
+            
+            **Test 1: WITHOUT type_filter (returns both):**
+            - GET /api/admin/shops-and-restaurants returns 200 ✓
+            - Response has correct structure: {shops: [], restaurants: [], total_shops: int, total_restaurants: int} ✓
+            - Both shops and restaurants arrays populated when data exists ✓
+            - Counts match actual data (total_shops and total_restaurants) ✓
+            
+            **Test 2: WITH type_filter="shops":**
+            - GET /api/admin/shops-and-restaurants?type_filter=shops returns 200 ✓
+            - Returns only shops (restaurants array empty) ✓
+            - total_restaurants = 0 ✓
+            - total_shops reflects actual shop count ✓
+            
+            **Test 3: WITH type_filter="restaurants":**
+            - GET /api/admin/shops-and-restaurants?type_filter=restaurants returns 200 ✓
+            - Returns only restaurants (shops array empty) ✓
+            - total_shops = 0 ✓
+            - total_restaurants reflects actual restaurant count ✓
+            
+            **Test 4: Pagination:**
+            - GET /api/admin/shops-and-restaurants?limit=2 returns 200 ✓
+            - Pagination works correctly (max 2 items per array) ✓
+            - Limit applies to both shops and restaurants independently ✓
+            
+            **Auth & Permissions:**
+            - Endpoint properly gated to admin role only ✓
+            - Admin authentication working correctly ✓
+            
+            **NO ISSUES FOUND.** Admin combined endpoint working correctly with proper filtering and pagination.
+
+  - task: "OTP Endpoints - POST /api/admin/payouts/{id}/generate-otp & confirm-otp (Smoke Test)"
+    implemented: true
+    working: true
+    file: "/app/backend/cod.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: |
+            ✅ PASSED OTP Endpoints smoke tests:
+            
+            **Test 1: POST /api/admin/payouts/{id}/generate-otp:**
+            - Endpoint exists and is callable ✓
+            - Returns 404 for non-existent payout (expected behavior) ✓
+            - Admin authentication working correctly ✓
+            - No 401 (auth) or 405 (method not allowed) errors ✓
+            
+            **Test 2: POST /api/admin/payouts/{id}/confirm-otp:**
+            - Endpoint exists and is callable ✓
+            - Returns 404 for non-existent payout (expected behavior) ✓
+            - Accepts JSON body with otp field ✓
+            - Admin authentication working correctly ✓
+            - No 401 (auth) or 405 (method not allowed) errors ✓
+            
+            **Smoke Test Scope:**
+            - Verified endpoints exist and are accessible
+            - Verified proper HTTP methods (POST)
+            - Verified admin authentication required
+            - Did NOT test full OTP flow (generate → confirm with valid payout)
+            - Full OTP flow already tested in previous COD/Driver testing iteration
+            
+            **NO ISSUES FOUND.** OTP endpoints exist and are properly configured.
