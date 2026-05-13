@@ -402,6 +402,7 @@ function PayoutsPane() {
   const [generating, setGenerating] = useState(false);
   const [payingIds, setPayingIds] = useState(new Set());
   const [otpModal, setOtpModal] = useState(null); // { payout, otp?, confirming? }
+  const { currency, exchangeRate } = useCart(); // Get currency preference
 
   const load = useCallback(async () => {
     try {
@@ -511,8 +512,8 @@ function PayoutsPane() {
                   <div className="text-xs text-[var(--js-text-secondary)]">{p.seller_email}</div>
                 </td>
                 <td className="px-3 py-2">{(p.split_ids?.length || 0) + (p.restaurant_order_ids?.length || 0)}</td>
-                <td className="px-3 py-2 font-semibold text-emerald-700">{formatUSD(p.amount_usd)}</td>
-                <td className="px-3 py-2">{formatUSD(p.commission_deducted_usd)}</td>
+                <td className="px-3 py-2 font-semibold text-emerald-700">{formatPrice(p.amount_usd, p.exchange_rate_ssp || exchangeRate, currency)}</td>
+                <td className="px-3 py-2">{formatPrice(p.commission_deducted_usd, p.exchange_rate_ssp || exchangeRate, currency)}</td>
                 <td className="px-3 py-2"><Pill value={p.status} /></td>
                 <td className="px-3 py-2 text-right space-x-1">
                   <button onClick={() => open(p)} className="text-xs px-2 py-1 rounded-full hover:bg-gray-100"><Eye className="w-4 h-4 inline" /></button>
@@ -607,7 +608,7 @@ function PayoutsPane() {
                     {otpModal.otp}
                   </p>
                   <p className="text-xs text-blue-800">
-                    Amount: {formatUSD(otpModal.payout.amount_usd)}
+                    Amount: {formatPrice(otpModal.payout.amount_usd, otpModal.payout.exchange_rate_ssp || exchangeRate, currency)}
                   </p>
                 </div>
               )}

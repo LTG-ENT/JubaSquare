@@ -123,6 +123,7 @@ export default function RestaurantCheckout() {
         customer_name: customerName,
         customer_phone: customerPhone,
         customer_address: deliveryType === "delivery" ? customerAddress : "",
+        customer_area: deliveryArea,  // NEW: Pass customer area for delivery fee calculation
         payment_method: paymentMethod,
         note: note,
       };

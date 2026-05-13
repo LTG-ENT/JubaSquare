@@ -471,6 +471,7 @@ class RestaurantOrderIn(BaseModel):
     customer_name: str
     customer_phone: str
     customer_address: Optional[str] = ""  # Required for delivery
+    customer_area: Optional[str] = ""  # NEW: Customer delivery area for pricing calculation
     payment_method: Literal["cash", "mobile_money"] = "cash"
     note: Optional[str] = ""
 
@@ -2169,7 +2170,7 @@ async def quote_restaurant_order(body: RestaurantOrderIn, user: dict = Depends(g
         raise HTTPException(404, "Restaurant not found")
     
     pickup_area = restaurant.get("area", "")
-    delivery_area = body.customer_area if hasattr(body, 'customer_area') else user.get("area", "")
+    delivery_area = body.customer_area or user.get("area", "")
     
     # Calculate using admin rules
     from cod import _calculate_delivery_fee
@@ -2218,8 +2219,8 @@ async def create_restaurant_order(body: RestaurantOrderIn, user: dict = Depends(
     if body.delivery_type == "delivery":
         # Get restaurant area as pickup area
         pickup_area = restaurant.get("area", "")
-        # Get customer area from user profile or default
-        delivery_area = user.get("area", "")
+        # Get customer area from request body (preferred) or user profile fallback
+        delivery_area = body.customer_area or user.get("area", "")
         
         # Calculate using admin rules
         delivery_fee = await _calculate_delivery_fee(

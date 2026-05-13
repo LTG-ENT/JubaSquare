@@ -2360,10 +2360,24 @@ async def _generate_payouts(seller_id: Optional[str]) -> dict:
 
     created = []
     now = now_iso()
+    
+    # Get system settings for global rate
+    sysconf = await get_settings()
+    global_rate = float(sysconf.get("global_rate", 600.0))
+    
+    # Get all sellers' exchange rates
+    seller_ids_list = list(by_seller.keys())
+    rate_records = await db.exchange_rates.find(
+        {"seller_id": {"$in": seller_ids_list}}, {"_id": 0}
+    ).to_list(1000)
+    rate_by_seller = {r["seller_id"]: float(r.get("rate", global_rate)) for r in rate_records}
+    
     for sid, bucket in by_seller.items():
         if not bucket["splits"] and not bucket["rests"]:
             continue
         seller = await db.users.find_one({"id": sid}, {"_id": 0, "name": 1, "email": 1})
+        seller_rate = rate_by_seller.get(sid, global_rate)
+        
         payout = {
             "id": str(uuid.uuid4()),
             "seller_id": sid,
@@ -2373,6 +2387,7 @@ async def _generate_payouts(seller_id: Optional[str]) -> dict:
             "restaurant_order_ids": bucket["rests"],
             "amount_usd": round(bucket["amount"], 2),
             "commission_deducted_usd": round(bucket["commission"], 2),
+            "exchange_rate_ssp": seller_rate,  # NEW: Seller's exchange rate for SSP conversion
             "status": "pending_payout",
             "created_at": now,
             "updated_at": now,
