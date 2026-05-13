@@ -139,6 +139,19 @@ Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode fo
     - Mounted globally in `App.js`. Buttons wired into the customer's `Orders.jsx` (marketplace card footer) and the seller's `OrdersTab` (next to status dropdown).
   - **Verified e2e**: customer sends → seller GET returns it → seller replies → customer `unread = 1`, `/chats` shows thread, FAB badge shows "1", clicking opens the thread with correct bubble sides, typing + Send appends a new bubble live.
 
+### Iter 9 (Feb 2026) — Customer Order Cancellation UI + Cancel infra hardening
+- **Feature**: Customers can now cancel their own active orders (marketplace + restaurant) directly from `/orders` while the order is still cancellable (seller `seller_preparation_status` not yet `ready_for_pickup`).
+- **UI**:
+  - New `CancelOrderModal` in `/app/frontend/src/pages/Orders.jsx` — optional reason textarea (max 500 chars), confirm/keep buttons, full data-testid coverage (`cancel-marketplace-order-{id}`, `cancel-restaurant-order-{id}`, `cancel-order-modal`, `cancel-reason-input`, `confirm-cancel-order-btn`, `keep-order-btn`, `close-cancel-modal`).
+  - Cancel button visible on marketplace orders with `status === "Pending"` and restaurant orders with `status ∈ {pending, accepted, cooking}`. Hidden once order is past pickup.
+  - On confirm, calls `POST /api/customer/orders/{id}/cancel` (marketplace; per-split results) or `POST /api/customer/restaurant-orders/{id}/cancel` (restaurant). Refreshes order list and renders proper toast based on success / partial / full failure.
+- **Backend hardening** (`/app/backend/cod.py`):
+  - Moved `class CancelBody(BaseModel)` from the `register_cod_routes()` closure to **module level**. FastAPI was treating the closure-scoped Pydantic class as a query param, causing every cancel endpoint to return 422.
+- **Error rendering hardening** (`/app/frontend/src/lib/api.js`):
+  - New exported helper `extractErrorMessage(err, fallback)` coerces FastAPI 422 `List[Dict]` detail (and 400 string detail) into a safe printable string before it ever reaches `toast`/JSX. Prevents the "Objects are not valid as a React child" ErrorBoundary crash. Used by `Orders.jsx`.
+- **Kitchen routing bug fix**: `/app/frontend/src/pages/KitchenDashboard.jsx` was destructuring `restaurant_id` from `useParams()` but the route param is `restaurantId` (camelCase, declared in `App.js`). Fixed → kitchen dashboard now actually loads the restaurant on mount, "Restaurant not found" toast gone.
+- **Verified e2e (iter8 testing agent)**: Customer placed fresh orders, opened modal, typed reason, confirmed — both marketplace and restaurant cancels round-tripped to backend `200`, order status flipped to `Cancelled`, cancel button disappeared. Error path (cancelling an already-cancelled order) renders as a clean toast, no React crash. Seller wallet & kitchen dashboard PII redaction also re-verified — customer phone/address never appear, only customer name.
+
 ### Iter 7 hotfix (Feb 2026) — AdminSettingsTab Dark Mode build fix
 - **Bug**: `AdminSettingsTab.jsx` was unbuildable. Previous edit inserted the entire `DarkModeToggle` function body in the middle of `GlobalInvoiceFrequency`'s `<button>` JSX (between `disabled={saving}` and `className=...`), orphaning the button's closing tag → `SyntaxError: Unexpected token (1153:23)`.
 - **Fix** (`AdminSettingsTab.jsx`):
