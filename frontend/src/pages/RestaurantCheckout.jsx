@@ -46,7 +46,6 @@ export default function RestaurantCheckout() {
     api.get(`/restaurants/${restaurantId}`)
       .then((r) => {
         setRestaurant(r.data);
-        calculateDeliveryFee(r.data);
         setLoading(false);
       })
       .catch(() => {
