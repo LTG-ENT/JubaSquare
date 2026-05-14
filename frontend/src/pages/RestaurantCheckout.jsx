@@ -91,6 +91,9 @@ export default function RestaurantCheckout() {
   
   const total = subtotalUSD + deliveryFee;
   
+  // Get seller's exchange rate from first item (all items from same restaurant have same seller rate)
+  const sellerExchangeRate = items.length > 0 && items[0].exchange_rate_ssp ? items[0].exchange_rate_ssp : exchangeRate;
+
   const placeOrder = async () => {
     // Validation
     if (!customerName.trim()) {
@@ -348,7 +351,7 @@ export default function RestaurantCheckout() {
                       )}
                     </div>
                     <div className="font-semibold text-[var(--js-text)] whitespace-nowrap">
-                      {formatPrice(item.price_usd * item.quantity, exchangeRate, currency)}
+                      {formatPrice(item.price_usd * item.quantity, item.exchange_rate_ssp || sellerExchangeRate, currency)}
                     </div>
                   </div>
                 ))}
@@ -358,7 +361,7 @@ export default function RestaurantCheckout() {
                 <div className="flex justify-between text-sm">
                   <span className="text-[var(--js-text-secondary)]">Subtotal</span>
                   <span className="font-semibold text-[var(--js-text)]">
-                    {formatPrice(subtotalUSD, exchangeRate, currency)}
+                    {formatPrice(subtotalUSD, sellerExchangeRate, currency)}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
@@ -370,7 +373,10 @@ export default function RestaurantCheckout() {
                 <div className="flex justify-between text-lg font-bold pt-2 border-t border-[var(--js-border)]">
                   <span className="text-[var(--js-text)]">Total</span>
                   <span className="text-[#C84B31]">
-                    {formatPrice(total, exchangeRate, currency)}
+                    {currency === "USD" 
+                      ? formatPrice(total, exchangeRate, currency)
+                      : `${currency} ${((subtotalUSD * sellerExchangeRate) + (deliveryFee * exchangeRate)).toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0})}`
+                    }
                   </span>
                 </div>
               </div>
