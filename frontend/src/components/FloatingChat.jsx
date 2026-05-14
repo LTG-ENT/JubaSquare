@@ -74,12 +74,8 @@ export default function FloatingChat() {
     let timer;
     const tick = async () => {
       try {
-        // Only show order chats for "out_for_delivery" orders
         const r = await api.get("/chats");
-        const filteredThreads = (r.data || []).filter(t => 
-          t.order_status === "out_for_delivery" || t.delivery_status === "out_for_delivery"
-        );
-        setThreads(filteredThreads);
+        setThreads(r.data || []);
         
         // Load shop messages for customers (only those with replies)
         if (user.role === "customer") {
