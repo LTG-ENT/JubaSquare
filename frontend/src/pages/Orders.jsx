@@ -621,14 +621,10 @@ export default function Orders() {
               const isNew = o.id === newId;
               const isDelivered = o.status === "Delivered";
               
-              // Get splits for this order to check if all delivered
+              // Get splits for this order to check if all delivered and show OTPs
               const splits = orderSplits[o.id] || [];
               const allSplitsDelivered = splits.length > 0 && splits.every(s => s.delivery_status === "delivered");
-              
               const canCancelMp = CUSTOMER_CANCELLABLE_MP_STATUSES.has(o.status) && !allSplitsDelivered;
-              
-              // Get splits for this order to show OTPs
-              const splits = orderSplits[o.id] || [];
               const splitsOutForDelivery = splits.filter(s => s.delivery_status === "out_for_delivery");
 
               return (
