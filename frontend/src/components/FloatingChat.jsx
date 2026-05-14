@@ -23,7 +23,9 @@ export default function FloatingChat() {
 
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
+  const [view, setView] = useState("list"); // "list" | "order-chat" | "shop-messages"
   const [threads, setThreads] = useState([]);
+  const [shopMessages, setShopMessages] = useState([]);
   const [active, setActive] = useState(null); // {order_id, seller_id, counterparty_name, order_short_id}
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState("");
@@ -45,14 +47,19 @@ export default function FloatingChat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.search, user]);
 
-  // Poll unread count
+  // Poll unread count (both order chats + shop messages for customers)
   useEffect(() => {
     if (!user) return;
     let timer;
     const tick = async () => {
       try {
-        const r = await api.get("/chats/unread-count");
-        setUnread(r.data?.count || 0);
+        const chatUnread = await api.get("/chats/unread-count");
+        let shopUnread = 0;
+        if (user.role === "customer") {
+          const shopRes = await api.get("/messages/customer/unread-count");
+          shopUnread = shopRes.data?.count || 0;
+        }
+        setUnread((chatUnread.data?.count || 0) + shopUnread);
       } catch {}
       timer = setTimeout(tick, open ? POLL_OPEN_MS : POLL_CLOSED_MS);
     };
@@ -62,18 +69,24 @@ export default function FloatingChat() {
 
   // Load threads when widget opens (and refresh on poll while open)
   useEffect(() => {
-    if (!user || !open || active) return;
+    if (!user || !open || view !== "list") return;
     let timer;
     const tick = async () => {
       try {
         const r = await api.get("/chats");
         setThreads(r.data || []);
+        
+        // Load shop messages for customers
+        if (user.role === "customer") {
+          const shopRes = await api.get("/messages/customer?limit=50");
+          setShopMessages(shopRes.data || []);
+        }
       } catch {}
       timer = setTimeout(tick, POLL_OPEN_MS);
     };
     tick();
     return () => clearTimeout(timer);
-  }, [user, open, active]);
+  }, [user, open, view]);
 
   // Poll messages while a thread is open
   useEffect(() => {
@@ -97,9 +110,25 @@ export default function FloatingChat() {
 
   const openThread = async (t) => {
     setActive(t);
+    setView("order-chat");
     setOpen(true);
     setMessages([]);
     setDraft("");
+  };
+
+  const openShopMessages = () => {
+    setView("shop-messages");
+    setActive(null);
+    setMessages([]);
+  };
+
+  const markShopReplyRead = async (msgId) => {
+    try {
+      await api.put(`/messages/${msgId}/mark-reply-read`);
+      setShopMessages((prev) =>
+        prev.map((m) => (m.id === msgId ? { ...m, reply_read_by_customer: true } : m))
+      );
+    } catch {}
   };
 
   const send = async (e) => {
@@ -155,10 +184,10 @@ export default function FloatingChat() {
     >
       {/* Header */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--js-border)] bg-[var(--js-subtle)]">
-        {active ? (
+        {view !== "list" ? (
           <button
             type="button"
-            onClick={() => { setActive(null); setMessages([]); }}
+            onClick={() => { setView("list"); setActive(null); setMessages([]); }}
             data-testid="chat-back-button"
             className="p-1 rounded-full hover:bg-white/40"
             aria-label="Back to conversations"
@@ -170,9 +199,9 @@ export default function FloatingChat() {
         )}
         <div className="flex-1 min-w-0">
           <p className="font-display font-bold text-sm text-[var(--js-text)] truncate">
-            {active ? (active.counterparty_name || "Conversation") : "Messages"}
+            {view === "order-chat" ? (active?.counterparty_name || "Conversation") : view === "shop-messages" ? "Shop Messages" : "Messages"}
           </p>
-          {active && (
+          {view === "order-chat" && active && (
             <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)] truncate">
               Order #{active.order_short_id}
             </p>
@@ -190,54 +219,161 @@ export default function FloatingChat() {
       </div>
 
       {/* Body */}
-      {!active ? (
-        <div ref={bodyRef} className="flex-1 overflow-y-auto">
-          {threads.length === 0 ? (
-            <div className="p-6 text-center text-sm text-[var(--js-text-secondary)]">
-              <MessageCircle className="w-8 h-8 mx-auto mb-3 opacity-40" />
-              <p className="font-semibold text-[var(--js-text)] mb-1">No conversations yet</p>
-              <p className="text-xs">
-                Open one of your orders and tap <strong>Chat about this order</strong> to start.
+      {view === "list" ? (
+        <div className="flex-1 overflow-y-auto flex flex-col">
+          {/* Tabs for customers */}
+          {user.role === "customer" && (
+            <div className="flex border-b border-[var(--js-border)] bg-[var(--js-paper)]">
+              <button
+                className="flex-1 px-4 py-2 text-xs font-bold text-[var(--js-text)] border-b-2 border-[#C84B31]"
+              >
+                Order Chats ({threads.length})
+              </button>
+              <button
+                onClick={openShopMessages}
+                className="flex-1 px-4 py-2 text-xs font-bold text-[var(--js-text-secondary)] hover:text-[var(--js-text)] border-b-2 border-transparent hover:border-[var(--js-border)]"
+              >
+                Shop Messages ({shopMessages.length})
+                {shopMessages.filter(m => m.conversation_status === "replied" && !m.reply_read_by_customer).length > 0 && (
+                  <span className="ml-1 bg-[#2D6A4F] text-white text-[10px] font-bold rounded-full px-1.5 py-0.5">
+                    {shopMessages.filter(m => m.conversation_status === "replied" && !m.reply_read_by_customer).length}
+                  </span>
+                )}
+              </button>
+            </div>
+          )}
+          
+          <div ref={bodyRef} className="flex-1 overflow-y-auto">
+            {threads.length === 0 ? (
+              <div className="p-6 text-center text-sm text-[var(--js-text-secondary)]">
+                <MessageCircle className="w-8 h-8 mx-auto mb-3 opacity-40" />
+                <p className="font-semibold text-[var(--js-text)] mb-1">No conversations yet</p>
+                <p className="text-xs">
+                  Open one of your orders and tap <strong>Chat about this order</strong> to start.
+                </p>
+              </div>
+            ) : (
+              <ul className="divide-y divide-[var(--js-border)]">
+                {threads.map((t) => (
+                  <li key={`${t.order_id}:${t.seller_id}`}>
+                    <button
+                      type="button"
+                      onClick={() => openThread(t)}
+                      data-testid={`chat-thread-${t.order_id}`}
+                      className="w-full text-left px-4 py-3 hover:bg-[var(--js-subtle)] transition flex items-start gap-3"
+                    >
+                      <div className="w-9 h-9 rounded-full bg-[#C84B31]/15 text-[#C84B31] flex items-center justify-center flex-shrink-0 font-bold text-sm">
+                        {(t.counterparty_name || "?").charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="font-semibold text-sm text-[var(--js-text)] truncate">
+                            {t.counterparty_name || "Conversation"}
+                          </p>
+                          {t.unread > 0 && (
+                            <span className="bg-[#C84B31] text-white text-[10px] font-bold rounded-full px-2 py-0.5">
+                              {t.unread}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">
+                          Order #{t.order_short_id}
+                        </p>
+                        <p className="text-xs text-[var(--js-text-secondary)] truncate mt-0.5">
+                          {t.last_role === "seller" ? "" : "You: "}{t.last_message}
+                        </p>
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      ) : view === "shop-messages" ? (
+        <div ref={bodyRef} className="flex-1 overflow-y-auto p-3">
+          {shopMessages.length === 0 ? (
+            <div className="text-center py-8">
+              <MessageCircle className="w-12 h-12 text-[var(--js-text-secondary)] mx-auto mb-3 opacity-30" />
+              <p className="text-sm text-[var(--js-text-secondary)]">No shop messages yet</p>
+              <p className="text-xs text-[var(--js-text-secondary)] mt-1">
+                Contact shops from their pages
               </p>
             </div>
           ) : (
-            <ul className="divide-y divide-[var(--js-border)]">
-              {threads.map((t) => (
-                <li key={`${t.order_id}:${t.seller_id}`}>
-                  <button
-                    type="button"
-                    onClick={() => openThread(t)}
-                    data-testid={`chat-thread-${t.order_id}`}
-                    className="w-full text-left px-4 py-3 hover:bg-[var(--js-subtle)] transition flex items-start gap-3"
+            <ul className="space-y-2">
+              {shopMessages.map((msg) => {
+                const hasReply = msg.conversation_status === "replied" && msg.reply_body;
+                const replyUnread = hasReply && !msg.reply_read_by_customer;
+
+                return (
+                  <li
+                    key={msg.id}
+                    className={`border rounded-xl p-3 ${
+                      replyUnread
+                        ? "border-[#2D6A4F] bg-[#E9F5E9]"
+                        : "border-[var(--js-border)] bg-white"
+                    }`}
                   >
-                    <div className="w-9 h-9 rounded-full bg-[#C84B31]/15 text-[#C84B31] flex items-center justify-center flex-shrink-0 font-bold text-sm">
-                      {(t.counterparty_name || "?").charAt(0).toUpperCase()}
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-bold text-[var(--js-text)]">
+                        {msg.shop_name}
+                      </p>
+                      {replyUnread && (
+                        <span className="text-[10px] uppercase tracking-wider font-bold text-[#2D6A4F]">
+                          ● NEW REPLY
+                        </span>
+                      )}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="font-semibold text-sm text-[var(--js-text)] truncate">
-                          {t.counterparty_name || "Conversation"}
+
+                    {msg.subject && (
+                      <p className="text-xs font-semibold text-[var(--js-text)] mb-1">
+                        {msg.subject}
+                      </p>
+                    )}
+                    <p className="text-xs text-[var(--js-text-secondary)] mb-2 line-clamp-2">
+                      You: {msg.body}
+                    </p>
+                    <p className="text-[10px] text-[var(--js-text-secondary)]">
+                      {new Date(msg.created_at).toLocaleString()}
+                    </p>
+
+                    {hasReply && (
+                      <div className="mt-2 pt-2 border-t border-[var(--js-border)]">
+                        <p className="text-[10px] uppercase tracking-wider font-bold text-[#2D6A4F] mb-1">
+                          Seller replied:
                         </p>
-                        {t.unread > 0 && (
-                          <span className="bg-[#C84B31] text-white text-[10px] font-bold rounded-full px-2 py-0.5">
-                            {t.unread}
-                          </span>
-                        )}
+                        <p className="text-xs text-[var(--js-text)] whitespace-pre-wrap">
+                          {msg.reply_body}
+                        </p>
+                        <div className="mt-2 flex items-center justify-between">
+                          <p className="text-[10px] text-[var(--js-text-secondary)]">
+                            {new Date(msg.replied_at).toLocaleString()}
+                          </p>
+                          {replyUnread && (
+                            <button
+                              onClick={() => markShopReplyRead(msg.id)}
+                              className="text-[10px] font-semibold text-[#2D6A4F] hover:underline"
+                            >
+                              Mark as read
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">
-                        Order #{t.order_short_id}
+                    )}
+
+                    {!hasReply && (
+                      <p className="text-[10px] text-[var(--js-text-secondary)] mt-2">
+                        Waiting for reply...
                       </p>
-                      <p className="text-xs text-[var(--js-text-secondary)] truncate mt-0.5">
-                        {t.last_role === "seller" ? "" : "You: "}{t.last_message}
-                      </p>
-                    </div>
-                  </button>
-                </li>
-              ))}
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
-      ) : (
+      ) : view === "order-chat" ? (
         <>
           <div ref={bodyRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2 bg-[var(--js-bg)]">
             {messages.length === 0 ? (
