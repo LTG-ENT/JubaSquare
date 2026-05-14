@@ -326,6 +326,13 @@ export default function Orders() {
 
   useEffect(() => {
     refreshOrders();
+    
+    // Auto-refresh every 15 seconds
+    const interval = setInterval(() => {
+      refreshOrders();
+    }, 15000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   // Fetch splits for all marketplace orders

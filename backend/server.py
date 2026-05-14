@@ -3915,9 +3915,21 @@ async def admin_analytics(_: dict = Depends(require_role("admin"))):
     restaurants_count = await db.restaurants.count_documents({})
 
     total_orders = len(orders)
-    total_revenue = sum(float(o.get("total_usd") or o.get("subtotal_usd") or 0) for o in orders)
+    total_revenue_marketplace = sum(float(o.get("total_usd") or o.get("subtotal_usd") or 0) for o in orders)
+    
+    # Get total platform commission from payouts (COD system)
+    payouts = await db.seller_payouts.find({}, {"_id": 0}).to_list(5000)
+    total_commission_cod = sum(float(p.get("commission_deducted_usd") or 0) for p in payouts)
+    
+    # Combined revenue = marketplace orders + COD commission collected
+    total_revenue = round(total_revenue_marketplace + total_commission_cod, 2)
+    
     pending_orders = sum(1 for o in orders if o.get("status") == "Pending")
-    delivered_orders = sum(1 for o in orders if o.get("status") == "Delivered")
+    
+    # Count delivered orders from COD system (splits + restaurant_orders)
+    delivered_splits = await db.seller_order_splits.count_documents({"delivery_status": "delivered"})
+    delivered_restaurant_orders = await db.restaurant_orders.count_documents({"delivery_status": "delivered"})
+    delivered_orders = sum(1 for o in orders if o.get("status") == "Delivered") + delivered_splits + delivered_restaurant_orders
 
     customers_count = sum(1 for u in users if u.get("role") == "customer")
     sellers_count = sum(1 for u in users if u.get("role") == "seller")

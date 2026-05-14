@@ -23,9 +23,10 @@ export default function FloatingChat() {
 
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
-  const [view, setView] = useState("list"); // "list" | "order-chat" | "shop-messages"
+  const [view, setView] = useState("list"); // "list" | "order-chat" | "shop-messages" | "shop-conversation"
   const [threads, setThreads] = useState([]);
   const [shopMessages, setShopMessages] = useState([]);
+  const [activeShop, setActiveShop] = useState(null); // {shop_id, shop_name, messages: []}
   const [active, setActive] = useState(null); // {order_id, seller_id, counterparty_name, order_short_id}
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState("");
@@ -73,13 +74,18 @@ export default function FloatingChat() {
     let timer;
     const tick = async () => {
       try {
+        // Only show order chats for "out_for_delivery" orders
         const r = await api.get("/chats");
-        setThreads(r.data || []);
+        const filteredThreads = (r.data || []).filter(t => 
+          t.order_status === "out_for_delivery" || t.delivery_status === "out_for_delivery"
+        );
+        setThreads(filteredThreads);
         
-        // Load shop messages for customers
+        // Load shop messages for customers (only those with replies)
         if (user.role === "customer") {
           const shopRes = await api.get("/messages/customer?limit=50");
-          setShopMessages(shopRes.data || []);
+          const messagesWithReplies = (shopRes.data || []).filter(m => m.conversation_status === "replied");
+          setShopMessages(messagesWithReplies);
         }
       } catch {}
       timer = setTimeout(tick, POLL_OPEN_MS);
@@ -120,6 +126,13 @@ export default function FloatingChat() {
     setView("shop-messages");
     setActive(null);
     setMessages([]);
+    setActiveShop(null);
+  };
+
+  const openShopConversation = (shopId, shopName) => {
+    const shopMsgs = shopMessages.filter(m => m.shop_id === shopId);
+    setActiveShop({ shop_id: shopId, shop_name: shopName, messages: shopMsgs });
+    setView("shop-conversation");
   };
 
   const markShopReplyRead = async (msgId) => {
@@ -128,6 +141,12 @@ export default function FloatingChat() {
       setShopMessages((prev) =>
         prev.map((m) => (m.id === msgId ? { ...m, reply_read_by_customer: true } : m))
       );
+      if (activeShop) {
+        setActiveShop(prev => ({
+          ...prev,
+          messages: prev.messages.map(m => m.id === msgId ? { ...m, reply_read_by_customer: true } : m)
+        }));
+      }
     } catch {}
   };
 
@@ -187,10 +206,20 @@ export default function FloatingChat() {
         {view !== "list" ? (
           <button
             type="button"
-            onClick={() => { setView("list"); setActive(null); setMessages([]); }}
+            onClick={() => { 
+              if (view === "shop-conversation") {
+                setView("shop-messages");
+                setActiveShop(null);
+              } else {
+                setView("list");
+                setActive(null);
+                setMessages([]);
+                setActiveShop(null);
+              }
+            }}
             data-testid="chat-back-button"
             className="p-1 rounded-full hover:bg-white/40"
-            aria-label="Back to conversations"
+            aria-label="Back"
           >
             <ChevronLeft className="w-4 h-4 text-[var(--js-text)]" />
           </button>
@@ -199,7 +228,13 @@ export default function FloatingChat() {
         )}
         <div className="flex-1 min-w-0">
           <p className="font-display font-bold text-sm text-[var(--js-text)] truncate">
-            {view === "order-chat" ? (active?.counterparty_name || "Conversation") : view === "shop-messages" ? "Shop Messages" : "Messages"}
+            {view === "order-chat" 
+              ? (active?.counterparty_name || "Conversation") 
+              : view === "shop-messages" 
+              ? "Shop Messages" 
+              : view === "shop-conversation"
+              ? (activeShop?.shop_name || "Conversation")
+              : "Messages"}
           </p>
           {view === "order-chat" && active && (
             <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)] truncate">
@@ -291,7 +326,7 @@ export default function FloatingChat() {
           </div>
         </div>
       ) : view === "shop-messages" ? (
-        <div ref={bodyRef} className="flex-1 overflow-y-auto p-3">
+        <div ref={bodyRef} className="flex-1 overflow-y-auto">
           {shopMessages.length === 0 ? (
             <div className="text-center py-8">
               <MessageCircle className="w-12 h-12 text-[var(--js-text-secondary)] mx-auto mb-3 opacity-30" />
@@ -301,72 +336,121 @@ export default function FloatingChat() {
               </p>
             </div>
           ) : (
-            <ul className="space-y-2">
-              {shopMessages.map((msg) => {
-                const hasReply = msg.conversation_status === "replied" && msg.reply_body;
-                const replyUnread = hasReply && !msg.reply_read_by_customer;
-
+            <ul className="divide-y divide-[var(--js-border)]">
+              {/* Group messages by shop */}
+              {Object.entries(
+                shopMessages.reduce((acc, msg) => {
+                  if (!acc[msg.shop_id]) {
+                    acc[msg.shop_id] = {
+                      shop_id: msg.shop_id,
+                      shop_name: msg.shop_name,
+                      messages: [],
+                      unread: 0,
+                      last_message: null,
+                    };
+                  }
+                  acc[msg.shop_id].messages.push(msg);
+                  if (!msg.reply_read_by_customer) {
+                    acc[msg.shop_id].unread++;
+                  }
+                  if (!acc[msg.shop_id].last_message || new Date(msg.replied_at || msg.created_at) > new Date(acc[msg.shop_id].last_message.replied_at || acc[msg.shop_id].last_message.created_at)) {
+                    acc[msg.shop_id].last_message = msg;
+                  }
+                  return acc;
+                }, {})
+              ).map(([shopId, shopData]) => (
+                <li key={shopId}>
+                  <button
+                    type="button"
+                    onClick={() => openShopConversation(shopId, shopData.shop_name)}
+                    className="w-full text-left px-4 py-3 hover:bg-[var(--js-subtle)] transition flex items-start gap-3"
+                  >
+                    <div className="w-9 h-9 rounded-full bg-[#2D6A4F]/15 text-[#2D6A4F] flex items-center justify-center flex-shrink-0 font-bold text-sm">
+                      {shopData.shop_name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-semibold text-sm text-[var(--js-text)] truncate">
+                          {shopData.shop_name}
+                        </p>
+                        {shopData.unread > 0 && (
+                          <span className="bg-[#2D6A4F] text-white text-[10px] font-bold rounded-full px-2 py-0.5">
+                            {shopData.unread}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">
+                        {shopData.messages.length} message{shopData.messages.length !== 1 ? 's' : ''}
+                      </p>
+                      <p className="text-xs text-[var(--js-text-secondary)] truncate mt-0.5">
+                        {shopData.last_message?.reply_body ? shopData.last_message.reply_body.substring(0, 50) + '...' : 'Tap to view'}
+                      </p>
+                    </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : view === "shop-conversation" ? (
+        <div ref={bodyRef} className="flex-1 overflow-y-auto p-3">
+          {activeShop && (
+            <ul className="space-y-3">
+              {activeShop.messages.map((msg) => {
+                const replyUnread = !msg.reply_read_by_customer;
                 return (
                   <li
                     key={msg.id}
-                    className={`border rounded-xl p-3 ${
-                      replyUnread
-                        ? "border-[#2D6A4F] bg-[#E9F5E9]"
-                        : "border-[var(--js-border)] bg-white"
-                    }`}
+                    className="border rounded-xl p-3 border-[var(--js-border)] bg-white"
                   >
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-xs font-bold text-[var(--js-text)]">
-                        {msg.shop_name}
+                    {msg.subject && (
+                      <p className="text-xs font-semibold text-[var(--js-text)] mb-2">
+                        Subject: {msg.subject}
                       </p>
-                      {replyUnread && (
-                        <span className="text-[10px] uppercase tracking-wider font-bold text-[#2D6A4F]">
-                          ● NEW REPLY
-                        </span>
-                      )}
+                    )}
+                    
+                    {/* Customer's message */}
+                    <div className="bg-[var(--js-subtle)] rounded-lg p-2 mb-2">
+                      <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)] mb-1">
+                        You wrote:
+                      </p>
+                      <p className="text-xs text-[var(--js-text)] whitespace-pre-wrap">
+                        {msg.body}
+                      </p>
+                      <p className="text-[10px] text-[var(--js-text-secondary)] mt-1">
+                        {new Date(msg.created_at).toLocaleString()}
+                      </p>
                     </div>
 
-                    {msg.subject && (
-                      <p className="text-xs font-semibold text-[var(--js-text)] mb-1">
-                        {msg.subject}
-                      </p>
-                    )}
-                    <p className="text-xs text-[var(--js-text-secondary)] mb-2 line-clamp-2">
-                      You: {msg.body}
-                    </p>
-                    <p className="text-[10px] text-[var(--js-text-secondary)]">
-                      {new Date(msg.created_at).toLocaleString()}
-                    </p>
-
-                    {hasReply && (
-                      <div className="mt-2 pt-2 border-t border-[var(--js-border)]">
-                        <p className="text-[10px] uppercase tracking-wider font-bold text-[#2D6A4F] mb-1">
-                          Seller replied:
+                    {/* Seller's reply */}
+                    <div className={`rounded-lg p-2 ${replyUnread ? 'bg-[#E9F5E9] border border-[#2D6A4F]/30' : 'bg-white border border-[var(--js-border)]'}`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-[10px] uppercase tracking-wider font-bold text-[#2D6A4F]">
+                          {activeShop.shop_name} replied:
                         </p>
-                        <p className="text-xs text-[var(--js-text)] whitespace-pre-wrap">
-                          {msg.reply_body}
-                        </p>
-                        <div className="mt-2 flex items-center justify-between">
-                          <p className="text-[10px] text-[var(--js-text-secondary)]">
-                            {new Date(msg.replied_at).toLocaleString()}
-                          </p>
-                          {replyUnread && (
-                            <button
-                              onClick={() => markShopReplyRead(msg.id)}
-                              className="text-[10px] font-semibold text-[#2D6A4F] hover:underline"
-                            >
-                              Mark as read
-                            </button>
-                          )}
-                        </div>
+                        {replyUnread && (
+                          <span className="text-[10px] uppercase tracking-wider font-bold text-[#2D6A4F]">
+                            ● NEW
+                          </span>
+                        )}
                       </div>
-                    )}
-
-                    {!hasReply && (
-                      <p className="text-[10px] text-[var(--js-text-secondary)] mt-2">
-                        Waiting for reply...
+                      <p className="text-xs text-[var(--js-text)] whitespace-pre-wrap">
+                        {msg.reply_body}
                       </p>
-                    )}
+                      <div className="mt-2 flex items-center justify-between">
+                        <p className="text-[10px] text-[var(--js-text-secondary)]">
+                          {new Date(msg.replied_at).toLocaleString()}
+                        </p>
+                        {replyUnread && (
+                          <button
+                            onClick={() => markShopReplyRead(msg.id)}
+                            className="text-[10px] font-semibold text-[#2D6A4F] hover:underline"
+                          >
+                            Mark as read
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </li>
                 );
               })}
