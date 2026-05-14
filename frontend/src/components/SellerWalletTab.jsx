@@ -359,17 +359,20 @@ export default function SellerWalletTab() {
                   </tr>
                 </thead>
                 <tbody>
-                  {payouts.map((p) => (
+                  {payouts.map((p) => {
+                    // Use seller's exchange rate from payout, fallback to global rate
+                    const payoutRate = p.exchange_rate_ssp || exchangeRate;
+                    return (
                     <tr key={p.id} className="border-t border-[var(--js-border)]">
                       <td className="px-3 py-2 font-mono text-xs">{p.id.slice(0, 8)}</td>
                       <td className="px-3 py-2 text-xs">{(p.created_at || "").slice(0, 16).replace("T", " ")}</td>
                       <td className="px-3 py-2">{(p.split_ids?.length || 0) + (p.restaurant_order_ids?.length || 0)}</td>
-                      <td className="px-3 py-2 font-semibold">{formatPrice(p.amount_usd, exchangeRate, currency)}</td>
-                      <td className="px-3 py-2">{formatPrice(p.commission_deducted_usd, exchangeRate, currency)}</td>
+                      <td className="px-3 py-2 font-semibold">{formatPrice(p.amount_usd, payoutRate, currency)}</td>
+                      <td className="px-3 py-2">{formatPrice(p.commission_deducted_usd, payoutRate, currency)}</td>
                       <td className="px-3 py-2"><Pill value={p.status} mapping={PAYOUT_PILL} /></td>
                       <td className="px-3 py-2 text-xs">{p.paid_at ? p.paid_at.slice(0, 16).replace("T", " ") : "—"}</td>
                     </tr>
-                  ))}
+                  );})}
                 </tbody>
               </table>
             </div>

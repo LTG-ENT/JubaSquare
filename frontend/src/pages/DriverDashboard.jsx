@@ -143,7 +143,22 @@ export default function DriverDashboard() {
   const all = [
     ...(data.splits || []).map((s) => ({ ...s, _kind: "split" })),
     ...(data.restaurant_orders || []).map((r) => ({ ...r, _kind: "rest" })),
-  ];
+  ].filter((item) => {
+    // Handle "completed" filter - show only items where admin received cash
+    if (filter === "completed") {
+      return item.cash_handover_status === "received";
+    }
+    
+    // Hide completed deliveries (cash received by admin) from default "Active deliveries" view
+    // Show them only when "completed" filter is explicitly selected
+    if (!filter) {
+      // In default view, hide items where admin has already received cash
+      return item.cash_handover_status !== "received";
+    }
+    
+    // For other filters, show all matching items
+    return true;
+  });
 
   const allRequests = [
     ...(requests.splits || []).map((s) => ({ ...s, _kind: "split" })),
@@ -317,12 +332,12 @@ export default function DriverDashboard() {
                   </div>
                   <div className="flex items-center gap-2 text-[var(--js-text-secondary)]">
                     <Coins className="w-4 h-4 text-[#E9C46A]" />
-                    <span className="font-medium">Order total:</span> {formatPrice(currentReq.order_total_usd || currentReq.total, currentReq.exchange_rate_ssp || exchangeRate, currency)}
+                    <span className="font-medium">Order subtotal:</span> {formatPrice(currentReq.product_subtotal_usd || ((currentReq.order_total_usd || currentReq.total || 0) - (currentReq.delivery_fee_usd || 0)), currentReq.exchange_rate_ssp || exchangeRate, currency)}
                   </div>
                   {currentReq.delivery_fee_usd > 0 && (
                     <div className="flex items-center gap-2 text-[var(--js-text-secondary)]">
                       <Truck className="w-4 h-4 text-[#264653]" />
-                      <span className="font-medium">Delivery fee:</span> {formatPrice(currentReq.delivery_fee_usd, exchangeRate, currency)}
+                      <span className="font-medium">Delivery fee:</span> {formatPrice(currentReq.delivery_fee_usd, currentReq.exchange_rate_ssp || exchangeRate, currency)}
                     </div>
                   )}
                 </div>
@@ -391,12 +406,13 @@ export default function DriverDashboard() {
 
         <div className="flex gap-2 flex-wrap items-center">
           <select value={filter} onChange={(e) => setFilter(e.target.value)} data-testid="driver-filter" className="px-3 py-2 border border-[var(--js-border)] rounded-lg text-sm">
-            <option value="">All my deliveries</option>
+            <option value="">Active deliveries</option>
             <option value="offered">Offered (action needed)</option>
             <option value="assigned">Assigned (new)</option>
             <option value="picked_up">Picked up</option>
             <option value="out_for_delivery">Out for delivery</option>
             <option value="delivered">Delivered</option>
+            <option value="completed">Completed (history)</option>
             <option value="delivery_failed">Failed</option>
           </select>
           <p className="text-sm text-[var(--js-text-secondary)] ml-auto">{all.length} delivery(ies)</p>
@@ -437,7 +453,12 @@ export default function DriverDashboard() {
                   </>
                 )}
                 <div className="mt-3 flex items-center justify-between">
-                  <span className="text-lg font-bold text-[var(--js-text)]">{formatPrice(r.order_total_usd, r.exchange_rate_ssp || exchangeRate, currency)}</span>
+                  <div>
+                    <span className="text-lg font-bold text-[var(--js-text)]">{formatPrice(r.product_subtotal_usd || ((r.order_total_usd || 0) - (r.delivery_fee_usd || 0)), r.exchange_rate_ssp || exchangeRate, currency)}</span>
+                    {r.delivery_fee_usd > 0 && (
+                      <p className="text-xs text-[var(--js-text-secondary)]">+ {formatPrice(r.delivery_fee_usd, r.exchange_rate_ssp || exchangeRate, currency)} delivery</p>
+                    )}
+                  </div>
                   <div className="flex gap-1">
                     <Pill value={r.payment_status} />
                   </div>
