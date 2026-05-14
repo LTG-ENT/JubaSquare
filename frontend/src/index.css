@@ -352,3 +352,32 @@ img {
         padding-right: 1rem;
     }
 }
+
+/* ===== RTL SUPPORT ===== */
+
+/* Force header to always be LTR to prevent layout issues */
+[dir="rtl"] header > div > div {
+    direction: ltr;
+}
+
+/* RTL Language dropdown positioning */
+[dir="rtl"] .language-dropdown {
+    left: auto;
+    right: 0;
+}
+
+/* Ensure proper spacing in RTL mode */
+[dir="rtl"] .flex-row-reverse {
+    flex-direction: row-reverse;
+}
+
+/* RTL-safe margins and padding */
+[dir="rtl"] .ml-auto {
+    margin-left: 0;
+    margin-right: auto;
+}
+
+[dir="rtl"] .mr-auto {
+    margin-right: 0;
+    margin-left: auto;
+}

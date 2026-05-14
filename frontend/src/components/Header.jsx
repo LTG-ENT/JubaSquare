@@ -15,11 +15,11 @@ import CategoriesNavMenu from "@/components/CategoriesNavMenu";
 import GlobalSearch from "@/components/GlobalSearch";
 
 const Brand = ({ to = "/" }) => (
-  <Link to={to} className="flex items-center gap-2 sm:gap-3 shrink-0 min-w-0" data-testid="brand-logo">
-    <Logo size={48} className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 lg:w-[72px] lg:h-[72px] xl:w-20 xl:h-20 shrink-0" />
-    <div className="flex flex-col leading-tight min-w-0">
-      <span className="font-display font-bold text-lg sm:text-xl md:text-2xl text-white whitespace-nowrap">JubaSquare</span>
-      <span className="hidden sm:inline text-[10px] uppercase tracking-[0.18em] text-white/60 -mt-0.5 whitespace-nowrap">by L.T.G Enterprise</span>
+  <Link to={to} className="flex items-center gap-1.5 sm:gap-2 md:gap-3 shrink-0 min-w-0 max-w-full" data-testid="brand-logo">
+    <Logo size={48} className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 xl:w-20 xl:h-20 shrink-0" />
+    <div className="flex flex-col leading-tight min-w-0 overflow-hidden">
+      <span className="font-display font-bold text-base sm:text-lg md:text-xl lg:text-2xl text-white truncate">JubaSquare</span>
+      <span className="hidden sm:inline text-[9px] sm:text-[10px] uppercase tracking-[0.18em] text-white/60 -mt-0.5 truncate">by L.T.G Enterprise</span>
     </div>
   </Link>
 );
@@ -179,7 +179,7 @@ export default function Header() {
         </div>
       )}
       <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8">
-        <div className="h-16 sm:h-20 lg:h-24 flex items-center justify-between gap-2 sm:gap-4">
+        <div className="h-16 sm:h-20 lg:h-24 flex items-center gap-2 sm:gap-4" dir="ltr">
           {/* Left cluster: mobile menu + language switcher */}
           <div className="flex items-center gap-1 shrink-0">
             {!isDriver && (
@@ -195,14 +195,14 @@ export default function Header() {
             <LanguageSwitcher />
           </div>
 
-          {/* Centered Brand */}
-          <div className="flex-1 flex justify-center lg:justify-start min-w-0">
+          {/* Brand - Mobile centered, Desktop left */}
+          <div className="flex-1 flex justify-center lg:justify-start min-w-0 lg:flex-none overflow-hidden">
             <Brand to={isDriver ? "/driver" : "/"} />
           </div>
 
           {/* Desktop Navigation - hidden on mobile + completely hidden for drivers */}
           {!isDriver && (
-            <nav className="hidden lg:flex items-center gap-1">
+            <nav className="hidden lg:flex items-center gap-1 flex-1 lg:ml-8">
               {navLink("/", t("home"), HomeIcon)}
               {settings.module_marketplace && (
                 <CategoriesNavMenu

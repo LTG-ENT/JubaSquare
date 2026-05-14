@@ -61,7 +61,7 @@ export default function LanguageSwitcher() {
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-2 w-64 bg-white rounded-xl shadow-2xl border border-[var(--js-border)] overflow-hidden z-50">
+        <div className="absolute left-0 rtl:left-auto rtl:right-0 top-full mt-2 w-64 max-w-[calc(100vw-2rem)] bg-white rounded-xl shadow-2xl border border-[var(--js-border)] overflow-hidden z-50">
           <div className="p-2 bg-[var(--js-bg)] border-b border-[var(--js-border)]">
             <p className="text-xs uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">
               {t('language')}
@@ -72,24 +72,24 @@ export default function LanguageSwitcher() {
               <button
                 key={lang.code}
                 onClick={() => changeLanguage(lang.code)}
-                className={`w-full text-left px-4 py-3 hover:bg-[var(--js-subtle)] transition flex items-center justify-between ${
+                className={`w-full text-left rtl:text-right px-4 py-3 hover:bg-[var(--js-subtle)] transition flex items-center justify-between ${
                   i18n.language === lang.code ? 'bg-[var(--js-subtle)]' : ''
                 }`}
                 data-testid={`lang-${lang.code}`}
               >
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl">{lang.flag}</span>
-                  <div>
-                    <p className="text-sm font-semibold text-[var(--js-text)]">
+                <div className="flex items-center gap-3 rtl:flex-row-reverse">
+                  <span className="text-2xl shrink-0">{lang.flag}</span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-[var(--js-text)] truncate">
                       {lang.nativeName}
                     </p>
-                    <p className="text-xs text-[var(--js-text-secondary)]">
+                    <p className="text-xs text-[var(--js-text-secondary)] truncate">
                       {lang.name}
                     </p>
                   </div>
                 </div>
                 {i18n.language === lang.code && (
-                  <div className="w-2 h-2 rounded-full bg-[#C84B31]" />
+                  <div className="w-2 h-2 rounded-full bg-[#C84B31] shrink-0" />
                 )}
               </button>
             ))}
