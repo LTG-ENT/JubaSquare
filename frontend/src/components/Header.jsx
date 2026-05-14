@@ -157,11 +157,11 @@ export default function Header() {
         to={to}
         onClick={() => setMobileOpen(false)}
         data-testid={`nav-${label.toLowerCase().replace(/\s+/g, "-")}`}
-        className={`flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium transition-all ${
+        className={`flex items-center gap-1.5 px-2.5 lg:px-3 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap ${
           active ? "bg-[#E9C46A] text-[#0E1A2B]" : "text-white/85 hover:bg-white/10 hover:text-white"
         }`}
       >
-        <Icon className="w-4 h-4" />
+        <Icon className="w-4 h-4 shrink-0" />
         <span>{label}</span>
       </Link>
     );
@@ -204,7 +204,7 @@ export default function Header() {
 
           {/* Desktop Navigation - hidden on mobile + completely hidden for drivers */}
           {!isDriver && (
-            <nav className="hidden lg:flex items-center gap-1 flex-1 lg:ml-8">
+            <nav className="hidden lg:flex items-center gap-0.5 flex-1 lg:ml-6 xl:ml-8">
               {navLink("/", t("home"), HomeIcon)}
               {settings.module_marketplace && (
                 <CategoriesNavMenu
@@ -219,9 +219,9 @@ export default function Header() {
           )}
 
           {/* Right side actions */}
-          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+          <div className="flex items-center gap-1 shrink-0">
             {!isDriver && (
-              <div className="hidden md:block">
+              <div className="hidden xl:block">
                 <GlobalSearch />
               </div>
             )}
@@ -230,7 +230,7 @@ export default function Header() {
             {user && <NotificationBell />}
 
             {!isDriver && (
-              <Link to="/cart" data-testid="header-cart-button" className="relative p-2 sm:p-2.5 rounded-full hover:bg-white/10 transition">
+              <Link to="/cart" data-testid="header-cart-button" className="relative p-2 rounded-full hover:bg-white/10 transition">
                 <ShoppingCart className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                 {count > 0 && (
                   <span className="absolute -top-0.5 -right-0.5 bg-[#C84B31] text-white text-[10px] font-bold rounded-full w-4 h-4 sm:w-5 sm:h-5 flex items-center justify-center" data-testid="cart-count-badge">
@@ -241,7 +241,7 @@ export default function Header() {
             )}
 
             {user ? (
-              <div className="hidden sm:flex items-center gap-1">
+              <div className="hidden sm:flex items-center gap-0.5">
                 <ProfileQuickMenu user={user} />
                 <button
                   onClick={async () => { await logout(); navigate("/login"); }}
@@ -253,7 +253,7 @@ export default function Header() {
                 </button>
               </div>
             ) : (
-              <Link to="/login" data-testid="header-login-button" className="hidden sm:inline-flex items-center bg-[#C84B31] hover:bg-[#A83A23] text-white text-xs sm:text-sm font-semibold px-3 sm:px-5 py-1.5 sm:py-2 rounded-full transition">
+              <Link to="/login" data-testid="header-login-button" className="hidden sm:inline-flex items-center bg-[#C84B31] hover:bg-[#A83A23] text-white text-xs sm:text-sm font-semibold px-3 sm:px-4 py-1.5 sm:py-2 rounded-full transition whitespace-nowrap">
                 {t("signIn")}
               </Link>
             )}
