@@ -198,7 +198,20 @@ export default function DriverDashboard() {
       const body = action === "reject" && rejectReason ? { action: "reject", reject_reason: rejectReason } : {};
       await api.post(endpoint, body);
       toast.success(action === "accept" ? "Delivery accepted!" : "Delivery rejected");
-      loadRequests(); // Refresh requests
+      
+      // Immediately remove this request from UI
+      setRequests((prev) => ({
+        splits: (prev.splits || []).filter((s) => s.id !== item.id),
+        restaurant_orders: (prev.restaurant_orders || []).filter((r) => r.id !== item.id),
+      }));
+      
+      // Reset index if we removed the last item or went beyond the new length
+      const newLength = (requests.splits?.length || 0) + (requests.restaurant_orders?.length || 0) - 1;
+      if (reqIndex >= newLength && newLength > 0) {
+        setReqIndex(0);
+      }
+      
+      loadRequests(); // Refresh requests from backend
       load(); // Refresh assignments
     } catch (e) {
       toast.error(formatDetail(e.response?.data?.detail) || `Failed to ${action}`);
