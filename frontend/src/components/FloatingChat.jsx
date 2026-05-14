@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { MessageCircle, X, Send, ChevronLeft } from "lucide-react";
+import { MessageCircle, X, Send, ChevronLeft, AlertTriangle } from "lucide-react";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 
@@ -456,6 +456,17 @@ export default function FloatingChat() {
       ) : view === "order-chat" ? (
         <>
           <div ref={bodyRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2 bg-[var(--js-bg)]">
+            {/* OTP Warning for customers */}
+            {user.role === "customer" && (
+              <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-red-900">
+                  <p className="font-bold">⚠️ Security Warning</p>
+                  <p className="mt-1">Never share your OTP code in this chat. Delivery OTP should only be given to the driver in person when receiving your order.</p>
+                </div>
+              </div>
+            )}
+            
             {messages.length === 0 ? (
               <p className="text-center text-xs text-[var(--js-text-secondary)] pt-6">
                 Say hi 👋 — this conversation is private between you and the {user.role === "seller" ? "customer" : "seller"}.
