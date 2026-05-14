@@ -8,7 +8,6 @@ export default function ContactSellerModal({ shop, onClose }) {
   const { user } = useAuth();
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
-  const [phone, setPhone] = useState("");
   const [sending, setSending] = useState(false);
 
   const onSend = async (e) => {
@@ -22,7 +21,6 @@ export default function ContactSellerModal({ shop, onClose }) {
       await api.post(`/shops/${shop.id}/messages`, {
         subject: subject.trim(),
         body: body.trim(),
-        customer_phone: phone.trim(),
       });
       toast.success(`Message sent to ${shop.name}`);
       onClose();
@@ -87,18 +85,6 @@ export default function ContactSellerModal({ shop, onClose }) {
               className="mt-1 w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#C84B31]"
             />
             <p className="text-[10px] text-[var(--js-text-secondary)] mt-1 text-right">{body.length}/2000</p>
-          </div>
-          <div>
-            <label className="text-xs uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">Phone (optional)</label>
-            <input
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="+211 ..."
-              data-testid="contact-phone"
-              className="mt-1 w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#C84B31]"
-            />
-            <p className="text-[10px] text-[var(--js-text-secondary)] mt-1">Lets the shop call you back.</p>
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-2">

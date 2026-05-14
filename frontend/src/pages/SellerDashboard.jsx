@@ -2088,6 +2088,9 @@ function MessagesTab({ onChange }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all"); // all | unread
+  const [replyingTo, setReplyingTo] = useState(null); // Message ID being replied to
+  const [replyText, setReplyText] = useState("");
+  const [sending, setSending] = useState(false);
 
   const refreshUnread = async () => {
     try {
@@ -2127,6 +2130,25 @@ function MessagesTab({ onChange }) {
     } catch (e) { toast.error(formatDetail(e.response?.data?.detail)); }
   };
 
+  const sendReply = async (messageId) => {
+    if (replyText.trim().length < 2) {
+      toast.error("Please write a reply");
+      return;
+    }
+    setSending(true);
+    try {
+      await api.post(`/messages/${messageId}/reply`, { reply_body: replyText.trim() });
+      toast.success("Reply sent!");
+      setReplyingTo(null);
+      setReplyText("");
+      load(); // Reload to show updated message with reply
+    } catch (e) {
+      toast.error(formatDetail(e.response?.data?.detail) || "Failed to send reply");
+    } finally {
+      setSending(false);
+    }
+  };
+
   const visible = filter === "unread" ? items.filter((i) => !i.is_read) : items;
   const unreadN = items.filter((i) => !i.is_read).length;
 
@@ -2137,7 +2159,7 @@ function MessagesTab({ onChange }) {
           <p className="text-sm text-[#5C5C5C]">
             {items.length} message{items.length !== 1 && "s"} · <span className="font-bold text-[#1A1A1A]">{unreadN} unread</span>
           </p>
-          <p className="text-xs text-[#5C5C5C] mt-1">Customers reach you here from your shop's public page. This is one-way — reply directly using the contact info below.</p>
+          <p className="text-xs text-[#5C5C5C] mt-1">Customers reach you here from your shop's public page. Reply to their messages directly.</p>
         </div>
         <div className="flex gap-2">
           {[{ id: "all", label: "All" }, { id: "unread", label: `Unread (${unreadN})` }].map((f) => (
@@ -2176,6 +2198,7 @@ function MessagesTab({ onChange }) {
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className="text-xs font-bold text-[#1A1A1A]">{m.customer_name || "Guest"}</span>
                     {!m.is_read && <span className="text-[10px] uppercase tracking-wider font-bold text-[#C84B31]">● NEW</span>}
+                    {m.conversation_status === "replied" && <span className="text-[10px] uppercase tracking-wider font-bold text-[#2D6A4F]">✓ REPLIED</span>}
                     <span className="text-[10px] uppercase tracking-wider text-[#5C5C5C]">to {m.shop_name}</span>
                   </div>
                   <div className="flex items-center gap-3 flex-wrap text-[11px] text-[#5C5C5C] mb-2">
@@ -2195,8 +2218,53 @@ function MessagesTab({ onChange }) {
                     <p className="font-display font-semibold text-sm text-[#1A1A1A] mb-1">{m.subject}</p>
                   )}
                   <p className="text-sm text-[#1A1A1A] whitespace-pre-wrap leading-relaxed">{m.body}</p>
+                  
+                  {/* Show existing reply if present */}
+                  {m.reply_body && (
+                    <div className="mt-3 p-3 bg-[#E9F5E9] border border-[#2D6A4F]/20 rounded-xl">
+                      <p className="text-[10px] uppercase tracking-wider font-bold text-[#2D6A4F] mb-1">Your Reply · {m.replied_at ? new Date(m.replied_at).toLocaleString() : ""}</p>
+                      <p className="text-sm text-[#1A1A1A] whitespace-pre-wrap">{m.reply_body}</p>
+                    </div>
+                  )}
+                  
+                  {/* Reply form */}
+                  {replyingTo === m.id && (
+                    <div className="mt-3 space-y-2">
+                      <textarea
+                        value={replyText}
+                        onChange={(e) => setReplyText(e.target.value)}
+                        placeholder="Write your reply..."
+                        rows={3}
+                        maxLength={2000}
+                        className="w-full bg-white border border-[#E2E2D9] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#C84B31]"
+                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => { setReplyingTo(null); setReplyText(""); }}
+                          className="text-xs font-semibold text-[#5C5C5C] px-3 py-1.5 rounded-full hover:bg-[#F2EBE5]"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => sendReply(m.id)}
+                          disabled={sending || replyText.trim().length < 2}
+                          className="text-xs font-bold text-white bg-[#C84B31] hover:bg-[#A83A23] px-4 py-1.5 rounded-full disabled:bg-[#A3A39E]"
+                        >
+                          {sending ? "Sending..." : "Send Reply"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  {!m.reply_body && replyingTo !== m.id && (
+                    <button
+                      onClick={() => { setReplyingTo(m.id); setReplyText(""); markRead(m); }}
+                      className="text-xs font-semibold text-[#2D6A4F] hover:underline px-2 py-1"
+                    >
+                      Reply
+                    </button>
+                  )}
                   {!m.is_read && (
                     <button
                       onClick={() => markRead(m)}
