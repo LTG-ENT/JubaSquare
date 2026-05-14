@@ -64,6 +64,14 @@ DEFAULT_SETTINGS = {
     "commission_rate": 0.10,
     "areas": DEFAULT_AREAS,
     "token_version": 1,
+    "message_filter": {
+        "enabled": True,
+        "blocked_words": ["spam", "scam", "fake"],  # Words to block
+        "block_numbers": False,  # Block all numbers
+        "max_numbers_per_message": 3,  # Maximum numbers allowed in one message
+        "block_phone_patterns": True,  # Block phone number patterns
+        "blocked_country_codes": ["+1", "+44", "+234", "+254", "+256"],  # Block specific country codes
+    },
 }
 
 
@@ -88,6 +96,58 @@ def verify_password(pw: str, hashed: str) -> bool:
 async def get_settings() -> dict:
     s = await db.settings.find_one({"id": "system"}, {"_id": 0})
     return s or DEFAULT_SETTINGS
+
+
+async def filter_message_content(text: str) -> tuple[bool, str]:
+    """
+    Check message against filter rules.
+    Returns: (is_valid, error_message)
+    """
+    settings = await get_settings()
+    filter_config = settings.get("message_filter", {})
+    
+    if not filter_config.get("enabled", True):
+        return True, ""
+    
+    text_lower = text.lower()
+    
+    # Check blocked words
+    blocked_words = filter_config.get("blocked_words", [])
+    for word in blocked_words:
+        if word.lower() in text_lower:
+            return False, f"Message contains blocked word: '{word}'"
+    
+    # Count numbers in message
+    numbers = re.findall(r'\d+', text)
+    
+    # Check if all numbers should be blocked
+    if filter_config.get("block_numbers", False) and numbers:
+        return False, "Numbers are not allowed in messages"
+    
+    # Check max numbers per message
+    max_numbers = filter_config.get("max_numbers_per_message", 999)
+    if len(numbers) > max_numbers:
+        return False, f"Too many numbers in message (max {max_numbers} allowed)"
+    
+    # Check for phone number patterns
+    if filter_config.get("block_phone_patterns", True):
+        # Pattern: sequences of 7+ digits, optionally with spaces, dashes, or parentheses
+        phone_patterns = [
+            r'\d{7,}',  # 7 or more consecutive digits
+            r'\d{3}[-\s]?\d{3}[-\s]?\d{4}',  # 555-123-4567 or 555 123 4567
+            r'\(\d{3}\)[-\s]?\d{3}[-\s]?\d{4}',  # (555) 123-4567
+        ]
+        for pattern in phone_patterns:
+            if re.search(pattern, text):
+                return False, "Phone numbers are not allowed in messages"
+    
+    # Check for blocked country codes
+    blocked_codes = filter_config.get("blocked_country_codes", [])
+    for code in blocked_codes:
+        if code in text:
+            return False, f"Country code {code} is not allowed in messages"
+    
+    return True, ""
 
 
 async def _rate_by_seller(seller_ids: list[str]) -> tuple[dict[str, float], float]:
@@ -438,6 +498,10 @@ class ShopMessageIn(BaseModel):
     customer_email: Optional[str] = ""  # used when sender is anonymous
     customer_phone: Optional[str] = ""
     customer_name: Optional[str] = ""
+
+
+class MessageReplyIn(BaseModel):
+    reply_body: str
 
 
 class ShopCommissionIn(BaseModel):
@@ -1715,6 +1779,11 @@ async def send_shop_message(shop_id: str, body: ShopMessageIn, request: Request)
     if len(text) > 2000:
         raise HTTPException(400, "Message too long (max 2000 chars)")
 
+    # Apply message filter
+    is_valid, error_msg = await filter_message_content(text)
+    if not is_valid:
+        raise HTTPException(400, error_msg)
+
     # Sender — logged-in user when present; otherwise use the supplied fields
     sender = {
         "customer_id": None,
@@ -1728,9 +1797,9 @@ async def send_shop_message(shop_id: str, body: ShopMessageIn, request: Request)
         sender["customer_name"] = u.get("name") or sender["customer_name"]
         sender["customer_email"] = u.get("email") or sender["customer_email"]
     except HTTPException:
-        # Anonymous — require at least an email or phone for the seller to reply
-        if not sender["customer_email"] and not sender["customer_phone"]:
-            raise HTTPException(400, "Please provide an email or phone so the shop can reply")
+        # Anonymous — require at least an email for the seller to reply
+        if not sender["customer_email"]:
+            raise HTTPException(400, "Please provide an email so the shop can reply")
 
     msg = {
         "id": str(uuid.uuid4()),
@@ -1740,10 +1809,26 @@ async def send_shop_message(shop_id: str, body: ShopMessageIn, request: Request)
         "subject": (body.subject or "").strip(),
         "body": text,
         "is_read": False,
+        "sender_type": "customer",  # customer or seller
+        "replied_at": None,  # When seller replied
+        "reply_body": None,  # Seller's reply
+        "conversation_status": "open",  # open, replied, closed
         "created_at": now_iso(),
         **sender,
     }
     await db.shop_messages.insert_one(msg)
+    
+    # Notify seller
+    try:
+        await create_notification(
+            user_id=shop["seller_id"],
+            message=f"New message from {sender['customer_name']} about {shop.get('name', 'your shop')}",
+            ntype="message",
+            meta={"message_id": msg["id"], "shop_id": shop_id},
+        )
+    except Exception:
+        pass
+    
     msg.pop("_id", None)
     return msg
 
@@ -1789,6 +1874,98 @@ async def delete_message(message_id: str, user: dict = Depends(require_role("sel
     if user["role"] != "admin" and msg.get("seller_id") != user["id"]:
         raise HTTPException(403, "Forbidden")
     await db.shop_messages.delete_one({"id": message_id})
+    return {"ok": True}
+
+
+@api.post("/messages/{message_id}/reply")
+async def reply_to_message(message_id: str, body: MessageReplyIn, user: dict = Depends(require_role("seller", "admin"))):
+    """Seller replies to a customer message"""
+    msg = await db.shop_messages.find_one({"id": message_id})
+    if not msg:
+        raise HTTPException(404, "Message not found")
+    if user["role"] != "admin" and msg.get("seller_id") != user["id"]:
+        raise HTTPException(403, "Forbidden")
+    
+    reply_text = (body.reply_body or "").strip()
+    if len(reply_text) < 2:
+        raise HTTPException(400, "Reply body is required")
+    if len(reply_text) > 2000:
+        raise HTTPException(400, "Reply too long (max 2000 chars)")
+    
+    # Apply message filter to reply
+    is_valid, error_msg = await filter_message_content(reply_text)
+    if not is_valid:
+        raise HTTPException(400, error_msg)
+    
+    await db.shop_messages.update_one(
+        {"id": message_id},
+        {"$set": {
+            "reply_body": reply_text,
+            "replied_at": now_iso(),
+            "conversation_status": "replied",
+        }}
+    )
+    
+    # Notify customer if they have an account
+    if msg.get("customer_id"):
+        try:
+            await create_notification(
+                user_id=msg["customer_id"],
+                message=f"{msg.get('shop_name', 'Shop')} replied to your message",
+                ntype="message",
+                meta={"message_id": message_id, "shop_id": msg.get("shop_id")},
+            )
+        except Exception:
+            pass
+    
+    return {"ok": True, "message": "Reply sent"}
+
+
+@api.get("/messages/customer")
+async def list_customer_messages(user: dict = Depends(get_current_user), limit: Optional[int] = None, skip: Optional[int] = None):
+    """Get messages sent by the current customer"""
+    if user["role"] != "customer":
+        raise HTTPException(403, "Only customers can access this endpoint")
+    
+    lim, off = clamp_pagination(limit, skip)
+    messages = await db.shop_messages.find(
+        {"customer_id": user["id"]},
+        {"_id": 0}
+    ).sort("created_at", -1).skip(off).to_list(lim)
+    
+    return messages
+
+
+@api.get("/messages/customer/unread-count")
+async def customer_unread_count(user: dict = Depends(get_current_user)):
+    """Count messages with replies that customer hasn't read"""
+    if user["role"] != "customer":
+        raise HTTPException(403, "Only customers can access this endpoint")
+    
+    # Count messages where seller has replied but customer hasn't marked as read
+    count = await db.shop_messages.count_documents({
+        "customer_id": user["id"],
+        "conversation_status": "replied",
+        "reply_read_by_customer": {"$ne": True}
+    })
+    
+    return {"count": count}
+
+
+@api.put("/messages/{message_id}/mark-reply-read")
+async def mark_reply_read(message_id: str, user: dict = Depends(get_current_user)):
+    """Customer marks seller's reply as read"""
+    msg = await db.shop_messages.find_one({"id": message_id})
+    if not msg:
+        raise HTTPException(404, "Message not found")
+    if msg.get("customer_id") != user["id"]:
+        raise HTTPException(403, "Forbidden")
+    
+    await db.shop_messages.update_one(
+        {"id": message_id},
+        {"$set": {"reply_read_by_customer": True, "reply_read_at": now_iso()}}
+    )
+    
     return {"ok": True}
 
 
