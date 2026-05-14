@@ -1,7 +1,8 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import api, { formatPrice, formatDetail } from "@/lib/api";
 import { useCart } from "@/context/CartContext";
 import { useTranslation } from "react-i18next";
+import { useOptimizedPolling } from "@/hooks/useOptimizedPolling";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import AdminAnalytics from "@/components/AdminAnalytics";
@@ -36,18 +37,23 @@ export default function AdminDashboard() {
   const [alerts, setAlerts] = useState({});
   const { t: tr } = useTranslation();
 
-  // Poll the admin alerts endpoint so tab badges stay fresh.
-  useEffect(() => {
-    let cancelled = false;
-    const load = () => {
-      api.get("/admin/alerts")
-        .then((r) => { if (!cancelled) setAlerts(r.data || {}); })
-        .catch(() => { /* silent — keep last value */ });
-    };
-    load();
-    const id = setInterval(load, 30000); // 30s
-    return () => { cancelled = true; clearInterval(id); };
+  // Load admin alerts
+  const loadAlerts = useCallback(async () => {
+    try {
+      const { data } = await api.get("/admin/alerts");
+      setAlerts(data || {});
+    } catch (err) {
+      // Silent fail - keep last value
+    }
   }, []);
+
+  // Initial load
+  useEffect(() => {
+    loadAlerts();
+  }, [loadAlerts]);
+
+  // Optimized polling with visibility detection
+  useOptimizedPolling(loadAlerts, 30000, { runOnMount: false });
 
   // Map tab id -> number of pending items
   const tabBadge = {

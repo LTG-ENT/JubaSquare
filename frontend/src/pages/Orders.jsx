@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import api, { formatUSD, formatPrice, extractErrorMessage } from "@/lib/api";
 import { useCart } from "@/context/CartContext";
+import { useOptimizedPolling } from "@/hooks/useOptimizedPolling";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import OrderStatusTimeline from "@/components/OrderStatusTimeline";
@@ -310,10 +311,19 @@ export default function Orders() {
   // Get currency and exchange rate from CartContext with defaults
   const { currency = "USD", exchangeRate = 1 } = useCart() || {};
 
-  const refreshOrders = () => {
-    api.get("/orders/mine?limit=200").then((r) => setMarketplaceOrders(r.data)).catch(() => setMarketplaceOrders([]));
-    api.get("/restaurant-orders").then((r) => setRestaurantOrders(r.data)).catch(() => setRestaurantOrders([]));
-  };
+  const refreshOrders = useCallback(async () => {
+    try {
+      const [mpRes, restRes] = await Promise.all([
+        api.get("/orders/mine?limit=200"),
+        api.get("/restaurant-orders")
+      ]);
+      setMarketplaceOrders(mpRes.data);
+      setRestaurantOrders(restRes.data);
+    } catch (err) {
+      console.error("Failed to refresh orders:", err);
+      // Keep existing data on error
+    }
+  }, []);
 
   // Fetch splits for marketplace orders to show OTPs
   const fetchOrderSplits = async (orderId) => {
@@ -326,16 +336,8 @@ export default function Orders() {
     }
   };
 
-  useEffect(() => {
-    refreshOrders();
-    
-    // Auto-refresh every 15 seconds
-    const interval = setInterval(() => {
-      refreshOrders();
-    }, 15000);
-    
-    return () => clearInterval(interval);
-  }, []);
+  // Use optimized polling with visibility detection
+  useOptimizedPolling(refreshOrders, 15000, { runOnMount: true });
 
   // Fetch splits for all marketplace orders
   useEffect(() => {

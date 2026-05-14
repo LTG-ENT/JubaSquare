@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
 import { useTranslation } from "react-i18next";
+import { useOptimizedPolling } from "@/hooks/useOptimizedPolling";
 import api, { formatUSD, formatPrice, formatDetail } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -133,15 +134,14 @@ export default function DriverDashboard() {
     loadCashSummary();
   }, [load, loadRequests, loadCashSummary]);
 
-  // Auto-refresh everything every 15 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      load();
-      loadRequests();
-      loadCashSummary();
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [load, loadRequests, loadCashSummary]);
+  // Optimized auto-refresh with visibility detection
+  useOptimizedPolling(
+    useCallback(async () => {
+      await Promise.all([load(), loadRequests(), loadCashSummary()]);
+    }, [load, loadRequests, loadCashSummary]),
+    15000,
+    { runOnMount: false } // Already run on mount above
+  );
 
   const all = [
     ...(data.splits || []).map((s) => ({ ...s, _kind: "split" })),

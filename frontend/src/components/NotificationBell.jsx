@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Bell, Package, AlertTriangle, Receipt, X, Check } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { useOptimizedPolling } from "@/hooks/useOptimizedPolling";
 import api from "@/lib/api";
 import { useNavigate } from "react-router-dom";
 
@@ -50,9 +51,13 @@ export default function NotificationBell() {
       setItems([]); setUnread(0); return;
     }
     load();
-    const id = setInterval(load, 30000);
-    return () => clearInterval(id);
   }, [user, load]);
+
+  // Optimized polling with visibility detection
+  useOptimizedPolling(load, 30000, {
+    enabled: !!user,
+    runOnMount: false // Already run above
+  });
 
   // Close on outside click
   useEffect(() => {

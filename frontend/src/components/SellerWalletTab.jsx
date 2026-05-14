@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import api, { formatUSD, formatPrice, formatDetail } from "@/lib/api";
 import { useCart } from "@/context/CartContext";
+import { useOptimizedPolling } from "@/hooks/useOptimizedPolling";
 import { toast } from "sonner";
 import {
   Wallet,
@@ -122,14 +123,8 @@ export default function SellerWalletTab() {
     load();
   }, [load]);
 
-  // Auto-refresh every 12 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      silentRefresh();
-    }, 12000); // 12 seconds
-
-    return () => clearInterval(interval);
-  }, [silentRefresh]);
+  // Optimized auto-refresh with visibility detection
+  useOptimizedPolling(silentRefresh, 12000, { runOnMount: false });
 
   const act = async (split, action) => {
     const isRest = split._kind === "rest";

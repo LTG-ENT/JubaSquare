@@ -10,6 +10,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useOptimizedPolling } from "@/hooks/useOptimizedPolling";
 import api, { formatUSD, formatDetail } from "@/lib/api";
 import { toast } from "sonner";
 import Header from "@/components/Header";
@@ -129,12 +130,16 @@ export default function KitchenDashboard() {
     loadRestaurant();
     loadOrders();
     loadHistory();
-    const t = setInterval(() => {
-      loadOrders();
-      loadHistory();
-    }, 15000); // poll every 15s
-    return () => clearInterval(t);
   }, [loadRestaurant, loadOrders, loadHistory]);
+
+  // Optimized polling with visibility detection
+  useOptimizedPolling(
+    useCallback(async () => {
+      await Promise.all([loadOrders(), loadHistory()]);
+    }, [loadOrders, loadHistory]),
+    15000,
+    { runOnMount: false } // Already run on mount above
+  );
 
   const toggleOpen = async () => {
     if (!restaurant) return;
