@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import { useTranslation } from "react-i18next";
 import { ArrowLeft, Loader2, LogIn as LogInIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Logo } from "@/components/Logo";
@@ -8,6 +9,7 @@ import { Logo } from "@/components/Logo";
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -15,7 +17,7 @@ export default function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!email || !password) {
-      toast.error("Enter your email and password");
+      toast.error(t("toastEnterEmailPassword"));
       return;
     }
     setBusy(true);
@@ -25,7 +27,7 @@ export default function Login() {
       toast.error(res.error);
       return;
     }
-    toast.success(`Welcome back, ${res.user.name}!`);
+    toast.success(`${t("toastWelcomeBack")}, ${res.user.name}!`);
     if (res.user.role === "admin") navigate("/admin");
     else if (res.user.role === "seller") navigate("/seller");
     else navigate("/");
@@ -40,19 +42,19 @@ export default function Login() {
         className="fixed top-5 left-5 z-50 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-[var(--js-border)] text-[var(--js-text)] text-sm font-semibold shadow-sm hover:bg-[var(--js-subtle)] transition"
       >
         <ArrowLeft className="w-4 h-4" />
-        Back
+        {t("back")}
       </button>
       <div className="w-full max-w-md fade-up">
         <div className="flex flex-col items-center mb-10">
           <Link to="/"><Logo size={96} className="drop-shadow-2xl sm:w-28 sm:h-28 md:w-32 md:h-32 lg:w-36 lg:h-36 xl:w-40 xl:h-40" /></Link>
           <h1 className="font-display font-bold text-3xl text-[var(--js-text)] mt-2">JubaSquare</h1>
           <p className="text-[10px] uppercase tracking-[0.25em] text-[var(--js-text-secondary)] font-bold mt-1">by L.T.G Enterprise</p>
-          <p className="text-sm text-[var(--js-text-secondary)] mt-4 text-center">Sign in to your JubaSquare account</p>
+          <p className="text-sm text-[var(--js-text-secondary)] mt-4 text-center">{t("signInSubtitle")}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="bg-white border border-[var(--js-border)] rounded-3xl p-6 sm:p-8 shadow-[0_8px_32px_rgba(0,0,0,0.06)]">
           <label className="block mb-4">
-            <span className="text-xs font-semibold text-[var(--js-text-secondary)] uppercase tracking-wider">Email</span>
+            <span className="text-xs font-semibold text-[var(--js-text-secondary)] uppercase tracking-wider">{t("email")}</span>
             <input
               type="email"
               value={email}
@@ -65,7 +67,7 @@ export default function Login() {
             />
           </label>
           <label className="block mb-2">
-            <span className="text-xs font-semibold text-[var(--js-text-secondary)] uppercase tracking-wider">Password</span>
+            <span className="text-xs font-semibold text-[var(--js-text-secondary)] uppercase tracking-wider">{t("password")}</span>
             <input
               type="password"
               value={password}
@@ -79,7 +81,7 @@ export default function Login() {
           </label>
           <div className="flex justify-end mb-6">
             <Link to="/forgot-password" className="text-xs text-[#C84B31] hover:underline font-semibold" data-testid="forgot-password-link">
-              Forgot password?
+              {t("forgotPassword")}
             </Link>
           </div>
           <button
@@ -89,11 +91,11 @@ export default function Login() {
             className="w-full bg-[#C84B31] hover:bg-[#A83A23] text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 transition disabled:opacity-60"
           >
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogInIcon className="w-4 h-4" />}
-            Sign in
+            {t("signIn")}
           </button>
           <p className="text-center text-sm text-[var(--js-text-secondary)] mt-6">
-            New to JubaSquare?{" "}
-            <Link to="/signup" className="text-[#C84B31] font-semibold hover:underline" data-testid="signup-link">Create an account</Link>
+            {t("newToJubaSquare")}{" "}
+            <Link to="/signup" className="text-[#C84B31] font-semibold hover:underline" data-testid="signup-link">{t("createAnAccount")}</Link>
           </p>
         </form>
       </div>

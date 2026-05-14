@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useSystem } from "@/context/SystemContext";
+import { useTranslation } from "react-i18next";
 import api, { formatDetail } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -23,6 +24,7 @@ const Toggle = ({ label, hint, checked, onChange, testId }) => (
 export default function Settings() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (!user) navigate("/login");
@@ -34,8 +36,8 @@ export default function Settings() {
     <div className="min-h-screen flex flex-col bg-[var(--js-bg)]">
       <Header />
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full flex-1">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--js-text-secondary)] font-bold mb-2">Settings</p>
-        <h1 className="font-display font-bold text-3xl sm:text-4xl text-[var(--js-text)]">{user.role === "admin" ? "Platform settings" : user.role === "seller" ? "Seller settings" : "Account settings"}</h1>
+        <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--js-text-secondary)] font-bold mb-2">{t("settings")}</p>
+        <h1 className="font-display font-bold text-3xl sm:text-4xl text-[var(--js-text)]">{user.role === "admin" ? t("platformSettings") : user.role === "seller" ? t("sellerSettings") : t("accountSettings")}</h1>
 
         <div className="mt-8 space-y-6">
           {user.role === "admin" && <AdminSettings />}
@@ -216,44 +218,46 @@ function CustomerSettings() {
 
 function ProfileSection() {
   const { user, setUser } = useAuth();
+  const { t } = useTranslation();
   const [form, setForm] = useState({ name: user.name, phone: user.phone || "" });
 
   const save = async (e) => {
     e.preventDefault();
     try {
       const { data } = await api.put("/auth/profile", form);
-      setUser(data); toast.success("Profile updated");
+      setUser(data); toast.success(t("toastProfileUpdated"));
     } catch (err) { toast.error(formatDetail(err.response?.data?.detail)); }
   };
 
   return (
-    <Card title="👤 Profile">
+    <Card title={`👤 ${t("profile")}`}>
       <form onSubmit={save} className="space-y-3">
-        <Row label="Name"><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="profile-name" className="js-input max-w-md" /></Row>
-        <Row label="Email"><input value={user.email} disabled className="js-input max-w-md opacity-60" /></Row>
-        <Row label="Phone"><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="profile-phone" className="js-input max-w-md" /></Row>
-        <button type="submit" data-testid="profile-save" className="bg-[#1A1A1A] text-white text-sm font-semibold px-5 py-2.5 rounded-full">Save profile</button>
+        <Row label={t("name")}><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="profile-name" className="js-input max-w-md" /></Row>
+        <Row label={t("email")}><input value={user.email} disabled className="js-input max-w-md opacity-60" /></Row>
+        <Row label={t("phone")}><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="profile-phone" className="js-input max-w-md" /></Row>
+        <button type="submit" data-testid="profile-save" className="bg-[#1A1A1A] text-white text-sm font-semibold px-5 py-2.5 rounded-full">{t("saveProfile")}</button>
       </form>
     </Card>
   );
 }
 
 function PasswordSection() {
+  const { t } = useTranslation();
   const [pw, setPw] = useState({ current_password: "", new_password: "" });
   const submit = async (e) => {
     e.preventDefault();
     try {
       await api.post("/auth/change-password", pw);
       setPw({ current_password: "", new_password: "" });
-      toast.success("Password changed");
+      toast.success(t("toastPasswordChanged"));
     } catch (err) { toast.error(formatDetail(err.response?.data?.detail)); }
   };
   return (
-    <Card title="🔑 Change password">
+    <Card title={`🔑 ${t("updatePassword")}`}>
       <form onSubmit={submit} className="space-y-3">
-        <Row label="Current password"><input type="password" value={pw.current_password} onChange={(e) => setPw({ ...pw, current_password: e.target.value })} data-testid="current-pw" className="js-input max-w-md" /></Row>
-        <Row label="New password"><input type="password" value={pw.new_password} onChange={(e) => setPw({ ...pw, new_password: e.target.value })} data-testid="new-pw" className="js-input max-w-md" /></Row>
-        <button type="submit" data-testid="change-pw-btn" className="bg-[#C84B31] hover:bg-[#A83A23] text-white text-sm font-semibold px-5 py-2.5 rounded-full">Update password</button>
+        <Row label={t("currentPassword")}><input type="password" value={pw.current_password} onChange={(e) => setPw({ ...pw, current_password: e.target.value })} data-testid="current-pw" className="js-input max-w-md" /></Row>
+        <Row label={t("newPassword")}><input type="password" value={pw.new_password} onChange={(e) => setPw({ ...pw, new_password: e.target.value })} data-testid="new-pw" className="js-input max-w-md" /></Row>
+        <button type="submit" data-testid="change-pw-btn" className="bg-[#C84B31] hover:bg-[#A83A23] text-white text-sm font-semibold px-5 py-2.5 rounded-full">{t("updatePassword")}</button>
       </form>
     </Card>
   );

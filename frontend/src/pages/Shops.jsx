@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import api from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -8,6 +9,7 @@ import { useCart } from "@/context/CartContext";
 import { Search, Store } from "lucide-react";
 
 export default function Shops() {
+  const { t } = useTranslation();
   const [shops, setShops] = useState([]);
   const [products, setProducts] = useState([]);
   const [search, setSearch] = useState("");
@@ -56,12 +58,12 @@ export default function Shops() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full flex-1">
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--js-text-secondary)] font-bold mb-2">Shops</p>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--js-text-secondary)] font-bold mb-2">{t("shops")}</p>
             <h1 className="font-display font-bold text-3xl sm:text-4xl lg:text-5xl text-[var(--js-text)]">
-              All shops in Juba
+              {t("allShopsInJuba")}
             </h1>
             <p className="text-sm text-[var(--js-text-secondary)] mt-2">
-              Browse {shops.length} verified shops across every category.
+              {t("browseShopsSubtitle", { count: shops.length })}
             </p>
           </div>
           <AreaSelector value={area} onChange={setArea} />
