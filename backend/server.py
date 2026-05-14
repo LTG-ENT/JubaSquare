@@ -3615,8 +3615,12 @@ async def my_chat_unread_count(user: dict = Depends(get_current_user)):
     role = user.get("role")
     if role == "seller":
         q = {"seller_id": user["id"], "read_by_seller": False, "sender_role": "customer"}
+    elif role == "driver":
+        # Drivers see unread messages from customers
+        q = {"sender_role": "customer", "read_by_seller": False}  # Using read_by_seller for drivers too
     else:
-        q = {"customer_id": user["id"], "read_by_customer": False, "sender_role": "seller"}
+        # Customers see unread from sellers AND drivers
+        q = {"customer_id": user["id"], "read_by_customer": False, "sender_role": {"$in": ["seller", "driver"]}}
     count = await db.order_messages.count_documents(q)
     return {"count": count}
 
