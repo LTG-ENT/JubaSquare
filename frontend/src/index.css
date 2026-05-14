@@ -129,12 +129,28 @@ html, body, #root {
     color: var(--js-text);
 }
 
+/* Prevent horizontal overflow on all screen sizes */
+html, body {
+    overflow-x: hidden;
+    max-width: 100%;
+}
+
 body {
     margin: 0;
     font-family: 'Manrope', system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     font-feature-settings: 'ss01', 'cv11';
+}
+
+/* Ensure all containers respect viewport width */
+* {
+    box-sizing: border-box;
+}
+
+#root {
+    overflow-x: hidden;
+    max-width: 100vw;
 }
 
 .font-display {
@@ -267,3 +283,72 @@ body {
 .legal-body strong { font-weight: 700; }
 .legal-body em { font-style: italic; }
 .legal-body code { background: var(--js-subtle); padding: 0.1rem 0.35rem; border-radius: 0.25rem; font-size: 0.85em; }
+
+/* ===== RESPONSIVE UTILITIES ===== */
+
+/* Ensure images don't overflow */
+img {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Responsive table wrapper */
+.table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.table-responsive table {
+    min-width: 600px;
+}
+
+/* Responsive modal adjustments */
+@media (max-width: 640px) {
+    /* Full-screen modals on mobile */
+    .modal-mobile-full {
+        max-width: 100vw !important;
+        max-height: 100vh !important;
+        border-radius: 0 !important;
+    }
+    
+    /* Better spacing on mobile */
+    .modal-mobile-compact {
+        padding: 1rem !important;
+    }
+}
+
+/* Prevent text overflow */
+.truncate-responsive {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Responsive grid adjustments */
+@media (max-width: 768px) {
+    .grid-responsive {
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)) !important;
+    }
+}
+
+@media (max-width: 640px) {
+    .grid-responsive {
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)) !important;
+    }
+}
+
+/* Mobile-friendly button sizing */
+@media (max-width: 640px) {
+    button, .btn {
+        min-height: 44px; /* Touch-friendly minimum */
+    }
+}
+
+/* Prevent horizontal scroll on mobile */
+@media (max-width: 768px) {
+    .container, .max-w-7xl, .max-w-6xl, .max-w-5xl, .max-w-4xl {
+        max-width: 100vw;
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+}

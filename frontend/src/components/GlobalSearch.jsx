@@ -68,7 +68,7 @@ export default function GlobalSearch() {
           onFocus={() => setOpen(true)}
           placeholder="Search restaurants, shops, products…"
           data-testid="global-search-input"
-          className="w-full sm:w-72 bg-white/10 hover:bg-white/15 focus:bg-white/15 border border-white/20 focus:border-white/40 placeholder:text-white/50 text-white text-sm rounded-full pl-9 pr-9 py-2 transition focus:outline-none"
+          className="w-full sm:w-64 md:w-72 bg-white/10 hover:bg-white/15 focus:bg-white/15 border border-white/20 focus:border-white/40 placeholder:text-white/50 text-white text-sm rounded-full pl-9 pr-9 py-2 transition focus:outline-none"
         />
         {q && (
           <button

@@ -15,10 +15,10 @@ import CategoriesNavMenu from "@/components/CategoriesNavMenu";
 import GlobalSearch from "@/components/GlobalSearch";
 
 const Brand = ({ to = "/" }) => (
-  <Link to={to} className="flex items-center gap-3 shrink-0" data-testid="brand-logo">
-    <Logo size={48} className="sm:w-14 sm:h-14 md:w-16 md:h-16 lg:w-[72px] lg:h-[72px] xl:w-20 xl:h-20" />
+  <Link to={to} className="flex items-center gap-2 sm:gap-3 shrink-0 min-w-0" data-testid="brand-logo">
+    <Logo size={48} className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 lg:w-[72px] lg:h-[72px] xl:w-20 xl:h-20 shrink-0" />
     <div className="flex flex-col leading-tight min-w-0">
-      <span className="font-display font-bold text-xl sm:text-2xl text-white whitespace-nowrap">JubaSquare</span>
+      <span className="font-display font-bold text-lg sm:text-xl md:text-2xl text-white whitespace-nowrap">JubaSquare</span>
       <span className="hidden sm:inline text-[10px] uppercase tracking-[0.18em] text-white/60 -mt-0.5 whitespace-nowrap">by L.T.G Enterprise</span>
     </div>
   </Link>
@@ -178,25 +178,25 @@ export default function Header() {
           ⚠ Maintenance mode is active — orders are paused.
         </div>
       )}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="h-20 lg:h-24 flex items-center justify-between gap-4">
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8">
+        <div className="h-16 sm:h-20 lg:h-24 flex items-center justify-between gap-2 sm:gap-4">
           {/* Left cluster: mobile menu + language switcher */}
           <div className="flex items-center gap-1 shrink-0">
             {!isDriver && (
               <button
                 onClick={() => setMobileOpen((v) => !v)}
                 data-testid="mobile-menu-button"
-                className="lg:hidden p-2 rounded-full hover:bg-white/10 transition"
+                className="lg:hidden p-1.5 sm:p-2 rounded-full hover:bg-white/10 transition"
                 aria-label="Menu"
               >
-                {mobileOpen ? <X className="w-6 h-6 text-white" /> : <Menu className="w-6 h-6 text-white" />}
+                {mobileOpen ? <X className="w-5 h-5 sm:w-6 sm:h-6 text-white" /> : <Menu className="w-5 h-5 sm:w-6 sm:h-6 text-white" />}
               </button>
             )}
             <LanguageSwitcher />
           </div>
 
           {/* Centered Brand */}
-          <div className="flex-1 flex justify-center lg:justify-start">
+          <div className="flex-1 flex justify-center lg:justify-start min-w-0">
             <Brand to={isDriver ? "/driver" : "/"} />
           </div>
 
@@ -217,7 +217,7 @@ export default function Header() {
           )}
 
           {/* Right side actions */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             {!isDriver && (
               <div className="hidden md:block">
                 <GlobalSearch />
@@ -228,10 +228,10 @@ export default function Header() {
             {user && <NotificationBell />}
 
             {!isDriver && (
-              <Link to="/cart" data-testid="header-cart-button" className="relative p-2.5 rounded-full hover:bg-white/10 transition">
-                <ShoppingCart className="w-5 h-5 text-white" />
+              <Link to="/cart" data-testid="header-cart-button" className="relative p-2 sm:p-2.5 rounded-full hover:bg-white/10 transition">
+                <ShoppingCart className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                 {count > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 bg-[#C84B31] text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center" data-testid="cart-count-badge">
+                  <span className="absolute -top-0.5 -right-0.5 bg-[#C84B31] text-white text-[10px] font-bold rounded-full w-4 h-4 sm:w-5 sm:h-5 flex items-center justify-center" data-testid="cart-count-badge">
                     {count}
                   </span>
                 )}
@@ -251,7 +251,7 @@ export default function Header() {
                 </button>
               </div>
             ) : (
-              <Link to="/login" data-testid="header-login-button" className="hidden sm:inline-flex items-center bg-[#C84B31] hover:bg-[#A83A23] text-white text-sm font-semibold px-5 py-2 rounded-full transition">
+              <Link to="/login" data-testid="header-login-button" className="hidden sm:inline-flex items-center bg-[#C84B31] hover:bg-[#A83A23] text-white text-xs sm:text-sm font-semibold px-3 sm:px-5 py-1.5 sm:py-2 rounded-full transition">
                 {t("signIn")}
               </Link>
             )}
