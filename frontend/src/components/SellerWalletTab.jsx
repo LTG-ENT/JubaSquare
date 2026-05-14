@@ -185,13 +185,20 @@ export default function SellerWalletTab() {
   const allItems = [
     ...splits.map((s) => ({ ...s, _kind: "split" })),
     ...restOrders.map((r) => ({ ...r, _kind: "rest" })),
-  ].filter((row) => row.payout_status !== "paid" && !["cancel_approved", "cancelled"].includes(row.status));
+  ].filter((row) => 
+    row.payout_status !== "paid" && 
+    row.seller_preparation_status !== "cancelled" &&
+    !["cancel_approved", "cancelled"].includes(row.status)
+  );
 
   // Cancelled orders
   const cancelledItems = [
     ...splits.map((s) => ({ ...s, _kind: "split" })),
     ...restOrders.map((r) => ({ ...r, _kind: "rest" })),
-  ].filter((row) => ["cancel_approved", "cancelled"].includes(row.status));
+  ].filter((row) => 
+    row.seller_preparation_status === "cancelled" ||
+    ["cancel_approved", "cancelled"].includes(row.status)
+  );
 
   if (loading) {
     return (

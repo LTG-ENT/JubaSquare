@@ -5,6 +5,7 @@ import api, { formatUSD, formatPrice, formatDetail } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import SignaturePad from "@/components/SignaturePad";
+import OrderChatButton from "@/components/OrderChatButton";
 import { toast } from "sonner";
 import {
   Truck,
@@ -144,6 +145,11 @@ export default function DriverDashboard() {
     ...(data.splits || []).map((s) => ({ ...s, _kind: "split" })),
     ...(data.restaurant_orders || []).map((r) => ({ ...r, _kind: "rest" })),
   ].filter((item) => {
+    // Filter out cancelled orders
+    if (item.seller_preparation_status === "cancelled" || item.delivery_status === "failed") {
+      return false;
+    }
+    
     // Handle "completed" filter - show only items where admin received cash
     if (filter === "completed") {
       return item.cash_handover_status === "received";
@@ -591,7 +597,10 @@ function DeliveryDetail({ row, reload, setOpen }) {
 
       {/* Customer info */}
       <section className="border border-[var(--js-border)] rounded-xl p-4">
-        <p className="text-xs uppercase tracking-wider font-bold text-[var(--js-text-secondary)] mb-2">Deliver to customer</p>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">Deliver to customer</p>
+          <OrderChatButton orderId={r.order_id} label="Contact Customer" />
+        </div>
         <p className="font-semibold">{r.customer_name}</p>
         <p className="text-xs flex items-center gap-1"><Phone className="w-3 h-3" /> {r.customer_phone || "—"}</p>
         <p className="text-xs flex items-center gap-1"><MapPin className="w-3 h-3" /> {r.customer_area} — {r.customer_address}</p>
