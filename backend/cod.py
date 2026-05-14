@@ -1178,9 +1178,24 @@ def register_endpoints():
         _check_seller_owns(s, user)
         if s.get("seller_preparation_status") not in {"pending"}:
             raise HTTPException(400, f"Cannot accept from status {s.get('seller_preparation_status')}")
+        
+        now = now_iso()
+        update_fields = {
+            "seller_preparation_status": "accepted",
+            "updated_at": now,
+        }
+        
+        # NEW: If no driver assigned yet, broadcast to all drivers
+        if not s.get("driver_id"):
+            update_fields.update({
+                "assignment_status": "offered_to_all_drivers",
+                "delivery_status": "offered",
+                "driver_response_status": "pending",
+            })
+        
         await db.seller_order_splits.update_one(
             {"id": split_id},
-            {"$set": {"seller_preparation_status": "accepted", "updated_at": now_iso()}},
+            {"$set": update_fields},
         )
         return await _find_split(split_id)
 
@@ -1262,9 +1277,24 @@ def register_endpoints():
     async def rest_accept(order_id: str, user: dict = seller_dep):
         o = await _find_rest_order(order_id)
         _check_seller_owns(o, user)
+        
+        now = now_iso()
+        update_fields = {
+            "seller_preparation_status": "accepted",
+            "updated_at": now,
+        }
+        
+        # NEW: If no driver assigned yet, broadcast to all drivers
+        if not o.get("driver_id"):
+            update_fields.update({
+                "assignment_status": "offered_to_all_drivers",
+                "delivery_status": "offered",
+                "driver_response_status": "pending",
+            })
+        
         await db.restaurant_orders.update_one(
             {"id": order_id},
-            {"$set": {"seller_preparation_status": "accepted", "updated_at": now_iso()}},
+            {"$set": update_fields},
         )
         return await _find_rest_order(order_id)
 
@@ -1355,19 +1385,43 @@ def register_endpoints():
 
     @new_router.get("/driver/delivery-requests")
     async def driver_delivery_requests(user: dict = driver_dep):
-        """Get pending delivery requests that driver needs to accept/reject."""
-        # Find splits and orders offered to this driver
-        splits = await db.seller_order_splits.find({
+        """Get pending delivery requests that driver needs to accept/reject.
+        
+        Returns:
+        - Orders offered specifically to this driver (assignment_status='offered_to_driver')
+        - Orders offered to ALL drivers (assignment_status='offered_to_all_drivers')
+        """
+        # Find splits offered specifically to this driver
+        splits_direct = await db.seller_order_splits.find({
             "driver_id": user["id"],
             "assignment_status": "offered_to_driver",
             "driver_response_status": "pending"
         }, {"_id": 0}).sort("assigned_at", -1).to_list(500)
         
-        rest_orders = await db.restaurant_orders.find({
+        # Find splits offered to ALL drivers (broadcast/pool)
+        splits_broadcast = await db.seller_order_splits.find({
+            "assignment_status": "offered_to_all_drivers",
+            "driver_response_status": "pending",
+            "seller_preparation_status": "accepted"  # Only show if seller accepted
+        }, {"_id": 0}).sort("created_at", -1).to_list(500)
+        
+        # Find restaurant orders offered specifically to this driver
+        rest_direct = await db.restaurant_orders.find({
             "driver_id": user["id"],
             "assignment_status": "offered_to_driver",
             "driver_response_status": "pending"
         }, {"_id": 0}).sort("assigned_at", -1).to_list(500)
+        
+        # Find restaurant orders offered to ALL drivers (broadcast/pool)
+        rest_broadcast = await db.restaurant_orders.find({
+            "assignment_status": "offered_to_all_drivers",
+            "driver_response_status": "pending",
+            "seller_preparation_status": "accepted"  # Only show if seller accepted
+        }, {"_id": 0}).sort("created_at", -1).to_list(500)
+        
+        # Combine and sanitize
+        splits = splits_direct + splits_broadcast
+        rest_orders = rest_direct + rest_broadcast
         
         # Sanitize: hide commission & seller_earning for drivers
         for s in splits:
@@ -1408,21 +1462,51 @@ def register_endpoints():
     # ---- Driver actions on a split ----
     @new_router.post("/driver/restaurant-orders/{order_id}/accept-offer")
     async def driver_accept_offer_rest(order_id: str, user: dict = driver_dep):
-        """Driver accepts a pending offered restaurant order — flips
-        delivery_status from 'offered' → 'assigned'. Pickup OTP is still
-        required at the pickup step."""
+        """Driver accepts a pending offered restaurant order.
+        
+        Handles both:
+        - Direct offers (assignment_status='offered_to_driver' with specific driver_id)
+        - Broadcast offers (assignment_status='offered_to_all_drivers')
+        """
         o = await _find_rest_order(order_id)
-        _check_driver_owns(o, user)
-        if o.get("delivery_status") != "offered":
-            raise HTTPException(400, f"Order is not in 'offered' state (current: {o.get('delivery_status')})")
-        await db.restaurant_orders.update_one(
-            {"id": order_id},
+        
+        # Check if this is a broadcast offer or direct offer
+        is_broadcast = o.get("assignment_status") == "offered_to_all_drivers"
+        
+        if is_broadcast:
+            # For broadcast: Any driver can accept, first come first served
+            if o.get("driver_response_status") != "pending":
+                raise HTTPException(400, f"This order has already been claimed by another driver")
+        else:
+            # For direct offer: Must be offered to this specific driver
+            _check_driver_owns(o, user)
+            if o.get("delivery_status") != "offered":
+                raise HTTPException(400, f"Order is not in 'offered' state (current: {o.get('delivery_status')})")
+        
+        now = now_iso()
+        
+        # Atomic update with race condition handling
+        result = await db.restaurant_orders.update_one(
+            {
+                "id": order_id,
+                "driver_response_status": "pending"  # Ensures only one driver can claim
+            },
             {"$set": {
+                "driver_id": user["id"],  # Assign to this driver
+                "driver_name": user.get("name", "Unknown"),
+                "assignment_status": "accepted_by_driver",
+                "driver_response_status": "accepted",
                 "delivery_status": "assigned",
-                "driver_accepted_at": now_iso(),
-                "updated_at": now_iso(),
+                "pickup_status": "pending_pickup",
+                "driver_accepted_at": now,
+                "updated_at": now,
             }},
         )
+        
+        # Check if update succeeded (race condition check)
+        if result.modified_count == 0:
+            raise HTTPException(400, "This order was just claimed by another driver. Please check for other available orders.")
+        
         try:
             await create_notification(
                 user_id=o.get("seller_id"),
@@ -1480,16 +1564,38 @@ def register_endpoints():
     # ---- Driver accept/decline for marketplace splits ----
     @new_router.post("/driver/splits/{split_id}/accept-offer")
     async def driver_accept_offer_split(split_id: str, user: dict = driver_dep):
-        """Driver accepts a pending offered split — flips assignment_status to accepted_by_driver."""
+        """Driver accepts a pending offered split — flips assignment_status to accepted_by_driver.
+        
+        Handles both:
+        - Direct offers (assignment_status='offered_to_driver' with specific driver_id)
+        - Broadcast offers (assignment_status='offered_to_all_drivers')
+        """
         s = await _find_split(split_id)
-        _check_driver_owns(s, user)
-        if s.get("assignment_status") != "offered_to_driver":
-            raise HTTPException(400, f"Split is not offered (current: {s.get('assignment_status')})")
+        
+        # Check if this is a broadcast offer or direct offer
+        is_broadcast = s.get("assignment_status") == "offered_to_all_drivers"
+        
+        if is_broadcast:
+            # For broadcast: Any driver can accept, first come first served
+            if s.get("driver_response_status") != "pending":
+                raise HTTPException(400, f"This order has already been claimed by another driver")
+        else:
+            # For direct offer: Must be offered to this specific driver
+            _check_driver_owns(s, user)
+            if s.get("assignment_status") != "offered_to_driver":
+                raise HTTPException(400, f"Split is not offered (current: {s.get('assignment_status')})")
         
         now = now_iso()
-        await db.seller_order_splits.update_one(
-            {"id": split_id},
+        
+        # Atomic update with race condition handling
+        result = await db.seller_order_splits.update_one(
+            {
+                "id": split_id,
+                "driver_response_status": "pending"  # Ensures only one driver can claim
+            },
             {"$set": {
+                "driver_id": user["id"],  # Assign to this driver
+                "driver_name": user.get("name", "Unknown"),
                 "assignment_status": "accepted_by_driver",
                 "driver_response_status": "accepted",
                 "driver_accepted_at": now,
@@ -1498,6 +1604,10 @@ def register_endpoints():
                 "updated_at": now,
             }},
         )
+        
+        # Check if update succeeded (race condition check)
+        if result.modified_count == 0:
+            raise HTTPException(400, "This order was just claimed by another driver. Please check for other available orders.")
         
         # Create audit log
         try:
@@ -1511,7 +1621,7 @@ def register_endpoints():
                 "user_role": "driver",
                 "user_email": user.get("email"),
                 "timestamp": now,
-                "notes": f"Driver {user.get('name', 'Unknown')} accepted delivery",
+                "notes": f"Driver {user.get('name', 'Unknown')} accepted delivery" + (" (from broadcast pool)" if is_broadcast else ""),
                 "_id_": None,
             })
         except Exception as e:

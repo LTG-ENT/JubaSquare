@@ -2989,6 +2989,71 @@ agent_communication:
         
         Ready for user acceptance testing.
 
+driver_broadcast_assignment:
+  - task: "Broadcast driver assignment - Orders show to all drivers after seller accepts"
+    implemented: true
+    working: "NA"
+    files: ["/app/backend/cod.py"]
+    stuck_count: 0
+    priority: "critical"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            **NEW WORKFLOW IMPLEMENTED:**
+            
+            **OLD FLOW:**
+            Customer order → Admin assigns driver → Driver accepts
+            
+            **NEW FLOW:**
+            Customer order → **Seller accepts** → **All drivers see order** → First driver to accept gets it
+            (OR admin can still manually assign to specific driver)
+            
+            **CHANGES MADE:**
+            
+            1. Seller Accept Endpoints (cod.py lines 1175-1198, 1261-1281):
+               - POST /api/seller/splits/{id}/accept
+               - POST /api/seller/restaurant-orders/{id}/accept
+               - When seller accepts + no driver assigned yet:
+                 * Set assignment_status = "offered_to_all_drivers"
+                 * Set delivery_status = "offered"
+                 * Set driver_response_status = "pending"
+            
+            2. Driver Delivery Requests Endpoint (cod.py lines 1356-1435):
+               - GET /api/driver/delivery-requests
+               - Now returns TWO types of orders:
+                 a) Direct offers: assignment_status="offered_to_driver" + driver_id=current_driver
+                 b) Broadcast offers: assignment_status="offered_to_all_drivers" + seller accepted
+               - All drivers see broadcast orders (not just assigned driver)
+            
+            3. Driver Accept Endpoints with Race Condition Handling (cod.py lines 1561-1636, 1463-1509):
+               - POST /api/driver/splits/{id}/accept-offer
+               - POST /api/driver/restaurant-orders/{id}/accept-offer
+               - Handles broadcast offers (any driver can accept)
+               - Atomic update ensures only ONE driver can claim an order
+               - If another driver claims first, returns: "This order was just claimed by another driver"
+               - Sets driver_id to accepting driver
+               - Changes assignment_status to "accepted_by_driver"
+            
+            **RACE CONDITION PROTECTION:**
+            - Uses MongoDB atomic update with driver_response_status="pending" filter
+            - Only one driver's update will succeed (modified_count=1)
+            - Others get 400 error with friendly message
+            - Prevents double-assignment
+            
+            **BACKWARDS COMPATIBILITY:**
+            - Admin can still manually assign to specific driver (sets assignment_status="offered_to_driver")
+            - Direct offers still work as before
+            - Existing assigned orders unaffected
+            
+            **BENEFITS:**
+            - Faster order fulfillment (drivers compete for orders)
+            - No manual admin assignment needed for most orders
+            - Drivers see orders immediately after seller accepts
+            - First-come-first-served increases driver efficiency
+
+
 bug_fixes_iteration_13:
   - task: "Seller payout history exchange rate display"
     implemented: true
