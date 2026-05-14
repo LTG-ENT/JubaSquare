@@ -61,6 +61,27 @@ now_iso: Any = None
 hash_password: Any = None
 
 
+async def _enrich_rate(rows: list[dict]) -> list[dict]:
+    """Attach `exchange_rate_ssp` to each row using its seller_id.
+    Used for splits / restaurant-orders responses so the driver and admin UIs
+    can format totals with the right seller-specific rate."""
+    if not rows:
+        return rows
+    seller_ids = list({r.get("seller_id") for r in rows if r.get("seller_id")})
+    settings = await get_settings()
+    global_rate = float(settings.get("global_rate", 600.0))
+    rates: dict[str, float] = {}
+    if seller_ids:
+        recs = await db.exchange_rates.find(
+            {"seller_id": {"$in": seller_ids}}, {"_id": 0},
+        ).to_list(2000)
+        rates = {r["seller_id"]: float(r.get("rate", global_rate)) for r in recs}
+    for r in rows:
+        sid = r.get("seller_id")
+        r["exchange_rate_ssp"] = rates.get(sid, global_rate) if sid else global_rate
+    return rows
+
+
 def bind(*, db_, log_, get_current_user_, require_role_, get_settings_,
          create_notification_, now_iso_, hash_password_):
     global db, log, get_current_user, require_role, get_settings
@@ -748,20 +769,23 @@ def register_endpoints():
         if seller_id:
             q["seller_id"] = seller_id
         rows = await db.seller_order_splits.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+        await _enrich_rate(rows)
         return rows
 
     @new_router.get("/admin/order-splits/{split_id}")
     async def get_split(split_id: str, _: dict = admin_dep):
-        return await _find_split(split_id)
+        s = await _find_split(split_id)
+        await _enrich_rate([s])
+        return s
 
     @new_router.post("/admin/order-splits/{split_id}/assign-driver")
     async def assign_driver_to_split(split_id: str, body: AssignDriverIn, _: dict = admin_dep):
-        """Admin assigns driver to a split. Driver must accept before proceeding to pickup."""
+        """Admin assigns (or re-assigns) driver to a split. Re-assignment is
+        allowed as long as the order has not yet been picked up by a driver."""
         split = await _find_split(split_id)
-        if split.get("delivery_status") not in {"unassigned", "delivery_failed", "needs_driver_assignment"}:
-            # allow re-assignment if previous failed or needs reassignment
-            if split.get("driver_id") and split.get("assignment_status") not in {"rejected_by_driver", "unassigned"}:
-                raise HTTPException(400, f"Split already assigned (status: {split.get('delivery_status')})")
+        # Block re-assignment only once the driver has physically picked it up.
+        if split.get("pickup_status") == "picked_up":
+            raise HTTPException(400, "Cannot re-assign — order has already been picked up by the driver")
         
         driver = await db.users.find_one({"id": body.driver_id, "role": "driver"}, {"_id": 0, "name": 1, "id": 1})
         if not driver:
@@ -809,14 +833,17 @@ def register_endpoints():
             q["delivery_status"] = status
         if unassigned_only:
             q["delivery_status"] = "unassigned"
-        return await db.restaurant_orders.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+        rows = await db.restaurant_orders.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+        await _enrich_rate(rows)
+        return rows
 
     @new_router.post("/admin/restaurant-orders/{order_id}/assign-driver")
     async def assign_driver_to_rest(order_id: str, body: AssignDriverIn, _: dict = admin_dep):
-        """Admin assigns driver to restaurant order. Driver must accept before proceeding."""
+        """Admin assigns (or re-assigns) driver to a restaurant order. Re-assignment
+        is allowed as long as the order has not yet been picked up."""
         o = await _find_rest_order(order_id)
-        if o.get("driver_id") and o.get("assignment_status") not in {"rejected_by_driver", "unassigned", "needs_driver_assignment"}:
-            raise HTTPException(400, f"Order already assigned (status: {o.get('delivery_status')})")
+        if o.get("pickup_status") == "picked_up":
+            raise HTTPException(400, "Cannot re-assign — order has already been picked up by the driver")
         
         driver = await db.users.find_one({"id": body.driver_id, "role": "driver"}, {"_id": 0, "name": 1, "id": 1})
         if not driver:
@@ -1322,6 +1349,8 @@ def register_endpoints():
         for o in rest_orders:
             for k in ("commission_rate", "platform_commission_usd", "seller_earning_usd"):
                 o.pop(k, None)
+        await _enrich_rate(splits)
+        await _enrich_rate(rest_orders)
         return {"splits": splits, "restaurant_orders": rest_orders}
 
     @new_router.get("/driver/delivery-requests")
@@ -1347,7 +1376,8 @@ def register_endpoints():
         for o in rest_orders:
             for k in ("commission_rate", "platform_commission_usd", "seller_earning_usd"):
                 o.pop(k, None)
-        
+        await _enrich_rate(splits)
+        await _enrich_rate(rest_orders)
         return {"splits": splits, "restaurant_orders": rest_orders}
 
     @new_router.get("/driver/assignments/split/{split_id}")
@@ -1360,6 +1390,7 @@ def register_endpoints():
         s["seller_name"] = (seller or {}).get("name", "")
         for k in ("commission_rate", "platform_commission_usd", "seller_earning_usd"):
             s.pop(k, None)
+        await _enrich_rate([s])
         return s
 
     @new_router.get("/driver/assignments/restaurant-order/{order_id}")
@@ -1371,6 +1402,7 @@ def register_endpoints():
         o["seller_name"] = (seller or {}).get("name", "")
         for k in ("commission_rate", "platform_commission_usd", "seller_earning_usd"):
             o.pop(k, None)
+        await _enrich_rate([o])
         return o
 
     # ---- Driver actions on a split ----

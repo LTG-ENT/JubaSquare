@@ -545,13 +545,42 @@ export default function Orders() {
                       {o.items.map((item, idx) => (
                         <div key={idx} className="flex justify-between text-sm">
                           <span className="text-[#5C5C5C]">{item.quantity}x {item.name}</span>
-                          <span className="font-medium text-[#1A1A1A]">{formatPrice(item.price_usd * item.quantity, exchangeRate, currency)}</span>
+                          <span className="font-medium text-[#1A1A1A]">{formatPrice(item.price_usd * item.quantity, item.exchange_rate_ssp || o.exchange_rate_ssp || exchangeRate, currency)}</span>
                         </div>
                       ))}
                     </div>
 
+                    {/* Order Summary: subtotal + delivery + total */}
+                    {(() => {
+                      const restRate = o.exchange_rate_ssp || exchangeRate;
+                      const subtotal = typeof o.subtotal === "number" ? o.subtotal : (o.items || []).reduce((s, it) => s + (it.price_usd || 0) * (it.quantity || 0), 0);
+                      const deliveryFee = typeof o.delivery_fee === "number" ? o.delivery_fee : 0;
+                      const orderTotal = typeof o.total === "number" ? o.total : (subtotal + deliveryFee);
+                      const totalDisplay = currency === "USD"
+                        ? formatPrice(orderTotal, restRate, currency)
+                        : `${currency} ${Math.round((subtotal * restRate) + (deliveryFee * exchangeRate)).toLocaleString("en-US")}`;
+                      return (
+                        <div className="mt-4 pt-3 border-t border-[#E2E2D9] space-y-1.5 text-sm" data-testid={`rest-order-summary-${o.id}`}>
+                          <div className="flex justify-between text-[#5C5C5C]">
+                            <span>Subtotal</span>
+                            <span className="font-medium text-[#1A1A1A]">{formatPrice(subtotal, restRate, currency)}</span>
+                          </div>
+                          <div className="flex justify-between text-[#5C5C5C]">
+                            <span>Delivery fee</span>
+                            <span className="font-medium text-[#1A1A1A]">{deliveryFee === 0 ? "FREE" : formatPrice(deliveryFee, exchangeRate, currency)}</span>
+                          </div>
+                          <div className="flex justify-between pt-1.5 border-t border-[#E2E2D9]">
+                            <span className="font-bold text-[#1A1A1A]">Total</span>
+                            <span className="font-bold text-[#C84B31]">{totalDisplay}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                     <div className="flex items-center justify-between mt-4 pt-4 border-t border-[#E2E2D9]">
-                      <div className="font-bold text-lg text-[#1A1A1A]">Total: {formatPrice(o.total, exchangeRate, currency)}</div>
+                      <div className="text-xs text-[#5C5C5C]">
+                        {o.customer_area && <span className="inline-flex items-center gap-1"><MapPin className="w-3 h-3" /> {o.customer_area}</span>}
+                      </div>
                       <div className="flex items-center gap-2">
                         {canCancel && (
                           <button
@@ -659,6 +688,7 @@ export default function Orders() {
                     {o.items.map((i, idx) => {
                       const reviewable = isDelivered && i.item_type === "product";
                       const reviewed = reviewedIds.has(i.item_id);
+                      const itemRate = i.exchange_rate_ssp || exchangeRate;
                       return (
                         <div key={idx} className="flex items-center gap-3 text-sm">
                           <img src={i.image_url} alt={i.name} className="w-12 h-12 rounded-lg object-cover" />
@@ -684,11 +714,42 @@ export default function Orders() {
                               </button>
                             )
                           )}
-                          <span className="font-semibold text-[#1A1A1A] tabular-nums">{formatPrice(i.price_usd * i.quantity, exchangeRate, currency)}</span>
+                          <span className="font-semibold text-[#1A1A1A] tabular-nums">{formatPrice(i.price_usd * i.quantity, itemRate, currency)}</span>
                         </div>
                       );
                     })}
                   </div>
+
+                  {/* Order Summary: subtotal + delivery + total */}
+                  {(() => {
+                    const subtotal = typeof o.subtotal_usd === "number" ? o.subtotal_usd : 0;
+                    const deliveryFee = typeof o.delivery_fee_usd === "number" ? o.delivery_fee_usd : 0;
+                    const orderTotal = typeof o.total_usd === "number" ? o.total_usd : (subtotal + deliveryFee);
+                    // Per-seller subtotal in SSP (each item uses its own seller rate)
+                    const subtotalSSP = (o.items || []).reduce((sum, it) => sum + (it.price_usd || 0) * (it.quantity || 0) * (it.exchange_rate_ssp || exchangeRate), 0);
+                    const totalDisplay = currency === "USD"
+                      ? formatPrice(orderTotal, exchangeRate, currency)
+                      : `${currency} ${Math.round(subtotalSSP + (deliveryFee * exchangeRate)).toLocaleString("en-US")}`;
+                    const subtotalDisplay = currency === "USD"
+                      ? formatPrice(subtotal, exchangeRate, currency)
+                      : `${currency} ${Math.round(subtotalSSP).toLocaleString("en-US")}`;
+                    return (
+                      <div className="mb-4 pt-3 border-t border-[#E2E2D9] space-y-1.5 text-sm" data-testid={`mp-order-summary-${o.id}`}>
+                        <div className="flex justify-between text-[#5C5C5C]">
+                          <span>Subtotal</span>
+                          <span className="font-medium text-[#1A1A1A]">{subtotalDisplay}</span>
+                        </div>
+                        <div className="flex justify-between text-[#5C5C5C]">
+                          <span>Delivery fee</span>
+                          <span className="font-medium text-[#1A1A1A]">{deliveryFee === 0 ? "FREE" : formatPrice(deliveryFee, exchangeRate, currency)}</span>
+                        </div>
+                        <div className="flex justify-between pt-1.5 border-t border-[#E2E2D9]">
+                          <span className="font-bold text-[#1A1A1A]">Total</span>
+                          <span className="font-bold text-[#C84B31]">{totalDisplay}</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-[#E2E2D9]">
                     <div className="flex flex-wrap gap-3 text-xs text-[#5C5C5C]">
@@ -705,7 +766,6 @@ export default function Orders() {
                           <XCircle className="w-3.5 h-3.5" /> Cancel
                         </button>
                       )}
-                      <p className="font-display font-bold text-lg text-[#1A1A1A]">{formatPrice(o.subtotal_usd, exchangeRate, currency)}</p>
                     </div>
                   </div>
                 </div>

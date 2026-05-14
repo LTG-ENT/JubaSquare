@@ -90,6 +90,65 @@ async def get_settings() -> dict:
     return s or DEFAULT_SETTINGS
 
 
+async def _rate_by_seller(seller_ids: list[str]) -> tuple[dict[str, float], float]:
+    """Return ({seller_id: rate}, global_rate) for the given seller ids."""
+    settings = await get_settings()
+    global_rate = float(settings.get("global_rate", 600.0))
+    if not seller_ids:
+        return {}, global_rate
+    rate_records = await db.exchange_rates.find(
+        {"seller_id": {"$in": list({sid for sid in seller_ids if sid})}},
+        {"_id": 0},
+    ).to_list(2000)
+    return (
+        {r["seller_id"]: float(r.get("rate", global_rate)) for r in rate_records},
+        global_rate,
+    )
+
+
+async def enrich_marketplace_orders(orders: list[dict]) -> list[dict]:
+    """Attach per-item `exchange_rate_ssp` (seller-specific) to each item so the
+    customer/driver/seller UIs can format line totals using the right rate.
+    Falls back to the global rate when the seller has no override."""
+    if not orders:
+        return orders
+    all_item_ids = {it.get("item_id") for o in orders for it in (o.get("items") or []) if it.get("item_id")}
+    if not all_item_ids:
+        return orders
+    products = await db.products.find(
+        {"id": {"$in": list(all_item_ids)}},
+        {"_id": 0, "id": 1, "seller_id": 1},
+    ).to_list(5000)
+    seller_by_item = {p["id"]: p.get("seller_id") for p in products}
+    rates, global_rate = await _rate_by_seller(list({sid for sid in seller_by_item.values() if sid}))
+    for o in orders:
+        for it in (o.get("items") or []):
+            seller_id = seller_by_item.get(it.get("item_id"))
+            it["exchange_rate_ssp"] = rates.get(seller_id, global_rate) if seller_id else global_rate
+    return orders
+
+
+async def enrich_restaurant_orders(orders: list[dict]) -> list[dict]:
+    """Attach `exchange_rate_ssp` (seller of the restaurant) to each restaurant
+    order and each of its items."""
+    if not orders:
+        return orders
+    rest_ids = list({o.get("restaurant_id") for o in orders if o.get("restaurant_id")})
+    rests = await db.restaurants.find(
+        {"id": {"$in": rest_ids}},
+        {"_id": 0, "id": 1, "seller_id": 1},
+    ).to_list(2000)
+    seller_by_rest = {r["id"]: r.get("seller_id") for r in rests}
+    rates, global_rate = await _rate_by_seller(list({sid for sid in seller_by_rest.values() if sid}))
+    for o in orders:
+        seller_id = seller_by_rest.get(o.get("restaurant_id"))
+        rate = rates.get(seller_id, global_rate) if seller_id else global_rate
+        o["exchange_rate_ssp"] = rate
+        for it in (o.get("items") or []):
+            it["exchange_rate_ssp"] = rate
+    return orders
+
+
 async def create_notification(user_id: str, message: str, ntype: str = "alert", meta: Optional[dict] = None) -> dict:
     """Insert a notification for a single user. Safe to call multiple times."""
     notif = {
@@ -2336,7 +2395,7 @@ async def list_restaurant_orders(user: dict = Depends(get_current_user)):
                     o["review_id"] = rv.get("id")
                     o["review_rating"] = rv.get("rating")
         # Redact seller/driver OTPs from customer view
-        return cod.redact_many_for_customer(orders)
+        return await enrich_restaurant_orders(cod.redact_many_for_customer(orders))
     elif user["role"] in ["seller", "admin"]:
         # Seller sees orders for their restaurants
         restaurants = await db.restaurants.find(
@@ -2360,7 +2419,7 @@ async def list_restaurant_orders(user: dict = Depends(get_current_user)):
     else:
         orders = []
     
-    return orders
+    return await enrich_restaurant_orders(orders)
 
 
 @api.get("/restaurant-orders/restaurant/{restaurant_id}")
@@ -3099,7 +3158,8 @@ async def my_orders(
     skip: Optional[int] = None,
 ):
     lim, off = clamp_pagination(limit, skip)
-    return await db.orders.find({"customer_id": user["id"]}, {"_id": 0}).sort("created_at", -1).skip(off).to_list(lim)
+    rows = await db.orders.find({"customer_id": user["id"]}, {"_id": 0}).sort("created_at", -1).skip(off).to_list(lim)
+    return await enrich_marketplace_orders(rows)
 
 
 @api.get("/seller/low-stock-count")

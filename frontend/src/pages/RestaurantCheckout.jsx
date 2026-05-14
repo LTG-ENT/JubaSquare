@@ -188,6 +188,11 @@ export default function RestaurantCheckout() {
             )}
             <div className="flex-1">
               <h1 className="text-2xl font-bold text-[var(--js-text)]">{restaurant.name}</h1>
+              {restaurant.area && (
+                <p className="text-sm text-[var(--js-text-secondary)] flex items-center gap-1 mt-1" data-testid="restaurant-area">
+                  <MapPin className="w-3.5 h-3.5" /> {restaurant.area}
+                </p>
+              )}
               <div className="flex items-center gap-4 mt-2 text-sm text-[var(--js-text-secondary)]">
                 {restaurant.average_rating && (
                   <div className="flex items-center gap-1">

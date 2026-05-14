@@ -75,6 +75,22 @@ export default function DriverDashboard() {
   const [loading, setLoading] = useState(true);
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [actingRequestIds, setActingRequestIds] = useState(new Set());
+  // Driver's current area (for "near me" sorting of new delivery requests)
+  const [driverArea, setDriverArea] = useState(() => localStorage.getItem("driver_current_area") || "");
+  const [areas, setAreas] = useState([]);
+  const [reqIndex, setReqIndex] = useState(0); // shows one request at a time
+
+  // Persist driver area
+  useEffect(() => {
+    if (driverArea) localStorage.setItem("driver_current_area", driverArea);
+  }, [driverArea]);
+
+  // Load admin-defined area list
+  useEffect(() => {
+    api.get("/meta/areas")
+      .then((r) => setAreas(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setAreas([]));
+  }, []);
 
   // Load accepted assignments
   const load = useCallback(async () => {
@@ -133,6 +149,27 @@ export default function DriverDashboard() {
     ...(requests.splits || []).map((s) => ({ ...s, _kind: "split" })),
     ...(requests.restaurant_orders || []).map((r) => ({ ...r, _kind: "rest" })),
   ];
+
+  // Sort: exact pickup area match (driver's current area) first, then others.
+  const sortedRequests = (() => {
+    if (!driverArea) return allRequests;
+    const a = driverArea.toLowerCase();
+    const isMatch = (r) => {
+      const pickup = (r.pickup_area || r.seller_area || r.shop_area || r.restaurant_area || "").toLowerCase();
+      return pickup === a;
+    };
+    return [...allRequests].sort((x, y) => Number(isMatch(y)) - Number(isMatch(x)));
+  })();
+
+  // Clamp request index when list size changes
+  useEffect(() => {
+    if (reqIndex >= sortedRequests.length) setReqIndex(0);
+  }, [sortedRequests.length, reqIndex]);
+
+  const currentReq = sortedRequests[reqIndex] || null;
+  const isReqNearMe = currentReq && driverArea
+    ? (currentReq.pickup_area || currentReq.seller_area || currentReq.shop_area || currentReq.restaurant_area || "").toLowerCase() === driverArea.toLowerCase()
+    : false;
 
   // Handle accept/reject (duplicate-action protected)
   const handleAcceptReject = async (item, action, rejectReason = null) => {
@@ -215,79 +252,134 @@ export default function DriverDashboard() {
         </div>
 
         {/* New Delivery Requests Section */}
-        {allRequests.length > 0 && (
+        {sortedRequests.length > 0 && currentReq && (
           <div className="mt-6 bg-gradient-to-r from-[#C84B31] to-[#E9C46A] p-[2px] rounded-2xl">
             <div className="bg-white rounded-2xl p-5">
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
                 <div>
                   <h2 className="font-bold text-lg text-[var(--js-text)] flex items-center gap-2">
                     <Package className="w-5 h-5 text-[#C84B31]" />
                     New Delivery Requests
                   </h2>
                   <p className="text-sm text-[var(--js-text-secondary)]">
-                    {allRequests.length} delivery{allRequests.length !== 1 ? "s" : ""} need your response
+                    Showing {reqIndex + 1} of {sortedRequests.length}
                   </p>
+                </div>
+                {/* Driver current-area dropdown */}
+                <div className="flex items-center gap-2">
+                  <label htmlFor="driver-area-select" className="text-xs font-semibold text-[var(--js-text-secondary)] uppercase tracking-wider">
+                    <MapPin className="w-3.5 h-3.5 inline mr-1" /> My area
+                  </label>
+                  <select
+                    id="driver-area-select"
+                    data-testid="driver-current-area"
+                    value={driverArea}
+                    onChange={(e) => { setDriverArea(e.target.value); setReqIndex(0); }}
+                    className="px-3 py-1.5 border border-[var(--js-border)] rounded-full text-sm bg-white"
+                  >
+                    <option value="">— Select area —</option>
+                    {areas.map((a) => (
+                      <option key={a} value={a}>{a}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {allRequests.map((req) => (
-                  <div key={req.id} className="border-2 border-[#E9C46A] rounded-xl p-4 bg-[#FFF9F0]">
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <p className="font-mono text-xs text-[var(--js-text-secondary)] mb-1">
-                          {req._kind === "rest" ? "🍽️ RESTAURANT" : "🛒 MARKETPLACE"}
-                        </p>
-                        <p className="font-bold text-[var(--js-text)]">{req.shop_name || req.restaurant_name}</p>
-                      </div>
-                      <Pill value="offered" />
-                    </div>
-
-                    <div className="space-y-2 text-sm mb-4">
-                      <div className="flex items-center gap-2 text-[var(--js-text-secondary)]">
-                        <MapPin className="w-4 h-4 text-[#C84B31]" />
-                        <span className="font-medium">Pickup:</span> {req.pickup_area || req.seller_area || "N/A"}
-                      </div>
-                      <div className="flex items-center gap-2 text-[var(--js-text-secondary)]">
-                        <MapPin className="w-4 h-4 text-[#2A9D8F]" />
-                        <span className="font-medium">Deliver to:</span> {req.delivery_area || req.customer_area || "N/A"}
-                      </div>
-                      <div className="flex items-center gap-2 text-[var(--js-text-secondary)]">
-                        <Coins className="w-4 h-4 text-[#E9C46A]" />
-                        <span className="font-medium">Order total:</span> {formatPrice(req.order_total_usd || req.total, exchangeRate, currency)}
-                      </div>
-                      {req.delivery_fee_usd > 0 && (
-                        <div className="flex items-center gap-2 text-[var(--js-text-secondary)]">
-                          <Truck className="w-4 h-4 text-[#264653]" />
-                          <span className="font-medium">Delivery fee:</span> {formatPrice(req.delivery_fee_usd, exchangeRate, currency)}
-                        </div>
+              {/* Single request card */}
+              <div
+                key={currentReq.id}
+                data-testid={`driver-request-card-${currentReq.id}`}
+                className={`border-2 rounded-xl p-4 ${isReqNearMe ? "border-[#2A9D8F] bg-emerald-50" : "border-[#E9C46A] bg-[#FFF9F0]"}`}
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <p className="font-mono text-xs text-[var(--js-text-secondary)] mb-1">
+                      {currentReq._kind === "rest" ? "🍽️ RESTAURANT" : "🛒 MARKETPLACE"}
+                      {isReqNearMe && (
+                        <span data-testid="near-me-badge" className="ml-2 inline-flex items-center gap-1 bg-[#2A9D8F] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                          Near you
+                        </span>
                       )}
-                    </div>
-
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleAcceptReject(req, "accept")}
-                        disabled={actingRequestIds.has(req.id)}
-                        data-testid={`request-accept-${req.id}`}
-                        className="flex-1 bg-[#2A9D8F] hover:bg-[#238276] disabled:bg-[#2A9D8F]/50 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg transition flex items-center justify-center gap-1"
-                      >
-                        <CheckCircle2 className="w-4 h-4" /> {actingRequestIds.has(req.id) ? "Accepting…" : "Accept"}
-                      </button>
-                      <button
-                        onClick={() => {
-                          const reason = prompt("Reason for rejecting (optional):");
-                          if (reason !== null) handleAcceptReject(req, "reject", reason);
-                        }}
-                        disabled={actingRequestIds.has(req.id)}
-                        data-testid={`request-reject-${req.id}`}
-                        className="flex-1 bg-white hover:bg-gray-50 disabled:bg-gray-50 disabled:cursor-not-allowed text-[#D90429] border-2 border-[#D90429] font-semibold py-2.5 rounded-lg transition flex items-center justify-center gap-1"
-                      >
-                        <XCircle className="w-4 h-4" /> Reject
-                      </button>
-                    </div>
+                    </p>
+                    <p className="font-bold text-[var(--js-text)]">{currentReq.shop_name || currentReq.restaurant_name}</p>
                   </div>
-                ))}
+                  <Pill value="offered" />
+                </div>
+
+                <div className="space-y-2 text-sm mb-4">
+                  <div className="flex items-center gap-2 text-[var(--js-text-secondary)]">
+                    <MapPin className="w-4 h-4 text-[#C84B31]" />
+                    <span className="font-medium">Pickup:</span> {currentReq.pickup_area || currentReq.seller_area || currentReq.shop_area || currentReq.restaurant_area || "N/A"}
+                  </div>
+                  <div className="flex items-center gap-2 text-[var(--js-text-secondary)]">
+                    <MapPin className="w-4 h-4 text-[#2A9D8F]" />
+                    <span className="font-medium">Deliver to:</span> {currentReq.delivery_area || currentReq.customer_area || "N/A"}
+                  </div>
+                  <div className="flex items-center gap-2 text-[var(--js-text-secondary)]">
+                    <Coins className="w-4 h-4 text-[#E9C46A]" />
+                    <span className="font-medium">Order total:</span> {formatPrice(currentReq.order_total_usd || currentReq.total, currentReq.exchange_rate_ssp || exchangeRate, currency)}
+                  </div>
+                  {currentReq.delivery_fee_usd > 0 && (
+                    <div className="flex items-center gap-2 text-[var(--js-text-secondary)]">
+                      <Truck className="w-4 h-4 text-[#264653]" />
+                      <span className="font-medium">Delivery fee:</span> {formatPrice(currentReq.delivery_fee_usd, exchangeRate, currency)}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleAcceptReject(currentReq, "accept")}
+                    disabled={actingRequestIds.has(currentReq.id)}
+                    data-testid={`request-accept-${currentReq.id}`}
+                    className="flex-1 bg-[#2A9D8F] hover:bg-[#238276] disabled:bg-[#2A9D8F]/50 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg transition flex items-center justify-center gap-1"
+                  >
+                    <CheckCircle2 className="w-4 h-4" /> {actingRequestIds.has(currentReq.id) ? "Accepting…" : "Accept"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      const reason = prompt("Reason for rejecting (optional):");
+                      if (reason !== null) handleAcceptReject(currentReq, "reject", reason);
+                    }}
+                    disabled={actingRequestIds.has(currentReq.id)}
+                    data-testid={`request-reject-${currentReq.id}`}
+                    className="flex-1 bg-white hover:bg-gray-50 disabled:bg-gray-50 disabled:cursor-not-allowed text-[#D90429] border-2 border-[#D90429] font-semibold py-2.5 rounded-lg transition flex items-center justify-center gap-1"
+                  >
+                    <XCircle className="w-4 h-4" /> Reject
+                  </button>
+                </div>
               </div>
+
+              {/* Prev / Next nav (only when multiple requests) */}
+              {sortedRequests.length > 1 && (
+                <div className="flex items-center justify-between mt-4">
+                  <button
+                    onClick={() => setReqIndex((i) => (i - 1 + sortedRequests.length) % sortedRequests.length)}
+                    data-testid="request-prev-btn"
+                    className="px-4 py-2 text-sm font-semibold bg-[var(--js-subtle)] hover:bg-[var(--js-border)] rounded-full"
+                  >
+                    ← Previous
+                  </button>
+                  <div className="flex gap-1">
+                    {sortedRequests.map((_, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setReqIndex(i)}
+                        data-testid={`request-dot-${i}`}
+                        className={`w-2 h-2 rounded-full transition ${i === reqIndex ? "bg-[#C84B31] w-6" : "bg-[var(--js-border)]"}`}
+                        aria-label={`Go to request ${i + 1}`}
+                      />
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => setReqIndex((i) => (i + 1) % sortedRequests.length)}
+                    data-testid="request-next-btn"
+                    className="px-4 py-2 text-sm font-semibold bg-[var(--js-subtle)] hover:bg-[var(--js-border)] rounded-full"
+                  >
+                    Next →
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -345,7 +437,7 @@ export default function DriverDashboard() {
                   </>
                 )}
                 <div className="mt-3 flex items-center justify-between">
-                  <span className="text-lg font-bold text-[var(--js-text)]">{formatPrice(r.order_total_usd, exchangeRate, currency)}</span>
+                  <span className="text-lg font-bold text-[var(--js-text)]">{formatPrice(r.order_total_usd, r.exchange_rate_ssp || exchangeRate, currency)}</span>
                   <div className="flex gap-1">
                     <Pill value={r.payment_status} />
                   </div>
@@ -478,13 +570,13 @@ function DeliveryDetail({ row, reload, setOpen }) {
           {(r.items || r.items_secure || []).map((it, i) => (
             <li key={i} className="flex justify-between">
               <span>{it.name} × {it.quantity}</span>
-              <span className="font-medium">{formatPrice(it.line_total_usd || (it.price_usd * it.quantity), exchangeRate, currency)}</span>
+              <span className="font-medium">{formatPrice(it.line_total_usd || (it.price_usd * it.quantity), it.exchange_rate_ssp || r.exchange_rate_ssp || exchangeRate, currency)}</span>
             </li>
           ))}
         </ul>
         <div className="mt-3 pt-3 border-t border-[var(--js-border)] flex justify-between font-bold">
           <span>Total to collect (COD)</span>
-          <span className="text-xl">{formatPrice(r.order_total_usd, exchangeRate, currency)}</span>
+          <span className="text-xl">{formatPrice(r.order_total_usd, r.exchange_rate_ssp || exchangeRate, currency)}</span>
         </div>
       </section>
 
@@ -614,7 +706,7 @@ function DeliveryDetail({ row, reload, setOpen }) {
         <div className="border-2 border-yellow-200 bg-yellow-50 rounded-xl p-4 space-y-2">
           {r.payment_status === "pending_collection" ? (
             <button onClick={() => post("cash-collected")} disabled={busy} className="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-semibold py-3 rounded-full flex items-center justify-center gap-2">
-              <Coins className="w-4 h-4" /> I collected cash from customer ({formatPrice(r.order_total_usd, exchangeRate, currency)})
+              <Coins className="w-4 h-4" /> I collected cash from customer ({formatPrice(r.order_total_usd, r.exchange_rate_ssp || exchangeRate, currency)})
             </button>
           ) : (
             <p className="text-sm text-yellow-900">Cash collected — please hand it to admin. They’ll mark it received in the system.</p>

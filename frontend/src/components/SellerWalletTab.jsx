@@ -180,10 +180,12 @@ export default function SellerWalletTab() {
     }
   };
 
+  // Active orders excludes anything already paid out — those live in the
+  // "Payout History" sub-view instead.
   const allItems = [
     ...splits.map((s) => ({ ...s, _kind: "split" })),
     ...restOrders.map((r) => ({ ...r, _kind: "rest" })),
-  ];
+  ].filter((row) => row.payout_status !== "paid");
 
   if (loading) {
     return (

@@ -225,8 +225,13 @@ function AssignmentsPane() {
 
   const assign = async (row) => {
     if (actingIds.has(row.id)) return;
+    const isReassign = !!row.driver_id;
+    if (isReassign) {
+      const ok = window.confirm(`This order is currently assigned to ${row.driver_name || "a driver"}. Re-assign to a new driver?`);
+      if (!ok) return;
+    }
     const id = prompt(
-      `Pick a driver to assign:\n\n${drivers.map((d, i) => `${i + 1}. ${d.name} (${d.email})`).join("\n")}\n\nEnter the driver number:`
+      `${isReassign ? "Re-assign to" : "Pick a driver to assign"}:\n\n${drivers.map((d, i) => `${i + 1}. ${d.name} (${d.email})`).join("\n")}\n\nEnter the driver number:`
     );
     const idx = parseInt(id, 10) - 1;
     if (isNaN(idx) || idx < 0 || !drivers[idx]) return;
@@ -234,7 +239,7 @@ function AssignmentsPane() {
     try {
       const base = row._kind === "rest" ? `/admin/restaurant-orders/${row.id}` : `/admin/order-splits/${row.id}`;
       await api.post(`${base}/assign-driver`, { driver_id: drivers[idx].id });
-      toast.success(`Assigned to ${drivers[idx].name}`);
+      toast.success(`${isReassign ? "Re-assigned" : "Assigned"} to ${drivers[idx].name}`);
       load();
     } catch (err) { toast.error(formatDetail(err.response?.data?.detail)); }
     finally { setActingIds((p) => { const n = new Set(p); n.delete(row.id); return n; }); }
@@ -284,22 +289,22 @@ function AssignmentsPane() {
                   <div className="font-medium">{row.customer_name}</div>
                   <div className="text-xs text-[var(--js-text-secondary)]">{row.customer_phone || row.phone} • {row.customer_area || row.area}</div>
                 </td>
-                <td className="px-3 py-2 font-semibold">{formatPrice(row.order_total_usd, exchangeRate, currency)}</td>
+                <td className="px-3 py-2 font-semibold">{formatPrice(row.order_total_usd, row.exchange_rate_ssp || exchangeRate, currency)}</td>
                 <td className="px-3 py-2">{row.driver_name || "—"}</td>
                 <td className="px-3 py-2"><Pill value={row.delivery_status} /></td>
                 <td className="px-3 py-2"><Pill value={row.payment_status} /></td>
                 <td className="px-3 py-2 text-right">
-                  {!row.driver_id || row.delivery_status === "unassigned" || row.delivery_status === "delivery_failed" ? (
+                  {row.pickup_status === "picked_up" ? (
+                    <span className="text-xs text-[var(--js-text-secondary)]">Picked up</span>
+                  ) : (
                     <button
                       onClick={() => assign(row)}
                       disabled={actingIds.has(row.id)}
                       data-testid={`assign-${row.id.slice(0,8)}`}
                       className="bg-[#1A1A1A] hover:bg-black disabled:bg-[#1A1A1A]/40 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1.5 rounded-full"
                     >
-                      {actingIds.has(row.id) ? "Assigning…" : "Assign driver"}
+                      {actingIds.has(row.id) ? "Assigning…" : (row.driver_id ? "Re-assign" : "Assign driver")}
                     </button>
-                  ) : (
-                    <span className="text-xs text-[var(--js-text-secondary)]">Assigned</span>
                   )}
                 </td>
               </tr>
