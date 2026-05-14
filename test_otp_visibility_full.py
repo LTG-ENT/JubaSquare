@@ -6,7 +6,7 @@ import requests
 import json
 import sys
 
-BASE_URL = "https://payout-otp.preview.emergentagent.com/api"
+BASE_URL = "https://driver-area-filter.preview.emergentagent.com/api"
 
 # Test credentials
 ADMIN_EMAIL = "admin@ltg.com"

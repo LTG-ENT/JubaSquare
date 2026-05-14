@@ -10,7 +10,7 @@ import time
 from typing import Optional
 
 # Backend URL from frontend/.env
-BASE_URL = "https://payout-otp.preview.emergentagent.com/api"
+BASE_URL = "https://driver-area-filter.preview.emergentagent.com/api"
 
 # Admin credentials
 ADMIN_EMAIL = "ltg-general-trading@hotmail.com"

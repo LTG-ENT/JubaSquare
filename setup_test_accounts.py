@@ -5,7 +5,7 @@ Setup test accounts for testing
 
 import requests
 
-BASE_URL = "https://payout-otp.preview.emergentagent.com/api"
+BASE_URL = "https://driver-area-filter.preview.emergentagent.com/api"
 
 def create_account(email, password, name, role="customer"):
     """Create a test account via signup"""
