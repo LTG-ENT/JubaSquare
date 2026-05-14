@@ -157,12 +157,12 @@ export default function Header() {
         to={to}
         onClick={() => setMobileOpen(false)}
         data-testid={`nav-${label.toLowerCase().replace(/\s+/g, "-")}`}
-        className={`flex items-center gap-1.5 px-2.5 lg:px-3 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap ${
+        className={`flex items-center gap-1 px-2 lg:px-2.5 xl:px-3 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap ${
           active ? "bg-[#E9C46A] text-[#0E1A2B]" : "text-white/85 hover:bg-white/10 hover:text-white"
         }`}
       >
         <Icon className="w-4 h-4 shrink-0" />
-        <span>{label}</span>
+        <span className="text-xs lg:text-sm">{label}</span>
       </Link>
     );
   };
@@ -204,7 +204,7 @@ export default function Header() {
 
           {/* Desktop Navigation - hidden on mobile + completely hidden for drivers */}
           {!isDriver && (
-            <nav className="hidden lg:flex items-center gap-0.5 flex-1 lg:ml-6 xl:ml-8">
+            <nav className="hidden lg:flex items-center gap-0.5 flex-1 lg:ml-4 xl:ml-6">
               {navLink("/", t("home"), HomeIcon)}
               {settings.module_marketplace && (
                 <CategoriesNavMenu
@@ -221,7 +221,7 @@ export default function Header() {
           {/* Right side actions */}
           <div className="flex items-center gap-1 shrink-0">
             {!isDriver && (
-              <div className="hidden xl:block">
+              <div className="hidden 2xl:block">
                 <GlobalSearch />
               </div>
             )}
@@ -241,7 +241,7 @@ export default function Header() {
             )}
 
             {user ? (
-              <div className="hidden sm:flex items-center gap-0.5">
+              <div className="flex items-center gap-0.5">
                 <ProfileQuickMenu user={user} />
                 <button
                   onClick={async () => { await logout(); navigate("/login"); }}
@@ -253,7 +253,7 @@ export default function Header() {
                 </button>
               </div>
             ) : (
-              <Link to="/login" data-testid="header-login-button" className="hidden sm:inline-flex items-center bg-[#C84B31] hover:bg-[#A83A23] text-white text-xs sm:text-sm font-semibold px-3 sm:px-4 py-1.5 sm:py-2 rounded-full transition whitespace-nowrap">
+              <Link to="/login" data-testid="header-login-button" className="inline-flex items-center bg-[#C84B31] hover:bg-[#A83A23] text-white text-xs sm:text-sm font-semibold px-3 sm:px-4 py-1.5 sm:py-2 rounded-full transition whitespace-nowrap">
                 {t("signIn")}
               </Link>
             )}
