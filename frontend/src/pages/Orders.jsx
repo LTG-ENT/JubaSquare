@@ -619,16 +619,18 @@ export default function Orders() {
               
               // Get splits for this order to check if all delivered and show OTPs
               const splits = orderSplits[o.id] || [];
-              const allSplitsDelivered = splits.length > 0 && splits.every(s => s.delivery_status === "delivered");
+              const splitsLoaded = orderSplits.hasOwnProperty(o.id);
+              const allSplitsDelivered = splitsLoaded && splits.length > 0 && splits.every(split => split.delivery_status === "delivered");
               
               // Override status to "Delivered" if all splits are delivered
+              // For non-COD orders (no splits), rely on o.status
               const effectiveStatus = allSplitsDelivered ? "Delivered" : o.status;
               const s = STATUS_STYLES[effectiveStatus] || STATUS_STYLES.Pending;
               const Icon = s.icon;
               const isNew = o.id === newId;
               const isDelivered = o.status === "Delivered" || allSplitsDelivered;
               const canCancelMp = CUSTOMER_CANCELLABLE_MP_STATUSES.has(o.status) && !allSplitsDelivered;
-              const splitsOutForDelivery = splits.filter(s => s.delivery_status === "out_for_delivery");
+              const splitsOutForDelivery = splits.filter(split => split.delivery_status === "out_for_delivery");
 
               return (
                 <div

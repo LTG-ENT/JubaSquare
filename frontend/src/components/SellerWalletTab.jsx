@@ -180,12 +180,18 @@ export default function SellerWalletTab() {
     }
   };
 
-  // Active orders excludes anything already paid out — those live in the
-  // "Payout History" sub-view instead.
+  // Active orders excludes anything already paid out OR cancelled
+  // Paid out orders live in "Payout History", cancelled orders in "Cancelled Orders"
   const allItems = [
     ...splits.map((s) => ({ ...s, _kind: "split" })),
     ...restOrders.map((r) => ({ ...r, _kind: "rest" })),
-  ].filter((row) => row.payout_status !== "paid");
+  ].filter((row) => row.payout_status !== "paid" && !["cancel_approved", "cancelled"].includes(row.status));
+
+  // Cancelled orders
+  const cancelledItems = [
+    ...splits.map((s) => ({ ...s, _kind: "split" })),
+    ...restOrders.map((r) => ({ ...r, _kind: "rest" })),
+  ].filter((row) => ["cancel_approved", "cancelled"].includes(row.status));
 
   if (loading) {
     return (
@@ -200,6 +206,7 @@ export default function SellerWalletTab() {
         {[
           { id: "overview", label: "Overview" },
           { id: "splits", label: "Active Orders" },
+          { id: "cancelled", label: "Cancelled Orders" },
           { id: "payouts", label: "Payout History" },
         ].map((s) => (
           <button
@@ -327,6 +334,60 @@ export default function SellerWalletTab() {
                           className="inline-flex items-center gap-1 text-xs bg-[#1A1A1A] hover:bg-black text-white font-semibold px-3 py-1.5 rounded-full"
                         >
                           <Eye className="w-3 h-3" /> Open
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {view === "cancelled" && (
+        <div>
+          {cancelledItems.length === 0 ? (
+            <div className="text-center py-12 text-[var(--js-text-secondary)] border border-dashed border-[var(--js-border)] rounded-2xl">
+              No cancelled orders.
+            </div>
+          ) : (
+            <div className="overflow-x-auto border border-[var(--js-border)] rounded-2xl bg-white">
+              <table className="min-w-full text-sm">
+                <thead className="bg-[var(--js-bg)] text-xs uppercase tracking-wide text-[var(--js-text-secondary)]">
+                  <tr>
+                    <th className="text-left px-3 py-3">Order</th>
+                    <th className="text-left px-3 py-3">Customer</th>
+                    <th className="text-left px-3 py-3">Total</th>
+                    <th className="text-left px-3 py-3">Status</th>
+                    <th className="text-left px-3 py-3">Cancelled At</th>
+                    <th className="text-right px-3 py-3">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cancelledItems.map((s) => (
+                    <tr key={s.id} className="border-t border-[var(--js-border)]">
+                      <td className="px-3 py-2 font-mono text-xs">
+                        {s._kind === "rest" ? "R:" : ""}
+                        {s.id.slice(0, 8)}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="font-medium">{s.customer_name}</div>
+                      </td>
+                      <td className="px-3 py-2 font-semibold">{formatPrice(s.order_total_usd, exchangeRate, currency)}</td>
+                      <td className="px-3 py-2">
+                        <Pill value={s.status} mapping={{
+                          cancel_approved: "bg-red-100 text-red-700",
+                          cancelled: "bg-red-100 text-red-700",
+                        }} />
+                      </td>
+                      <td className="px-3 py-2 text-xs">{s.updated_at ? s.updated_at.slice(0, 16).replace("T", " ") : "—"}</td>
+                      <td className="px-3 py-2 text-right">
+                        <button
+                          onClick={() => setDetail(s)}
+                          className="text-xs text-[#C84B31] hover:text-[#A13B25] font-semibold"
+                        >
+                          View
                         </button>
                       </td>
                     </tr>
