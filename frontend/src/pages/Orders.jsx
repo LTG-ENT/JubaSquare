@@ -616,13 +616,16 @@ export default function Orders() {
               }
               
               // Marketplace order display (original code)
-              const s = STATUS_STYLES[o.status] || STATUS_STYLES.Pending;
-              const Icon = s.icon;
-              const isNew = o.id === newId;
               
               // Get splits for this order to check if all delivered and show OTPs
               const splits = orderSplits[o.id] || [];
               const allSplitsDelivered = splits.length > 0 && splits.every(s => s.delivery_status === "delivered");
+              
+              // Override status to "Delivered" if all splits are delivered
+              const effectiveStatus = allSplitsDelivered ? "Delivered" : o.status;
+              const s = STATUS_STYLES[effectiveStatus] || STATUS_STYLES.Pending;
+              const Icon = s.icon;
+              const isNew = o.id === newId;
               const isDelivered = o.status === "Delivered" || allSplitsDelivered;
               const canCancelMp = CUSTOMER_CANCELLABLE_MP_STATUSES.has(o.status) && !allSplitsDelivered;
               const splitsOutForDelivery = splits.filter(s => s.delivery_status === "out_for_delivery");
