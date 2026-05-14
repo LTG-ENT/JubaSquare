@@ -431,7 +431,7 @@ export default function FloatingChat() {
             </button>
           </form>
         </>
-      )}
+      ) : null}
     </div>
   );
 }
