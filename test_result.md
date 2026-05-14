@@ -3053,6 +3053,72 @@ driver_broadcast_assignment:
             - Drivers see orders immediately after seller accepts
             - First-come-first-served increases driver efficiency
 
+  - task: "Customer order page - Hide Cancel button after delivery, show Review"
+    implemented: true
+    working: true
+    files: ["/app/frontend/src/pages/Orders.jsx"]
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            ISSUE: After order delivered, Cancel button still showing instead of Review button
+            
+            ROOT CAUSE: 
+            - Restaurant orders: Only checked o.status === "completed", ignored delivery_status
+            - Marketplace orders: Only checked o.status, ignored splits delivery_status
+            
+            FIX: Updated Orders.jsx:
+            
+            1. Restaurant Orders (line 435-436):
+               - OLD: canReview = o.status === "completed"
+               - NEW: canReview = o.status === "completed" OR o.delivery_status === "delivered"
+               - OLD: canCancel = CUSTOMER_CANCELLABLE_REST_STATUSES.has(o.status)
+               - NEW: canCancel = CUSTOMER_CANCELLABLE_REST_STATUSES.has(o.status) AND delivery_status !== "delivered"
+            
+            2. Marketplace Orders (line 620-627):
+               - OLD: canCancelMp = CUSTOMER_CANCELLABLE_MP_STATUSES.has(o.status)
+               - NEW: Check all splits - if all splits delivered, hide cancel button
+               - allSplitsDelivered = splits.every(s => s.delivery_status === "delivered")
+               - canCancelMp = CUSTOMER_CANCELLABLE_MP_STATUSES.has(o.status) AND NOT allSplitsDelivered
+            
+            RESULT:
+            - Cancel button hidden when delivery_status = "delivered"
+            - Review button shows after delivery
+            - Works for both restaurant orders and marketplace orders
+            - Works with COD delivery flow
+
+agent_communication:
+    - agent: "main"
+      message: |
+        Iteration 14: Broadcast Driver Assignment + Cancel Button Fix
+        
+        **COMPLETED:**
+        1. ✅ Broadcast Driver Assignment Feature
+           - Orders auto-show to all drivers after seller accepts
+           - First driver to accept gets the order
+           - Race condition protection (atomic updates)
+           - Backwards compatible with admin manual assignment
+        
+        2. ✅ Customer Order Page - Cancel/Review Button Logic
+           - Cancel button hidden after delivery_status="delivered"
+           - Review button shows after delivery
+           - Fixed for both restaurant and marketplace orders
+        
+        **TESTING NEEDED:**
+        1. Broadcast Assignment Flow:
+           - Customer places order
+           - Seller accepts → All drivers see it
+           - Driver accepts → Order assigned, disappears from other drivers
+           - Second driver tries → Gets "claimed by another driver" message
+        
+        2. Cancel/Review Button:
+           - Place order → Cancel button shows
+           - Complete delivery → Cancel button hides, Review button shows
+           - Verify for both restaurant and marketplace orders
+
 
 bug_fixes_iteration_13:
   - task: "Seller payout history exchange rate display"

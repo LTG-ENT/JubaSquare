@@ -432,8 +432,8 @@ export default function Orders() {
                   cancelled: { label: "Cancelled", bg: "bg-red-500" },
                 };
                 const config = STATUS_CONFIG[o.status] || STATUS_CONFIG.pending;
-                const canReview = o.status === "completed";
-                const canCancel = CUSTOMER_CANCELLABLE_REST_STATUSES.has(o.status);
+                const canReview = o.status === "completed" || o.delivery_status === "delivered";
+                const canCancel = CUSTOMER_CANCELLABLE_REST_STATUSES.has(o.status) && o.delivery_status !== "delivered";
 
                 // Show delivery OTP if driver is out for delivery
                 const showDeliveryOtp = o.delivery_status === "out_for_delivery";
@@ -620,7 +620,12 @@ export default function Orders() {
               const Icon = s.icon;
               const isNew = o.id === newId;
               const isDelivered = o.status === "Delivered";
-              const canCancelMp = CUSTOMER_CANCELLABLE_MP_STATUSES.has(o.status);
+              
+              // Get splits for this order to check if all delivered
+              const splits = orderSplits[o.id] || [];
+              const allSplitsDelivered = splits.length > 0 && splits.every(s => s.delivery_status === "delivered");
+              
+              const canCancelMp = CUSTOMER_CANCELLABLE_MP_STATUSES.has(o.status) && !allSplitsDelivered;
               
               // Get splits for this order to show OTPs
               const splits = orderSplits[o.id] || [];
