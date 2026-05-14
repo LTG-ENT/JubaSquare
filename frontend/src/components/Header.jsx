@@ -16,10 +16,12 @@ import GlobalSearch from "@/components/GlobalSearch";
 
 const Brand = ({ to = "/" }) => (
   <Link to={to} className="flex items-center gap-1.5 sm:gap-2 md:gap-3 shrink-0 min-w-0 max-w-full" data-testid="brand-logo">
-    <Logo size={48} className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 xl:w-20 xl:h-20 shrink-0" />
-    <div className="flex flex-col leading-tight min-w-0 overflow-hidden">
+    {/* Logo - Show on all screens but smaller on mobile */}
+    <Logo size={48} className="w-8 h-8 sm:w-10 sm:h-10 md:w-12 md:h-12 lg:w-14 lg:h-14 xl:w-16 xl:h-16 shrink-0" />
+    {/* Text - Hide on mobile, show from sm up */}
+    <div className="hidden sm:flex flex-col leading-tight min-w-0 overflow-hidden">
       <span className="font-display font-bold text-base sm:text-lg md:text-xl lg:text-2xl text-white truncate">JubaSquare</span>
-      <span className="hidden sm:inline text-[9px] sm:text-[10px] uppercase tracking-[0.18em] text-white/60 -mt-0.5 truncate">by L.T.G Enterprise</span>
+      <span className="hidden md:inline text-[9px] sm:text-[10px] uppercase tracking-[0.18em] text-white/60 -mt-0.5 truncate">by L.T.G Enterprise</span>
     </div>
   </Link>
 );
@@ -195,8 +197,8 @@ export default function Header() {
             <LanguageSwitcher />
           </div>
 
-          {/* Brand - Mobile centered, Desktop left */}
-          <div className="flex-1 flex justify-center lg:justify-start min-w-0 lg:flex-none overflow-hidden">
+          {/* Brand - Icon only on mobile, full branding on larger screens */}
+          <div className="flex justify-start items-center min-w-0 sm:flex-1 sm:justify-center lg:justify-start lg:flex-none overflow-hidden">
             <Brand to={isDriver ? "/driver" : "/"} />
           </div>
 
