@@ -203,8 +203,17 @@ Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode fo
 
 - **Verified e2e (testing_agent_v3_fork, iter10)**: 9/9 backend pytest cases pass (admin/alerts schema, driver/cash-summary auth + schema, delivery-pricing CRUD, default-fee round-trip, cash-handovers + payouts regression, customer cancel routes). Frontend: customer `/orders` renders timelines with NOW indicator; cancelled orders correctly omit timeline. Driver `/driver` shows cash-summary card. Admin `/admin` shows 14 tabs incl. delivery-pricing (banner conditionally hidden when zero alerts). Seller Quick Edit modal renders MapPin icon. Zero React error boundaries.
 
+### Iter 11 (Feb 2026) — **Admin Dashboard cleanup + crash fix**
+- **Bug fixes**:
+  - **`ReferenceError: exchangeRate is not defined`** crashing `DriversPane` (Admin → Delivery & Payouts → Drivers) — added `const { currency, exchangeRate } = useCart()` declaration.
+  - **`ReferenceError: exchangeRate is not defined`** crashing `AdminCancellationsTab` — same fix.
+- **Removal** (user request): deprecated `AdminInvoicesTab` (shop invoices), `AdminRestaurantInvoicesTab`, `AdminInvoicesPane` wrapper, and `AdminOrdersTab` (All Orders) since these flows are no longer used. Removed `invoices` and `orders` entries from `TABS`. Pruned unused lucide-react imports (`FileText`, `ShoppingBag`, `Percent`, `Eye`) and `formatUSD` import. `AdminDashboard.jsx` dropped from 988 → 624 lines.
+- **Verified**: screenshot confirms Drivers, Payouts, Disputes, Cancellation Requests render without React error boundary; SSP/USD currency toggle works in header.
 
 ## Backlog (P1 / P2)
+- **P1** Marketplace `Cart.jsx` still shows "FREE" delivery in some paths — investigate `/orders/quote` payload (UNRESOLVED — user reported but deprioritised)
+- **P1** Verify shop-to-customer area delivery pricing rules apply configured rate vs falling back to default
+- **P1** Recharts `ResponsiveContainer` width=0/height=0 console warning on analytics charts
 - **P1** Unread message badge polling / realtime updates on Messages tab
 - **P1** COD-only checkout enforcement on `/shop/:shop_id` order flow (currently only banner)
 - **P1** Pagination on `GET /api/messages/seller` (currently 500-item cap)

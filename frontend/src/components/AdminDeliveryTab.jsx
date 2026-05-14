@@ -98,6 +98,7 @@ function DriversPane() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", password: "", phone: "" });
   const [saving, setSaving] = useState(false);
+  const { currency = "USD", exchangeRate = 600 } = useCart() || {};
 
   const load = useCallback(async () => {
     try {

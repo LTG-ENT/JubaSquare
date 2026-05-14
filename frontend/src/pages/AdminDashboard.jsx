@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import api, { formatUSD, formatPrice, formatDetail } from "@/lib/api";
+import api, { formatPrice, formatDetail } from "@/lib/api";
 import { useCart } from "@/context/CartContext";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -12,7 +12,7 @@ import AdminFooterTab from "@/components/AdminFooterTab";
 import AdminCategoriesTab from "@/components/AdminCategoriesTab";
 import AdminDeliveryTab from "@/components/AdminDeliveryTab";
 import AdminDeliveryPricingTab from "@/components/AdminDeliveryPricingTab";
-import { Store, Mail, ShoppingBag, FileText, CheckCircle2, XCircle, Clock, Plus, Trash2, Percent, Eye, X, BarChart3, Settings as SettingsIcon, BookOpen, Sliders, PanelBottom, FolderTree, Ban, Activity, Truck, MapPin } from "lucide-react";
+import { Store, Mail, CheckCircle2, XCircle, Clock, Plus, Trash2, X, BarChart3, Settings as SettingsIcon, BookOpen, Sliders, PanelBottom, FolderTree, Ban, Activity, Truck, MapPin } from "lucide-react";
 import { toast } from "sonner";
 
 const TABS = [
@@ -22,10 +22,8 @@ const TABS = [
   { id: "categories", label: "Categories", icon: FolderTree },
   { id: "delivery", label: "Delivery & Payouts", icon: Truck },
   { id: "delivery-pricing", label: "Delivery Pricing", icon: MapPin },
-  { id: "invoices", label: "Invoices", icon: FileText },
   { id: "cancellations", label: "Cancellation Requests", icon: Ban },
   { id: "emails", label: "Blocked Emails", icon: Mail },
-  { id: "orders", label: "All Orders", icon: ShoppingBag },
   { id: "pages", label: "Pages", icon: BookOpen },
   { id: "footer", label: "Footer", icon: PanelBottom },
   { id: "settings", label: "Settings", icon: Sliders },
@@ -35,7 +33,6 @@ const TABS = [
 export default function AdminDashboard() {
   const [tab, setTab] = useState("analytics");
   const [alerts, setAlerts] = useState({});
-  const { currency = "USD", exchangeRate = 1 } = useCart() || {}; // Get currency and exchange rate with defaults
 
   // Poll the admin alerts endpoint so tab badges stay fresh.
   useEffect(() => {
@@ -142,10 +139,8 @@ export default function AdminDashboard() {
           {tab === "categories" && <AdminCategoriesTab />}
           {tab === "delivery" && <AdminDeliveryTab />}
           {tab === "delivery-pricing" && <AdminDeliveryPricingTab />}
-          {tab === "invoices" && <AdminInvoicesPane />}
           {tab === "cancellations" && <AdminCancellationsTab />}
           {tab === "emails" && <AdminEmailsTab />}
-          {tab === "orders" && <AdminOrdersTab />}
           {tab === "pages" && <AdminPagesTab />}
           {tab === "footer" && <AdminFooterTab />}
           {tab === "settings" && <AdminSettingsTab onGoToShop={() => setTab("shops")} />}
@@ -465,164 +460,6 @@ function AdminShopsTab() {
   );
 }
 
-function AdminInvoicesTab() {
-  const [invoices, setInvoices] = useState([]);
-  const [filter, setFilter] = useState("all");
-  const [commissionRate, setCommissionRate] = useState(0.10);
-  const [detail, setDetail] = useState(null);
-
-  const load = async () => {
-    const q = filter === "all" ? "" : `?status=${filter === "paid" ? "Paid" : "Unpaid"}`;
-    const [inv, s] = await Promise.all([
-      api.get(`/admin/invoices${q}`),
-      api.get("/admin/settings"),
-    ]);
-    setInvoices(inv.data);
-    setCommissionRate(s.data.commission_rate || 0.10);
-  };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [filter]);
-
-  const setStatus = async (id, status) => {
-    await api.put(`/admin/invoices/${id}/status`, { status });
-    toast.success(`Marked as ${status}`);
-    load();
-  };
-
-  const regenerate = async () => {
-    await api.post("/admin/invoices/generate");
-    toast.success("Invoices regenerated");
-    load();
-  };
-
-  const saveRate = async (v) => {
-    setCommissionRate(v);
-    await api.put("/admin/settings", { commission_rate: parseFloat(v) });
-    toast.success("Commission rate updated — regenerating invoices");
-    await api.post("/admin/invoices/generate");
-    load();
-  };
-
-  const totalSales = invoices.reduce((s, i) => s + (i.total_sales || 0), 0);
-  const totalCommission = invoices.reduce((s, i) => s + (i.commission || 0), 0);
-  const unpaidAmount = invoices.filter((i) => i.status === "Unpaid").reduce((s, i) => s + (i.commission || 0), 0);
-
-  return (
-    <div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <Stat label="Invoices" value={invoices.length} color="#1A1A1A" />
-        <Stat label="Total Sales" value={formatPrice(totalSales, exchangeRate, currency)} color="#2D6A4F" />
-        <Stat label="Commission" value={formatPrice(totalCommission, exchangeRate, currency)} color="#C84B31" />
-        <Stat label="Unpaid" value={formatPrice(unpaidAmount, exchangeRate, currency)} color="#D90429" />
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <div className="flex items-center gap-2 bg-white border border-[var(--js-border)] rounded-full px-3 py-2">
-          <Percent className="w-4 h-4 text-[var(--js-text-secondary)]" />
-          <span className="text-xs font-semibold text-[var(--js-text-secondary)]">Commission</span>
-          <input
-            type="number" step="0.01" min="0" max="1"
-            value={commissionRate}
-            onChange={(e) => setCommissionRate(parseFloat(e.target.value) || 0)}
-            onBlur={(e) => saveRate(parseFloat(e.target.value) || 0)}
-            data-testid="commission-rate-input"
-            className="w-16 bg-transparent text-sm font-bold focus:outline-none"
-          />
-          <span className="text-xs text-[var(--js-text-secondary)]">({(commissionRate * 100).toFixed(1)}%)</span>
-        </div>
-
-        <select value={filter} onChange={(e) => setFilter(e.target.value)} data-testid="invoice-filter-select" className="bg-white border border-[var(--js-border)] rounded-full px-4 py-2 text-sm font-semibold focus:outline-none focus:border-[#C84B31]">
-          <option value="all">All invoices</option>
-          <option value="paid">Paid only</option>
-          <option value="unpaid">Unpaid only</option>
-        </select>
-
-        <button onClick={regenerate} data-testid="regenerate-invoices-btn" className="ml-auto bg-[var(--js-subtle)] hover:bg-[var(--js-border)] text-[var(--js-text)] text-sm font-semibold px-4 py-2 rounded-full">
-          🔄 Regenerate
-        </button>
-        <button
-          onClick={async () => {
-            try {
-              const { data } = await api.post("/admin/notifications/run-reminders");
-              toast.success(`Reminders sent: ${data.seller_reminders} seller, ${data.admin_reminders} admin`);
-            } catch (e) {
-              toast.error("Failed to send reminders");
-            }
-          }}
-          data-testid="send-reminders-btn"
-          className="bg-[#E9C46A] hover:bg-[#D6B45F] text-[#1A1A1A] text-sm font-semibold px-4 py-2 rounded-full"
-        >
-          🔔 Send unpaid reminders
-        </button>
-      </div>
-
-      <div className="bg-white border border-[var(--js-border)] rounded-2xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-[var(--js-bg)] text-[var(--js-text-secondary)] text-xs uppercase tracking-wider">
-              <tr>
-                <th className="text-left p-4 font-bold">Shop</th>
-                <th className="text-left p-4 font-bold hidden sm:table-cell">Week</th>
-                <th className="text-left p-4 font-bold">Sales</th>
-                <th className="text-left p-4 font-bold hidden md:table-cell">Commission</th>
-                <th className="text-left p-4 font-bold">Status</th>
-                <th className="p-4"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {invoices.map((inv) => (
-                <tr key={inv.id} className="border-t border-[var(--js-border)]" data-testid={`invoice-row-${inv.id}`}>
-                  <td className="p-4 font-semibold text-[var(--js-text)]">{inv.shop_name}</td>
-                  <td className="p-4 text-[var(--js-text-secondary)] hidden sm:table-cell text-xs">{inv.week_label}</td>
-                  <td className="p-4 font-bold">{formatPrice(inv.total_sales, exchangeRate, currency)}</td>
-                  <td className="p-4 hidden md:table-cell">
-                    <p className="font-semibold text-[#C84B31]">{formatPrice(inv.commission, exchangeRate, currency)}</p>
-                    <p className="text-[10px] text-[var(--js-text-secondary)]">{(inv.commission_rate * 100).toFixed(1)}%</p>
-                  </td>
-                  <td className="p-4">
-                    {inv.status === "Paid" ? (
-                      <span className="inline-flex items-center gap-1 bg-[#2D6A4F]/10 text-[#2D6A4F] text-xs font-bold px-2 py-1 rounded-full" data-testid={`invoice-status-${inv.id}`}><CheckCircle2 className="w-3 h-3" /> Paid</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 bg-[#D90429]/10 text-[#D90429] text-xs font-bold px-2 py-1 rounded-full" data-testid={`invoice-status-${inv.id}`}><Clock className="w-3 h-3" /> Unpaid</span>
-                    )}
-                  </td>
-                  <td className="p-4 text-right">
-                    <div className="inline-flex gap-1">
-                      <button onClick={() => setDetail(inv)} data-testid={`invoice-view-${inv.id}`} className="p-2 hover:bg-[var(--js-subtle)] rounded-full" title="View details"><Eye className="w-3.5 h-3.5" /></button>
-                      {inv.status === "Unpaid" ? (
-                        <button onClick={() => setStatus(inv.id, "Paid")} data-testid={`mark-paid-${inv.id}`} className="text-xs font-semibold bg-[#2D6A4F] hover:bg-[#1B4332] text-white px-3 py-1.5 rounded-full">Mark Paid</button>
-                      ) : (
-                        <button onClick={() => setStatus(inv.id, "Unpaid")} data-testid={`mark-unpaid-${inv.id}`} className="text-xs font-semibold bg-[var(--js-subtle)] text-[var(--js-text)] hover:bg-[var(--js-border)] px-3 py-1.5 rounded-full">Mark Unpaid</button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {invoices.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-[var(--js-text-secondary)]">No invoices yet. Orders generate weekly invoices automatically.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {detail && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setDetail(null)}>
-          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl" onClick={(e) => e.stopPropagation()} data-testid="invoice-detail-modal">
-            <h3 className="font-display font-bold text-xl">{detail.shop_name}</h3>
-            <p className="text-sm text-[var(--js-text-secondary)]">{detail.week_label}</p>
-            <dl className="mt-4 space-y-2 text-sm">
-              <div className="flex justify-between"><dt className="text-[var(--js-text-secondary)]">Total Sales</dt><dd className="font-bold">{formatPrice(detail.total_sales, exchangeRate, currency)}</dd></div>
-              <div className="flex justify-between"><dt className="text-[var(--js-text-secondary)]">Order count</dt><dd className="font-bold">{detail.order_count}</dd></div>
-              <div className="flex justify-between"><dt className="text-[var(--js-text-secondary)]">Commission ({(detail.commission_rate * 100).toFixed(1)}%)</dt><dd className="font-bold text-[#C84B31]">{formatPrice(detail.commission, exchangeRate, currency)}</dd></div>
-              <div className="flex justify-between border-t border-[var(--js-border)] pt-2"><dt className="font-semibold">Amount owed</dt><dd className="font-display font-bold text-lg">{formatPrice(detail.amount_owed, exchangeRate, currency)}</dd></div>
-              <div className="flex justify-between"><dt className="text-[var(--js-text-secondary)]">Status</dt><dd className="font-bold">{detail.status}</dd></div>
-            </dl>
-            <button onClick={() => setDetail(null)} className="mt-5 w-full bg-[#1A1A1A] text-white text-sm font-semibold py-2.5 rounded-full">Close</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function AdminEmailsTab() {
   const [list, setList] = useState([]);
   const [email, setEmail] = useState("");
@@ -669,65 +506,6 @@ function AdminEmailsTab() {
   );
 }
 
-function AdminOrdersTab() {
-  const [orders, setOrders] = useState([]);
-  const load = () => api.get("/orders?limit=200").then((r) => setOrders(r.data));
-  useEffect(() => { load(); }, []);
-
-  const updateStatus = async (id, status) => { await api.put(`/orders/${id}/status`, { status }); toast.success("Status updated"); load(); };
-
-  const total = orders.reduce((s, o) => s + (o.subtotal_usd || 0), 0);
-
-  return (
-    <div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <Stat label="Total Orders" value={orders.length} color="#1A1A1A" />
-        <Stat label="Pending" value={orders.filter((o) => o.status === "Pending").length} color="#E9C46A" />
-        <Stat label="In Progress" value={orders.filter((o) => o.status === "In Progress").length} color="#2A9D8F" />
-        <Stat label="Revenue" value={formatPrice(total, exchangeRate, currency)} color="#C84B31" />
-      </div>
-
-      <div className="bg-white border border-[var(--js-border)] rounded-2xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-[var(--js-bg)] text-[var(--js-text-secondary)] text-xs uppercase tracking-wider">
-              <tr>
-                <th className="text-left p-4 font-bold">Order</th>
-                <th className="text-left p-4 font-bold hidden sm:table-cell">Customer</th>
-                <th className="text-left p-4 font-bold hidden md:table-cell">Type</th>
-                <th className="text-left p-4 font-bold">Total</th>
-                <th className="text-left p-4 font-bold">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orders.map((o) => (
-                <tr key={o.id} className="border-t border-[var(--js-border)]" data-testid={`admin-order-${o.id}`}>
-                  <td className="p-4">
-                    <p className="font-semibold text-[var(--js-text)]">#{o.id.slice(0, 8).toUpperCase()}</p>
-                    <p className="text-xs text-[var(--js-text-secondary)]">{new Date(o.created_at).toLocaleDateString()}</p>
-                  </td>
-                  <td className="p-4 hidden sm:table-cell">
-                    <p className="font-semibold">{o.customer_name}</p>
-                    <p className="text-xs text-[var(--js-text-secondary)]">{o.area}</p>
-                  </td>
-                  <td className="p-4 hidden md:table-cell text-[var(--js-text-secondary)] capitalize">{o.order_kind}</td>
-                  <td className="p-4 font-bold">{formatPrice(o.subtotal_usd, exchangeRate, currency)}</td>
-                  <td className="p-4">
-                    <select value={o.status} onChange={(e) => updateStatus(o.id, e.target.value)} data-testid={`admin-order-status-${o.id}`} className="bg-white border border-[var(--js-border)] rounded-full px-3 py-1.5 text-xs font-semibold focus:border-[#C84B31] focus:outline-none">
-                      <option>Pending</option><option>In Progress</option><option>Delivered</option>
-                    </select>
-                  </td>
-                </tr>
-              ))}
-              {orders.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-[var(--js-text-secondary)]">No orders.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function Stat({ label, value, color }) {
   return (
     <div className="bg-white border border-[var(--js-border)] rounded-2xl p-4">
@@ -738,155 +516,12 @@ function Stat({ label, value, color }) {
 }
 
 // ---------------------------------------------------------------------------
-// Invoices pane: sub-tab toggle between Shop invoices and Restaurant invoices.
-// Kept as a wrapper so the existing AdminInvoicesTab can stay untouched.
-// ---------------------------------------------------------------------------
-function AdminInvoicesPane() {
-  const [kind, setKind] = useState("shop");
-  return (
-    <div>
-      <div className="inline-flex items-center bg-[var(--js-subtle)] rounded-full p-1 mb-6" data-testid="invoice-kind-toggle">
-        <button
-          onClick={() => setKind("shop")}
-          data-testid="invoice-kind-shop"
-          className={`px-5 py-2 text-sm font-semibold rounded-full transition ${
-            kind === "shop" ? "bg-white shadow text-[var(--js-text)]" : "text-[var(--js-text-secondary)]"
-          }`}
-        >
-          Shop invoices
-        </button>
-        <button
-          onClick={() => setKind("restaurant")}
-          data-testid="invoice-kind-restaurant"
-          className={`px-5 py-2 text-sm font-semibold rounded-full transition ${
-            kind === "restaurant" ? "bg-white shadow text-[var(--js-text)]" : "text-[var(--js-text-secondary)]"
-          }`}
-        >
-          Restaurant invoices
-        </button>
-      </div>
-      {kind === "shop" ? <AdminInvoicesTab /> : <AdminRestaurantInvoicesTab />}
-    </div>
-  );
-}
-
-function AdminRestaurantInvoicesTab() {
-  const [invoices, setInvoices] = useState([]);
-  const [filter, setFilter] = useState("all");
-
-  const load = async () => {
-    const q = filter === "all" ? "" : `?status=${filter === "paid" ? "Paid" : "Unpaid"}`;
-    const { data } = await api.get(`/admin/restaurant-invoices${q}`);
-    setInvoices(data);
-  };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [filter]);
-
-  const regenerate = async () => {
-    await api.post("/admin/restaurant-invoices/generate");
-    toast.success("Restaurant invoices regenerated");
-    load();
-  };
-
-  const setStatus = async (id, status) => {
-    await api.put(`/admin/restaurant-invoices/${id}/status`, { status });
-    toast.success(`Marked as ${status}`);
-    load();
-  };
-
-  const totalSales = invoices.reduce((s, i) => s + (i.total_sales || 0), 0);
-  const totalCommission = invoices.reduce((s, i) => s + (i.commission || 0), 0);
-  const unpaidAmount = invoices.filter((i) => i.status === "Unpaid").reduce((s, i) => s + (i.commission || 0), 0);
-
-  return (
-    <div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <Stat label="Restaurant Invoices" value={invoices.length} color="#1A1A1A" />
-        <Stat label="Food Sales (commissionable)" value={formatPrice(totalSales, exchangeRate, currency)} color="#2D6A4F" />
-        <Stat label="Commission" value={formatPrice(totalCommission, exchangeRate, currency)} color="#C84B31" />
-        <Stat label="Unpaid" value={formatPrice(unpaidAmount, exchangeRate, currency)} color="#D90429" />
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <select value={filter} onChange={(e) => setFilter(e.target.value)} data-testid="restaurant-invoice-filter-select" className="bg-white border border-[var(--js-border)] rounded-full px-4 py-2 text-sm font-semibold focus:outline-none focus:border-[#C84B31]">
-          <option value="all">All</option>
-          <option value="paid">Paid only</option>
-          <option value="unpaid">Unpaid only</option>
-        </select>
-        <button onClick={regenerate} data-testid="regenerate-restaurant-invoices-btn" className="ml-auto bg-[var(--js-subtle)] hover:bg-[var(--js-border)] text-[var(--js-text)] text-sm font-semibold px-4 py-2 rounded-full">
-          🔄 Regenerate from completed orders
-        </button>
-      </div>
-
-      <div className="bg-white border border-[var(--js-border)] rounded-2xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-[var(--js-bg)] text-[var(--js-text-secondary)] text-xs uppercase tracking-wider">
-              <tr>
-                <th className="text-left p-4 font-bold">Restaurant</th>
-                <th className="text-left p-4 font-bold hidden sm:table-cell">Week</th>
-                <th className="text-left p-4 font-bold">Sales</th>
-                <th className="text-left p-4 font-bold hidden md:table-cell">Commission</th>
-                <th className="text-left p-4 font-bold">Status</th>
-                <th className="p-4"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {invoices.map((inv) => (
-                <tr key={inv.id} className="border-t border-[var(--js-border)]" data-testid={`restaurant-invoice-row-${inv.id}`}>
-                  <td className="p-4 font-semibold text-[var(--js-text)]">{inv.restaurant_name}</td>
-                  <td className="p-4 text-[var(--js-text-secondary)] hidden sm:table-cell text-xs">{inv.week_label}</td>
-                  <td className="p-4 font-bold">{formatPrice(inv.total_sales, exchangeRate, currency)}</td>
-                  <td className="p-4 hidden md:table-cell">
-                    <p className="font-semibold text-[#C84B31]">{formatPrice(inv.commission, exchangeRate, currency)}</p>
-                    <p className="text-[10px] text-[var(--js-text-secondary)]">{(inv.commission_rate * 100).toFixed(1)}%</p>
-                  </td>
-                  <td className="p-4">
-                    {inv.status === "Paid" ? (
-                      <span className="inline-flex items-center gap-1 bg-[#2D6A4F]/10 text-[#2D6A4F] text-xs font-bold px-2 py-1 rounded-full"><CheckCircle2 className="w-3 h-3" /> Paid</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 bg-[#D90429]/10 text-[#D90429] text-xs font-bold px-2 py-1 rounded-full"><Clock className="w-3 h-3" /> Unpaid</span>
-                    )}
-                  </td>
-                  <td className="p-4 text-right">
-                    {inv.status === "Unpaid" ? (
-                      <button
-                        onClick={() => setStatus(inv.id, "Paid")}
-                        data-testid={`mark-paid-restaurant-${inv.id}`}
-                        className="bg-[#2D6A4F] hover:bg-[#245940] text-white text-xs font-bold px-3 py-1.5 rounded-full"
-                      >
-                        Mark paid
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => setStatus(inv.id, "Unpaid")}
-                        data-testid={`mark-unpaid-restaurant-${inv.id}`}
-                        className="bg-[var(--js-subtle)] hover:bg-[var(--js-border)] text-[var(--js-text)] text-xs font-bold px-3 py-1.5 rounded-full"
-                      >
-                        Mark unpaid
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {invoices.length === 0 && (
-                <tr><td colSpan={6} className="p-10 text-center text-[var(--js-text-secondary)]">
-                  No restaurant invoices yet. They auto-generate when restaurant orders are marked completed in the Kitchen Dashboard.
-                </td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Cancellation Requests: admin approve or reject seller cancellation requests
 // ---------------------------------------------------------------------------
 function AdminCancellationsTab() {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
+  const { currency = "USD", exchangeRate = 600 } = useCart() || {};
 
   const load = async () => {
     setLoading(true);
