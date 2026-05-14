@@ -586,6 +586,12 @@ class ReviewIn(BaseModel):
     comment: Optional[str] = ""
 
 
+class ProductReviewIn(BaseModel):
+    """Review/rating for marketplace product"""
+    rating: int = Field(ge=1, le=5)
+    comment: Optional[str] = ""
+
+
 class TrendingClickIn(BaseModel):
     """Track clicks for trending system"""
     target_type: Literal["restaurant", "product"]
@@ -3426,7 +3432,7 @@ async def list_reviews(product_id: str, limit: Optional[int] = None, skip: Optio
 
 
 @api.post("/products/{product_id}/reviews")
-async def add_review(product_id: str, body: ReviewIn, user: dict = Depends(get_current_user)):
+async def add_review(product_id: str, body: ProductReviewIn, user: dict = Depends(get_current_user)):
     if user["role"] != "customer":
         raise HTTPException(403, "Only customers can post reviews")
     p = await db.products.find_one({"id": product_id})
