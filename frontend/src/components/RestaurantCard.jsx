@@ -107,6 +107,7 @@ export default function RestaurantCard({ restaurant, initialOpen = false, rank =
       item_type: "menu_item", item_id: item.id, name: item.name,
       price_usd: item.price_usd, image_url: item.image_url, quantity: 1,
       sides: sides || [],
+      exchange_rate_ssp: item.exchange_rate_ssp, // Preserve seller's exchange rate
     }, {
       restaurant_id: restaurant.id,
       restaurant_name: restaurant.name,
