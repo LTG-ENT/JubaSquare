@@ -3445,18 +3445,33 @@ async def send_order_chat(order_id: str, body: OrderChatMessageIn, user: dict = 
         raise HTTPException(404, "Order not found")
     is_customer = user["id"] == order.get("customer_id")
     is_seller = user["id"] in seller_ids and user["id"] == body.seller_id
-    if not (is_customer or is_seller):
+    
+    # Check if user is assigned driver
+    is_driver = False
+    if user["role"] == "driver":
+        split_count = await db.seller_order_splits.count_documents({
+            "order_id": order_id,
+            "driver_id": user["id"]
+        })
+        rest_order_count = await db.restaurant_orders.count_documents({
+            "id": order_id,
+            "driver_id": user["id"]
+        })
+        is_driver = split_count > 0 or rest_order_count > 0
+    
+    if not (is_customer or is_seller or is_driver):
         raise HTTPException(403, "You are not part of this order conversation")
     if is_customer and body.seller_id not in seller_ids:
         raise HTTPException(400, "Invalid seller for this order")
 
+    # Driver messages go to customer (use first seller_id as placeholder)
     msg = {
         "id": str(uuid.uuid4()),
         "order_id": order_id,
         "customer_id": order.get("customer_id"),
-        "seller_id": body.seller_id,
+        "seller_id": body.seller_id if not is_driver else seller_ids[0] if seller_ids else None,
         "sender_id": user["id"],
-        "sender_role": "customer" if is_customer else "seller",
+        "sender_role": "customer" if is_customer else ("seller" if is_seller else "driver"),
         "body": body.body.strip(),
         "read_by_customer": is_customer,
         "read_by_seller": is_seller,
@@ -3472,6 +3487,14 @@ async def send_order_chat(order_id: str, body: OrderChatMessageIn, user: dict = 
             message=f"New message about Order #{order_id[:8]} from {user.get('name', 'a customer')}.",
             ntype="message",
             meta={"order_id": order_id, "seller_id": body.seller_id, "chat": True},
+        )
+    elif is_driver:
+        # Driver sends message, notify customer
+        await create_notification(
+            user_id=order.get("customer_id"),
+            message=f"Your driver sent a message about Order #{order_id[:8]}.",
+            ntype="message",
+            meta={"order_id": order_id, "chat": True},
         )
     else:
         await create_notification(
@@ -3490,7 +3513,21 @@ async def get_order_chat(order_id: str, seller_id: str, user: dict = Depends(get
         raise HTTPException(404, "Order not found")
     is_customer = user["id"] == order.get("customer_id")
     is_seller = user["id"] in seller_ids and user["id"] == seller_id
-    if not (is_customer or is_seller):
+    
+    # Check if user is assigned driver
+    is_driver = False
+    if user["role"] == "driver":
+        split_count = await db.seller_order_splits.count_documents({
+            "order_id": order_id,
+            "driver_id": user["id"]
+        })
+        rest_order_count = await db.restaurant_orders.count_documents({
+            "id": order_id,
+            "driver_id": user["id"]
+        })
+        is_driver = split_count > 0 or rest_order_count > 0
+    
+    if not (is_customer or is_seller or is_driver):
         raise HTTPException(403, "You are not part of this order conversation")
     if is_customer and seller_id not in seller_ids:
         raise HTTPException(400, "Invalid seller for this order")
@@ -3501,10 +3538,14 @@ async def get_order_chat(order_id: str, seller_id: str, user: dict = Depends(get
     ).sort("created_at", 1).to_list(2000)
 
     # Mark messages from the other side as read by me
-    read_field = "read_by_customer" if is_customer else "read_by_seller"
-    await db.order_messages.update_many(
-        {"order_id": order_id, "seller_id": seller_id, read_field: False},
-        {"$set": {read_field: True}},
+    if is_driver:
+        # Driver reads messages - don't mark anything as read for now
+        pass
+    else:
+        read_field = "read_by_customer" if is_customer else "read_by_seller"
+        await db.order_messages.update_many(
+            {"order_id": order_id, "seller_id": seller_id, read_field: False},
+            {"$set": {read_field: True}},
     )
     return messages
 
