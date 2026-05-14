@@ -11,7 +11,7 @@ import requests
 import json
 import sys
 
-BASE_URL = "https://driver-area-filter.preview.emergentagent.com/api"
+BASE_URL = "https://locale-switcher-5.preview.emergentagent.com/api"
 
 # Test credentials
 CUSTOMER_EMAIL = "customer@demo.com"

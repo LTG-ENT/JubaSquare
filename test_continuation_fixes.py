@@ -15,7 +15,7 @@ import sys
 from typing import Dict, Any, Optional
 
 # Configuration
-BASE_URL = "https://driver-area-filter.preview.emergentagent.com/api"
+BASE_URL = "https://locale-switcher-5.preview.emergentagent.com/api"
 ADMIN_EMAIL = "admin@LTG.com"
 ADMIN_PASSWORD = "Kokobleake1"
 SELLER_EMAIL = "s@s.com"
