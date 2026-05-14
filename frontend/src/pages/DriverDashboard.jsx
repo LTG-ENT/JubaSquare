@@ -134,7 +134,7 @@ export default function DriverDashboard() {
   // Auto-refresh everything every 15 seconds
   useEffect(() => {
     const interval = setInterval(() => {
-      load(); // Add main assignments polling
+      load();
       loadRequests();
       loadCashSummary();
     }, 15000);

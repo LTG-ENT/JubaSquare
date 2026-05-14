@@ -3586,8 +3586,28 @@ async def list_order_chat_sellers(order_id: str, user: dict = Depends(get_curren
     order, seller_ids = await _resolve_order_seller_ids(order_id)
     if not order:
         raise HTTPException(404, "Order not found")
-    if user["id"] != order.get("customer_id") and user["id"] not in seller_ids:
+    
+    # Check if user is customer, seller, or assigned driver
+    is_customer = user["id"] == order.get("customer_id")
+    is_seller = user["id"] in seller_ids
+    
+    # Check if user is assigned driver (check splits and restaurant_orders)
+    is_driver = False
+    if user["role"] == "driver":
+        # Check if driver is assigned to any split or restaurant order for this order
+        split_count = await db.seller_order_splits.count_documents({
+            "order_id": order_id,
+            "driver_id": user["id"]
+        })
+        rest_order_count = await db.restaurant_orders.count_documents({
+            "id": order_id,  # For restaurant orders, the id IS the order_id
+            "driver_id": user["id"]
+        })
+        is_driver = split_count > 0 or rest_order_count > 0
+    
+    if not (is_customer or is_seller or is_driver):
         raise HTTPException(403, "You are not part of this order")
+    
     sellers = await db.users.find({"id": {"$in": seller_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(50)
     return [{"seller_id": s["id"], "name": s.get("name", "Seller")} for s in sellers]
 
