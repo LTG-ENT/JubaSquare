@@ -105,6 +105,236 @@ function ExchangeRateSection() {
   );
 }
 
+
+
+function MessageFilterSection() {
+  const [filter, setFilter] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [newWord, setNewWord] = useState("");
+  const [newCode, setNewCode] = useState("");
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const { data } = await api.get("/admin/settings");
+        setFilter(data.message_filter || {
+          enabled: true,
+          blocked_words: [],
+          block_numbers: false,
+          max_numbers_per_message: 3,
+          block_phone_patterns: true,
+          blocked_country_codes: []
+        });
+      } catch (err) {
+        console.error("Failed to load message filter:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  const saveFilter = async () => {
+    setSaving(true);
+    try {
+      await api.put("/admin/settings", { message_filter: filter });
+      toast.success("Message filter settings saved");
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail) || "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addWord = () => {
+    if (!newWord.trim()) return;
+    setFilter(prev => ({
+      ...prev,
+      blocked_words: [...(prev.blocked_words || []), newWord.trim().toLowerCase()]
+    }));
+    setNewWord("");
+  };
+
+  const removeWord = (word) => {
+    setFilter(prev => ({
+      ...prev,
+      blocked_words: (prev.blocked_words || []).filter(w => w !== word)
+    }));
+  };
+
+  const addCode = () => {
+    if (!newCode.trim()) return;
+    setFilter(prev => ({
+      ...prev,
+      blocked_country_codes: [...(prev.blocked_country_codes || []), newCode.trim()]
+    }));
+    setNewCode("");
+  };
+
+  const removeCode = (code) => {
+    setFilter(prev => ({
+      ...prev,
+      blocked_country_codes: (prev.blocked_country_codes || []).filter(c => c !== code)
+    }));
+  };
+
+  if (loading) return <p className="text-sm text-[var(--js-text-secondary)]">Loading...</p>;
+  if (!filter) return null;
+
+  return (
+    <div className="mt-6 bg-white border border-[var(--js-border)] rounded-2xl p-5 sm:p-6">
+      <div className="flex items-start gap-4 mb-4">
+        <div className="w-11 h-11 rounded-xl bg-[#C84B31]/10 text-[#C84B31] flex items-center justify-center flex-shrink-0">
+          <Filter className="w-5 h-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">Messaging</p>
+          <h2 className="font-display font-bold text-lg text-[var(--js-text)] mt-0.5">Message Content Filter</h2>
+          <p className="text-xs text-[var(--js-text-secondary)] mt-1 leading-relaxed">
+            Control what content is allowed in customer-seller messages to prevent spam and inappropriate contact information sharing.
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        {/* Enable/Disable */}
+        <div className="flex items-center justify-between p-3 bg-[var(--js-bg)] rounded-xl">
+          <div>
+            <p className="text-sm font-semibold text-[var(--js-text)]">Message Filtering</p>
+            <p className="text-xs text-[var(--js-text-secondary)]">Block inappropriate content in customer-seller messages</p>
+          </div>
+          <button
+            onClick={() => setFilter(prev => ({ ...prev, enabled: !prev.enabled }))}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
+              filter.enabled ? 'bg-emerald-600' : 'bg-gray-300'
+            }`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+              filter.enabled ? 'translate-x-6' : 'translate-x-1'
+            }`} />
+          </button>
+        </div>
+
+        {/* Blocked Words */}
+        <div className="p-3 border border-[var(--js-border)] rounded-xl">
+          <p className="text-sm font-semibold text-[var(--js-text)] mb-2">Blocked Words</p>
+          <div className="flex gap-2 mb-2">
+            <input
+              type="text"
+              value={newWord}
+              onChange={(e) => setNewWord(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && addWord()}
+              placeholder="Add word to block..."
+              className="flex-1 px-3 py-1.5 text-sm border border-[var(--js-border)] rounded-lg focus:outline-none focus:border-[#C84B31]"
+            />
+            <button onClick={addWord} className="px-3 py-1.5 bg-[#C84B31] text-white rounded-lg text-sm font-semibold hover:bg-[#A83A23]">
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(filter.blocked_words || []).map(word => (
+              <span key={word} className="inline-flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded-lg text-xs font-semibold">
+                {word}
+                <button onClick={() => removeWord(word)} className="hover:bg-red-200 rounded">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Block Numbers */}
+        <div className="flex items-center justify-between p-3 border border-[var(--js-border)] rounded-xl">
+          <div>
+            <p className="text-sm font-semibold text-[var(--js-text)]">Block All Numbers</p>
+            <p className="text-xs text-[var(--js-text-secondary)]">Prevent any numbers in messages</p>
+          </div>
+          <button
+            onClick={() => setFilter(prev => ({ ...prev, block_numbers: !prev.block_numbers }))}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
+              filter.block_numbers ? 'bg-red-600' : 'bg-gray-300'
+            }`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+              filter.block_numbers ? 'translate-x-6' : 'translate-x-1'
+            }`} />
+          </button>
+        </div>
+
+        {/* Max Numbers */}
+        <div className="p-3 border border-[var(--js-border)] rounded-xl">
+          <p className="text-sm font-semibold text-[var(--js-text)] mb-2">Max Numbers Per Message</p>
+          <input
+            type="number"
+            value={filter.max_numbers_per_message || 3}
+            onChange={(e) => setFilter(prev => ({ ...prev, max_numbers_per_message: parseInt(e.target.value) || 3 }))}
+            min="0"
+            max="20"
+            className="w-24 px-3 py-1.5 text-sm border border-[var(--js-border)] rounded-lg focus:outline-none focus:border-[#C84B31]"
+          />
+          <p className="text-xs text-[var(--js-text-secondary)] mt-1">Limit how many numbers can appear in one message</p>
+        </div>
+
+        {/* Block Phone Patterns */}
+        <div className="flex items-center justify-between p-3 border border-[var(--js-border)] rounded-xl">
+          <div>
+            <p className="text-sm font-semibold text-[var(--js-text)]">Block Phone Number Patterns</p>
+            <p className="text-xs text-[var(--js-text-secondary)]">Detect and block phone numbers (7+ digits)</p>
+          </div>
+          <button
+            onClick={() => setFilter(prev => ({ ...prev, block_phone_patterns: !prev.block_phone_patterns }))}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
+              filter.block_phone_patterns ? 'bg-red-600' : 'bg-gray-300'
+            }`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+              filter.block_phone_patterns ? 'translate-x-6' : 'translate-x-1'
+            }`} />
+          </button>
+        </div>
+
+        {/* Blocked Country Codes */}
+        <div className="p-3 border border-[var(--js-border)] rounded-xl">
+          <p className="text-sm font-semibold text-[var(--js-text)] mb-2">Blocked Country Codes</p>
+          <div className="flex gap-2 mb-2">
+            <input
+              type="text"
+              value={newCode}
+              onChange={(e) => setNewCode(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && addCode()}
+              placeholder="e.g. +1, +44..."
+              className="flex-1 px-3 py-1.5 text-sm border border-[var(--js-border)] rounded-lg focus:outline-none focus:border-[#C84B31]"
+            />
+            <button onClick={addCode} className="px-3 py-1.5 bg-[#C84B31] text-white rounded-lg text-sm font-semibold hover:bg-[#A83A23]">
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(filter.blocked_country_codes || []).map(code => (
+              <span key={code} className="inline-flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded-lg text-xs font-semibold">
+                {code}
+                <button onClick={() => removeCode(code)} className="hover:bg-red-200 rounded">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <button
+          onClick={saveFilter}
+          disabled={saving}
+          className="w-full px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold disabled:bg-gray-300"
+        >
+          <Save className="w-4 h-4 inline mr-2" />
+          {saving ? "Saving..." : "Save Message Filter Settings"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminSettingsTab({ onGoToShop }) {
   const [globalRate, setGlobalRate] = useState(0.10);
   const [rateDraft, setRateDraft] = useState("10");
@@ -268,6 +498,9 @@ export default function AdminSettingsTab({ onGoToShop }) {
           </div>
         </div>
       </div>
+
+      {/* Message Filter Settings */}
+      <MessageFilterSection />
 
       {/* Global Invoice Frequency */}
       <div className="bg-white border border-[var(--js-border)] rounded-2xl p-5 sm:p-6">
