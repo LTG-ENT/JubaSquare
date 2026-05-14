@@ -9,7 +9,6 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { Logo } from "@/components/Logo";
 import NotificationBell from "@/components/NotificationBell";
-import MessagesBell from "@/components/MessagesBell";
 import CategoriesNavMenu from "@/components/CategoriesNavMenu";
 import GlobalSearch from "@/components/GlobalSearch";
 
@@ -219,7 +218,6 @@ export default function Header() {
             )}
             {!isDriver && <CurrencyToggle />}
 
-            {user && <MessagesBell />}
             {user && <NotificationBell />}
 
             {!isDriver && (
