@@ -210,7 +210,19 @@ Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode fo
 - **Removal** (user request): deprecated `AdminInvoicesTab` (shop invoices), `AdminRestaurantInvoicesTab`, `AdminInvoicesPane` wrapper, and `AdminOrdersTab` (All Orders) since these flows are no longer used. Removed `invoices` and `orders` entries from `TABS`. Pruned unused lucide-react imports (`FileText`, `ShoppingBag`, `Percent`, `Eye`) and `formatUSD` import. `AdminDashboard.jsx` dropped from 988 → 624 lines.
 - **Verified**: screenshot confirms Drivers, Payouts, Disputes, Cancellation Requests render without React error boundary; SSP/USD currency toggle works in header.
 
+### Iter 12 (Feb 2026) — **Multi-language UI (i18n)**
+- **Feature**: header-left **Language Switcher** (`LanguageSwitcher.jsx`) supporting 7 languages — English, Arabic (South Sudan 🇸🇸, RTL), French, Chinese, Hindi, Tigrinya (Eritrea), Amharic (Ethiopia). Selection persists via localStorage. Arabic auto-flips `document.documentElement.dir` to `rtl`.
+- **i18n stack**: `i18next` + `react-i18next` + `i18next-browser-languagedetector` (installed previously). `i18n.js` holds full translation dictionaries for all 7 languages covering nav, common actions, and major dashboard headings.
+- **Translated surfaces (this iter)**:
+  - `Header.jsx`: nav links (Home/Marketplace/Shops/Restaurants), Profile menu, Signed-in-as, Sign In, Logout, mobile menu, Categories label.
+  - `SellerDashboard.jsx`: "Manage your business" + dashboard eyebrow.
+  - `AdminDashboard.jsx`: "Platform control" + dashboard eyebrow.
+  - `DriverDashboard.jsx`: "My deliveries" + "My Accepted Deliveries" + dashboard eyebrow.
+- **Verified**: live screenshot test toggles EN ↔ AR ↔ EN; Arabic RTL renders correctly and translates header nav.
+
 ## Backlog (P1 / P2)
+- **P1** Driver Area Filter Dropdown — top-corner area selector in `DriverDashboard.jsx` to filter broadcasted orders by restaurant proximity (originally requested, deferred for broadcast-assignment work)
+- **P1** Extend i18n coverage — Home hero, customer Orders page, Cart, Checkout, FloatingChat, AdminAnalytics labels, toast strings
 - **P1** Marketplace `Cart.jsx` still shows "FREE" delivery in some paths — investigate `/orders/quote` payload (UNRESOLVED — user reported but deprioritised)
 - **P1** Verify shop-to-customer area delivery pricing rules apply configured rate vs falling back to default
 - **P1** Recharts `ResponsiveContainer` width=0/height=0 console warning on analytics charts

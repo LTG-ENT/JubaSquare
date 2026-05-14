@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
+import { useTranslation } from "react-i18next";
 import api, { formatUSD, formatPrice, formatDetail } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -68,6 +69,7 @@ const FAILURE_REASONS = [
 export default function DriverDashboard() {
   const { user } = useAuth();
   const { currency = "USD", exchangeRate = 1 } = useCart() || {}; // Get currency and exchange rate with defaults
+  const { t: tr } = useTranslation();
   const [data, setData] = useState({ splits: [], restaurant_orders: [] });
   const [requests, setRequests] = useState({ splits: [], restaurant_orders: [] });
   const [cashSummary, setCashSummary] = useState({ pending_total_usd: 0, pending_count: 0, received_today_count: 0, items: [] });
@@ -245,8 +247,8 @@ export default function DriverDashboard() {
     <div className="min-h-screen flex flex-col bg-[var(--js-bg)]">
       <Header />
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 w-full flex-1">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--js-text-secondary)] font-bold mb-1">Driver Dashboard</p>
-        <h1 className="font-display font-bold text-3xl text-[var(--js-text)]">My deliveries</h1>
+        <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--js-text-secondary)] font-bold mb-1">{tr("dashboard")}</p>
+        <h1 className="font-display font-bold text-3xl text-[var(--js-text)]">{tr("myDeliveries")}</h1>
         <p className="text-sm text-[var(--js-text-secondary)]">Hi {user?.name?.split(" ")?.[0]} — here are the orders assigned to you.</p>
 
         {/* Cash to hand over summary */}
@@ -420,7 +422,7 @@ export default function DriverDashboard() {
 
         {/* My Assignments Section Header */}
         <div className="mt-8">
-          <h2 className="font-bold text-xl text-[var(--js-text)] mb-4">My Accepted Deliveries</h2>
+          <h2 className="font-bold text-xl text-[var(--js-text)] mb-4">{tr("myAcceptedDeliveries")}</h2>
         </div>
 
         <div className="flex gap-2 flex-wrap items-center">

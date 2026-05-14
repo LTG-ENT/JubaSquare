@@ -7,6 +7,7 @@ import {
   LayoutDashboard, Menu, X, User as UserIcon, Settings as SettingsIcon, Package,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Logo } from "@/components/Logo";
 import NotificationBell from "@/components/NotificationBell";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
@@ -54,6 +55,7 @@ function ProfileQuickMenu({ user }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   // Close on outside click + ESC.
   useEffect(() => {
@@ -74,17 +76,17 @@ function ProfileQuickMenu({ user }) {
   const role = user?.role;
   const items = [];
   if (role === "customer") {
-    items.push({ key: "orders", label: "Orders", to: "/orders", Icon: Package });
-    items.push({ key: "settings", label: "Settings", to: "/settings", Icon: SettingsIcon });
+    items.push({ key: "orders", label: t("orders"), to: "/orders", Icon: Package });
+    items.push({ key: "settings", label: t("settings"), to: "/settings", Icon: SettingsIcon });
   } else if (role === "seller") {
-    items.push({ key: "dashboard", label: "Dashboard", to: "/seller", Icon: LayoutDashboard });
-    items.push({ key: "settings", label: "Settings", to: "/settings", Icon: SettingsIcon });
+    items.push({ key: "dashboard", label: t("dashboard"), to: "/seller", Icon: LayoutDashboard });
+    items.push({ key: "settings", label: t("settings"), to: "/settings", Icon: SettingsIcon });
   } else if (role === "admin") {
-    items.push({ key: "dashboard", label: "Dashboard", to: "/admin", Icon: LayoutDashboard });
-    items.push({ key: "settings", label: "Settings", to: "/settings", Icon: SettingsIcon });
+    items.push({ key: "dashboard", label: t("dashboard"), to: "/admin", Icon: LayoutDashboard });
+    items.push({ key: "settings", label: t("settings"), to: "/settings", Icon: SettingsIcon });
   } else if (role === "driver") {
-    items.push({ key: "driver", label: "Driver", to: "/driver", Icon: LayoutDashboard });
-    items.push({ key: "settings", label: "Settings", to: "/settings", Icon: SettingsIcon });
+    items.push({ key: "driver", label: t("driver"), to: "/driver", Icon: LayoutDashboard });
+    items.push({ key: "settings", label: t("settings"), to: "/settings", Icon: SettingsIcon });
   }
 
   const go = (to) => {
@@ -105,7 +107,7 @@ function ProfileQuickMenu({ user }) {
         }`}
       >
         <UserIcon className="w-4 h-4" />
-        <span>Profile</span>
+        <span>{t("profile")}</span>
       </button>
 
       {open && (
@@ -115,7 +117,7 @@ function ProfileQuickMenu({ user }) {
           className="absolute right-0 mt-2 w-56 bg-white border border-[#E2E2D9] rounded-2xl shadow-xl py-2 z-50 fade-up"
         >
           <div className="px-4 pt-1 pb-2 border-b border-[#E2E2D9] mb-1">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-[#5C5C5C] font-bold">Signed in as</p>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-[#5C5C5C] font-bold">{t("signedInAs")}</p>
             <p className="text-sm font-semibold text-[#1A1A1A] truncate">{user?.name || user?.email || "Guest"}</p>
             <p className="text-[11px] text-[#5C5C5C] capitalize">{role}</p>
           </div>
@@ -143,6 +145,7 @@ export default function Header() {
   const { settings } = useSystem();
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useTranslation();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const navLink = (to, label, Icon) => {
@@ -177,17 +180,20 @@ export default function Header() {
       )}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="h-20 lg:h-24 flex items-center justify-between gap-4">
-          {/* Mobile menu button - left side on mobile */}
-          {!isDriver && (
-            <button
-              onClick={() => setMobileOpen((v) => !v)}
-              data-testid="mobile-menu-button"
-              className="lg:hidden p-2 rounded-full hover:bg-white/10 transition"
-              aria-label="Menu"
-            >
-              {mobileOpen ? <X className="w-6 h-6 text-white" /> : <Menu className="w-6 h-6 text-white" />}
-            </button>
-          )}
+          {/* Left cluster: mobile menu + language switcher */}
+          <div className="flex items-center gap-1 shrink-0">
+            {!isDriver && (
+              <button
+                onClick={() => setMobileOpen((v) => !v)}
+                data-testid="mobile-menu-button"
+                className="lg:hidden p-2 rounded-full hover:bg-white/10 transition"
+                aria-label="Menu"
+              >
+                {mobileOpen ? <X className="w-6 h-6 text-white" /> : <Menu className="w-6 h-6 text-white" />}
+              </button>
+            )}
+            <LanguageSwitcher />
+          </div>
 
           {/* Centered Brand */}
           <div className="flex-1 flex justify-center lg:justify-start">
@@ -197,16 +203,16 @@ export default function Header() {
           {/* Desktop Navigation - hidden on mobile + completely hidden for drivers */}
           {!isDriver && (
             <nav className="hidden lg:flex items-center gap-1">
-              {navLink("/", "Home", HomeIcon)}
+              {navLink("/", t("home"), HomeIcon)}
               {settings.module_marketplace && (
                 <CategoriesNavMenu
                   active={location.pathname === "/marketplace"}
                   onNavigate={() => setMobileOpen(false)}
-                  trigger={navLink("/marketplace", "Marketplace", LayoutGrid)}
+                  trigger={navLink("/marketplace", t("marketplace"), LayoutGrid)}
                 />
               )}
-              {navLink("/shops", "Shops", Store)}
-              {settings.module_restaurants && navLink("/restaurants", "Restaurants", UtensilsCrossed)}
+              {navLink("/shops", t("shops"), Store)}
+              {settings.module_restaurants && navLink("/restaurants", t("restaurants"), UtensilsCrossed)}
             </nav>
           )}
 
@@ -246,7 +252,7 @@ export default function Header() {
               </div>
             ) : (
               <Link to="/login" data-testid="header-login-button" className="hidden sm:inline-flex items-center bg-[#C84B31] hover:bg-[#A83A23] text-white text-sm font-semibold px-5 py-2 rounded-full transition">
-                Sign In
+                {t("signIn")}
               </Link>
             )}
           </div>
@@ -257,26 +263,26 @@ export default function Header() {
             <div className="md:hidden mb-2">
               <GlobalSearch />
             </div>
-            {navLink("/", "Home", HomeIcon)}
-            {settings.module_marketplace && navLink("/marketplace", "Categories", LayoutGrid)}
-            {navLink("/shops", "Shops", Store)}
-            {settings.module_restaurants && navLink("/restaurants", "Restaurants", UtensilsCrossed)}
+            {navLink("/", t("home"), HomeIcon)}
+            {settings.module_marketplace && navLink("/marketplace", t("categories"), LayoutGrid)}
+            {navLink("/shops", t("shops"), Store)}
+            {settings.module_restaurants && navLink("/restaurants", t("restaurants"), UtensilsCrossed)}
             {user && (
               <div className="mt-1 pt-2 border-t border-white/10 flex flex-col gap-1" data-testid="mobile-profile-menu">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-white/50 font-bold px-3 pt-1">Profile</p>
-                {user.role === "customer" && navLink("/orders", "Orders", Package)}
-                {(user.role === "seller" || user.role === "admin" || user.role === "driver") && dashboardPath && navLink(dashboardPath, "Dashboard", LayoutDashboard)}
-                {navLink("/settings", "Settings", SettingsIcon)}
+                <p className="text-[10px] uppercase tracking-[0.18em] text-white/50 font-bold px-3 pt-1">{t("profile")}</p>
+                {user.role === "customer" && navLink("/orders", t("orders"), Package)}
+                {(user.role === "seller" || user.role === "admin" || user.role === "driver") && dashboardPath && navLink(dashboardPath, t("dashboard"), LayoutDashboard)}
+                {navLink("/settings", t("settings"), SettingsIcon)}
               </div>
             )}
             {!user && (
               <Link to="/login" onClick={() => setMobileOpen(false)} className="bg-[#C84B31] text-white text-sm font-semibold px-4 py-2.5 rounded-full text-center" data-testid="mobile-login-link">
-                Sign In
+                {t("signIn")}
               </Link>
             )}
             {user && (
               <button onClick={async () => { await logout(); setMobileOpen(false); navigate("/login"); }} className="bg-white/10 text-white text-sm font-semibold px-4 py-2.5 rounded-full" data-testid="mobile-logout-button">
-                Logout
+                {t("logout")}
               </button>
             )}
           </div>

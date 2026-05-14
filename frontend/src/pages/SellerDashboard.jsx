@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
+import { useTranslation } from "react-i18next";
 import api, { formatUSD, formatPrice, formatDetail } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -34,6 +35,7 @@ const CATEGORIES = [
 export default function SellerDashboard() {
   const { user } = useAuth();
   const { currency = "USD", exchangeRate = 1 } = useCart() || {}; // Get currency and exchange rate with defaults
+  const { t: tr } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const initial = searchParams.get("tab") || "shops";
   const [tab, setTab] = useState(initial);
@@ -84,8 +86,8 @@ export default function SellerDashboard() {
     <div className="min-h-screen flex flex-col bg-[#F9F9F6]">
       <Header />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full flex-1">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-[#5C5C5C] font-bold mb-2">Seller Dashboard</p>
-        <h1 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">Manage your business</h1>
+        <p className="text-[10px] uppercase tracking-[0.2em] text-[#5C5C5C] font-bold mb-2">{tr("dashboard")}</p>
+        <h1 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">{tr("manageBusiness")}</h1>
 
         {/* Low-stock alert banner */}
         {lowStockEnabled && lowStockCount > 0 && (

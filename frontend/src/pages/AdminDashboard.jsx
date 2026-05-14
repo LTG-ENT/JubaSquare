@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import api, { formatPrice, formatDetail } from "@/lib/api";
 import { useCart } from "@/context/CartContext";
+import { useTranslation } from "react-i18next";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import AdminAnalytics from "@/components/AdminAnalytics";
@@ -33,6 +34,7 @@ const TABS = [
 export default function AdminDashboard() {
   const [tab, setTab] = useState("analytics");
   const [alerts, setAlerts] = useState({});
+  const { t: tr } = useTranslation();
 
   // Poll the admin alerts endpoint so tab badges stay fresh.
   useEffect(() => {
@@ -57,8 +59,8 @@ export default function AdminDashboard() {
     <div className="min-h-screen flex flex-col bg-[var(--js-bg)]">
       <Header />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full flex-1">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--js-text-secondary)] font-bold mb-2">Admin Dashboard</p>
-        <h1 className="font-display font-bold text-3xl sm:text-4xl text-[var(--js-text)]">Platform control</h1>
+        <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--js-text-secondary)] font-bold mb-2">{tr("dashboard")}</p>
+        <h1 className="font-display font-bold text-3xl sm:text-4xl text-[var(--js-text)]">{tr("platformControl")}</h1>
 
         <div className="mt-8 flex flex-wrap gap-2 border-b border-[var(--js-border)]">
           {TABS.map((t) => {
