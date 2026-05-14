@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
+import { useTranslation } from "react-i18next";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import AreaSelector from "@/components/AreaSelector";
@@ -12,6 +13,7 @@ import { toast } from "sonner";
 export default function Cart() {
   const { items, removeItem, setQuantity, subtotalUSD, subtotalSSP, area, setArea, clear, exchangeRate, setExchangeRate, currency, cartMode, restaurantId } = useCart();
   const { user } = useAuth();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   
   // Redirect to RestaurantCheckout if cart is in restaurant mode
@@ -61,9 +63,9 @@ export default function Cart() {
 
   const place = async () => {
     if (!user) { navigate("/login"); return; }
-    if (items.length === 0) { toast.error("Cart is empty"); return; }
-    if (!phone.trim()) { toast.error("Phone number is required to place an order"); return; }
-    if (!area || !area.trim()) { toast.error("Delivery area is required"); return; }
+    if (items.length === 0) { toast.error(t("toastCartEmpty")); return; }
+    if (!phone.trim()) { toast.error(t("toastPhoneRequired")); return; }
+    if (!area || !area.trim()) { toast.error(t("toastAreaRequired")); return; }
     setPlacing(true);
     try {
       const hasMenu = items.some((i) => i.item_type === "menu_item");
@@ -77,11 +79,11 @@ export default function Cart() {
         area, address, phone, note,
         order_kind: hasMenu ? "restaurant" : (isWholesale ? "wholesale" : "marketplace"),
       });
-      toast.success("Order placed successfully!");
+      toast.success(t("toastOrderPlaced"));
       clear();
       navigate(`/orders?new=${data.id}`);
     } catch (e) {
-      toast.error(e.response?.data?.detail || "Failed to place order");
+      toast.error(e.response?.data?.detail || t("toastFailedPlaceOrder"));
     } finally {
       setPlacing(false);
     }
@@ -116,22 +118,22 @@ export default function Cart() {
           data-testid="cart-back-btn"
           className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#5C5C5C] hover:text-[#1A1A1A] mb-4 -mt-2"
         >
-          <ArrowLeft className="w-4 h-4" /> Back
+          <ArrowLeft className="w-4 h-4" /> {t("back")}
         </button>
-        <h1 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">Your cart</h1>
-        <p className="text-sm text-[#5C5C5C] mt-1">{items.length} item{items.length !== 1 && "s"}</p>
+        <h1 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">{t("yourCart")}</h1>
+        <p className="text-sm text-[#5C5C5C] mt-1">{t("itemCount", { count: items.length })}</p>
 
         {items.length === 0 ? (
           <div className="mt-12 text-center py-20 bg-white rounded-3xl border border-[#E2E2D9]" data-testid="empty-cart">
             <ShoppingBag className="w-12 h-12 mx-auto text-[#A3A39E]" />
-            <p className="font-display font-semibold text-xl text-[#1A1A1A] mt-4">Your cart is empty</p>
-            <p className="text-sm text-[#5C5C5C] mt-1">Browse our marketplace or restaurants to add items.</p>
+            <p className="font-display font-semibold text-xl text-[#1A1A1A] mt-4">{t("cartEmpty")}</p>
+            <p className="text-sm text-[#5C5C5C] mt-1">{t("cartEmptyHint")}</p>
             <button
               onClick={() => navigate("/marketplace")}
               data-testid="cart-shop-now-btn"
               className="mt-6 bg-[#C84B31] hover:bg-[#A83A23] text-white font-semibold px-6 py-3 rounded-full transition"
             >
-              Start shopping
+              {t("startShopping")}
             </button>
           </div>
         ) : (
@@ -167,25 +169,25 @@ export default function Cart() {
             </div>
 
             <aside className="bg-white border border-[#E2E2D9] rounded-3xl p-6 h-fit lg:sticky lg:top-24 space-y-4">
-              <h2 className="font-display font-semibold text-xl text-[#1A1A1A]">Delivery</h2>
+              <h2 className="font-display font-semibold text-xl text-[#1A1A1A]">{t("delivery")}</h2>
 
               <div>
-                <label className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Area</label>
+                <label className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">{t("area")}</label>
                 <AreaSelector value={area} onChange={setArea} testId="cart-area-selector" />
               </div>
 
               <div>
-                <label className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Address</label>
+                <label className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">{t("address")}</label>
                 <input
                   data-testid="cart-address-input"
                   value={address} onChange={(e) => setAddress(e.target.value)}
-                  placeholder="Block & street..."
+                  placeholder={t("addressPlaceholder")}
                   className="js-input"
                 />
               </div>
 
               <div>
-                <label className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Phone <span className="text-[#D90429]">*</span></label>
+                <label className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">{t("phone")} <span className="text-[#D90429]">*</span></label>
                 <input
                   required
                   data-testid="cart-phone-input"
@@ -196,7 +198,7 @@ export default function Cart() {
               </div>
 
               <div>
-                <label className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Note (optional)</label>
+                <label className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">{t("note")}</label>
                 <textarea
                   data-testid="cart-note-input"
                   value={note} onChange={(e) => setNote(e.target.value)}
@@ -207,22 +209,22 @@ export default function Cart() {
 
               <div className="border-t border-[#E2E2D9] pt-4 space-y-1.5">
                 <div className="flex justify-between text-sm text-[#5C5C5C]">
-                  <span>Subtotal</span>
+                  <span>{t("subtotal")}</span>
                   <span data-testid="cart-subtotal">{fmtSubtotal}</span>
                 </div>
 
                 {/* Hide per-shop breakdown, show only total delivery */}
                 <div className="flex justify-between text-sm text-[#5C5C5C]">
                   <span className="flex items-center gap-1">
-                    <Truck className="w-3.5 h-3.5 text-[#2D6A4F]" /> Delivery
+                    <Truck className="w-3.5 h-3.5 text-[#2D6A4F]" /> {t("delivery")}
                   </span>
                   <span data-testid="cart-delivery-total" className="font-semibold">
-                    {quote.delivery_fee_usd === 0 ? <span className="text-[#2D6A4F]">FREE</span> : formatPrice(quote.delivery_fee_usd, exchangeRate, currency)}
+                    {quote.delivery_fee_usd === 0 ? <span className="text-[#2D6A4F]">{t("free")}</span> : formatPrice(quote.delivery_fee_usd, exchangeRate, currency)}
                   </span>
                 </div>
 
                 <div className="flex justify-between font-bold text-lg pt-2 border-t border-[#E2E2D9]">
-                  <span>Total</span>
+                  <span>{t("total")}</span>
                   <span className="font-display" data-testid="cart-total">{fmtTotal}</span>
                 </div>
                 <p className="text-[11px] text-[#5C5C5C] text-right">≈ {fmtTotalAlt}</p>
@@ -234,9 +236,9 @@ export default function Cart() {
                 data-testid="place-order-btn"
                 className="w-full bg-[#C84B31] hover:bg-[#A83A23] disabled:bg-[#A3A39E] text-white font-semibold py-3.5 rounded-full transition"
               >
-                {placing ? "Placing..." : `Place Order · ${fmtTotal}`}
+                {placing ? t("placing") : `${t("placeOrder")} · ${fmtTotal}`}
               </button>
-              {!user && <p className="text-xs text-center text-[#5C5C5C]">You'll be asked to login first.</p>}
+              {!user && <p className="text-xs text-center text-[#5C5C5C]">{t("loginFirstHint")}</p>}
             </aside>
           </div>
         )}

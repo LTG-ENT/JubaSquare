@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import api, { safeArray } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -14,16 +15,19 @@ import { ArrowRight, Sparkles, Package } from "lucide-react";
 const HERO_SLIDES = [
   {
     label: "Retail",
+    key: "slideRetail",
     img: "https://images.unsplash.com/photo-1604719312566-8912e9227c6a?w=1600&q=80&auto=format&fit=crop",
     // grocery / store shelves
   },
   {
     label: "Wholesale",
+    key: "slideWholesale",
     img: "https://images.unsplash.com/photo-1553413077-190dd305871c?w=1600&q=80&auto=format&fit=crop",
     // warehouse pallets
   },
   {
     label: "Food",
+    key: "slideFood",
     img: "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=1600&q=80&auto=format&fit=crop",
     // restaurant dish
   },
@@ -42,6 +46,7 @@ const CATEGORY_ICONS = {
 };
 
 export default function Home() {
+  const { t } = useTranslation();
   const [shops, setShops] = useState([]);
   const [restaurants, setRestaurants] = useState([]);
   const [wholesaleProducts, setWholesaleProducts] = useState([]);
@@ -103,11 +108,11 @@ export default function Home() {
             <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur border border-white/20 rounded-full px-3 py-1.5 mb-6">
               <Sparkles className="w-3.5 h-3.5 text-[#E9C46A]" />
               <span className="text-[11px] uppercase tracking-[0.18em] text-white font-bold">
-                Juba's Trusted Marketplace
+                {t("heroTagline")}
               </span>
             </div>
             <h1 className="font-display font-bold text-4xl sm:text-5xl lg:text-6xl text-white tracking-tight">
-              Shop Everything in Juba —{" "}
+              {t("heroTitle")}{" "}
               <span className="relative inline-block align-baseline" style={{ minWidth: "4ch" }}>
                 {HERO_SLIDES.map((s, i) => (
                   <span
@@ -119,13 +124,13 @@ export default function Home() {
                         : "opacity-0 translate-y-3 absolute left-0 top-0"
                     }`}
                   >
-                    {s.label}
+                    {t(s.key)}
                   </span>
                 ))}
               </span>
             </h1>
             <p className="text-white/90 text-base sm:text-lg mt-5 max-w-xl">
-              From groceries to electronics to food — buy from trusted local shops, warehouses, and restaurants.
+              {t("heroSubtitle")}
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link
@@ -133,18 +138,18 @@ export default function Home() {
                 data-testid="hero-marketplace-btn"
                 className="bg-[#C84B31] hover:bg-[#A83A23] text-white font-semibold px-7 py-3.5 rounded-full inline-flex items-center gap-2 transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5"
               >
-                Start Shopping <ArrowRight className="w-4 h-4" />
+                {t("startShopping")} <ArrowRight className="w-4 h-4" />
               </Link>
               <Link
                 to="/marketplace?view=wholesale"
                 data-testid="hero-wholesale-btn"
                 className="bg-[#1E3A5F] hover:bg-[#2A4D77] text-white font-semibold px-7 py-3.5 rounded-full inline-flex items-center gap-2 transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5 border border-white/20"
               >
-                <Package className="w-4 h-4" /> Explore Wholesale
+                <Package className="w-4 h-4" /> {t("exploreWholesale")}
               </Link>
             </div>
             <div className="mt-8 flex items-center gap-3">
-              <span className="text-white/70 text-sm">Browsing in:</span>
+              <span className="text-white/70 text-sm">{t("browsingIn")}</span>
               <AreaSelector value={area} onChange={setArea} testId="home-area-selector" />
             </div>
 
@@ -170,11 +175,11 @@ export default function Home() {
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-20 w-full">
         <div className="flex items-end justify-between flex-wrap gap-4 mb-8">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-[#5C5C5C] font-bold mb-2">Browse</p>
-            <h2 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">Shop by category</h2>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-[#5C5C5C] font-bold mb-2">{t("browse")}</p>
+            <h2 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">{t("shopByCategory")}</h2>
           </div>
           <Link to="/marketplace" className="text-sm font-semibold text-[#C84B31] hover:underline" data-testid="see-all-categories">
-            See all →
+            {t("seeAll")} →
           </Link>
         </div>
 
@@ -217,13 +222,13 @@ export default function Home() {
             <div className="flex items-end justify-between flex-wrap gap-4 mb-8">
               <div>
                 <span className="inline-flex items-center gap-1.5 bg-[#2D6A4F] text-white text-[10px] uppercase tracking-[0.2em] font-bold px-3 py-1.5 rounded-full mb-3">
-                  <Package className="w-3 h-3" /> Wholesale
+                  <Package className="w-3 h-3" /> {t("wholesale")}
                 </span>
-                <h2 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">Bulk Deals (Wholesale)</h2>
-                <p className="text-sm text-[#5C5C5C] mt-1">Buy more, pay less.</p>
+                <h2 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">{t("bulkDeals")}</h2>
+                <p className="text-sm text-[#5C5C5C] mt-1">{t("bulkDealsSub")}</p>
               </div>
               <Link to="/marketplace?view=wholesale" data-testid="see-all-wholesale" className="text-sm font-semibold text-[#2D6A4F] hover:underline">
-                Explore all wholesale →
+                {t("exploreAllWholesale")} →
               </Link>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -239,10 +244,10 @@ export default function Home() {
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-20 w-full">
         <div className="flex items-end justify-between flex-wrap gap-4 mb-8">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-[#5C5C5C] font-bold mb-2">Featured</p>
-            <h2 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">Verified shops in Juba</h2>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-[#5C5C5C] font-bold mb-2">{t("featured")}</p>
+            <h2 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">{t("verifiedShops")}</h2>
           </div>
-          <Link to="/shops" className="text-sm font-semibold text-[#C84B31] hover:underline">View all shops →</Link>
+          <Link to="/shops" className="text-sm font-semibold text-[#C84B31] hover:underline">{t("viewAllShops")} →</Link>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {shops.slice(0, 6).map((s) => (
@@ -260,10 +265,10 @@ export default function Home() {
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 w-full">
         <div className="flex items-end justify-between flex-wrap gap-4 mb-8">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-[#5C5C5C] font-bold mb-2">Hungry?</p>
-            <h2 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">Food & Restaurants</h2>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-[#5C5C5C] font-bold mb-2">{t("hungry")}</p>
+            <h2 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">{t("foodRestaurants")}</h2>
           </div>
-          <Link to="/restaurants" className="text-sm font-semibold text-[#C84B31] hover:underline">All restaurants →</Link>
+          <Link to="/restaurants" className="text-sm font-semibold text-[#C84B31] hover:underline">{t("allRestaurants")} →</Link>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {restaurants.slice(0, 4).map((r) => <RestaurantCard key={r.id} restaurant={r} />)}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import api, { formatUSD, formatPrice, extractErrorMessage } from "@/lib/api";
 import { useCart } from "@/context/CartContext";
 import Header from "@/components/Header";
@@ -293,6 +294,7 @@ function RestaurantReviewModal({ order, onClose, onSubmitted }) {
 }
 
 export default function Orders() {
+  const { t: tr } = useTranslation();
   const [marketplaceOrders, setMarketplaceOrders] = useState([]);
   const [restaurantOrders, setRestaurantOrders] = useState([]);
   const [searchParams] = useSearchParams();
@@ -377,7 +379,7 @@ export default function Orders() {
     <div className="min-h-screen flex flex-col">
       <Header />
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full flex-1">
-        <h1 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">My orders</h1>
+        <h1 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">{tr("myOrders")}</h1>
         <p className="text-sm text-[#5C5C5C] mt-1">{allOrders.length} order{allOrders.length !== 1 && "s"}</p>
         
         {/* Order Type Tabs */}
@@ -400,7 +402,7 @@ export default function Orders() {
                 : "bg-[var(--js-subtle)] text-[var(--js-text)] hover:bg-[var(--js-border)]"
             }`}
           >
-            Marketplace ({marketplaceOrders.length})
+            {tr("marketplace")} ({marketplaceOrders.length})
           </button>
           <button
             onClick={() => setActiveTab("restaurant")}
@@ -410,14 +412,14 @@ export default function Orders() {
                 : "bg-[var(--js-subtle)] text-[var(--js-text)] hover:bg-[var(--js-border)]"
             }`}
           >
-            Restaurants ({restaurantOrders.length})
+            {tr("restaurants")} ({restaurantOrders.length})
           </button>
         </div>
 
         {displayOrders.length === 0 ? (
           <div className="mt-12 text-center py-20 bg-white rounded-3xl border border-[#E2E2D9]" data-testid="empty-orders">
             <Package className="w-12 h-12 mx-auto text-[#A3A39E]" />
-            <p className="font-display font-semibold text-xl text-[#1A1A1A] mt-4">No orders yet</p>
+            <p className="font-display font-semibold text-xl text-[#1A1A1A] mt-4">{tr("noOrdersYet")}</p>
             <p className="text-sm text-[#5C5C5C] mt-1">When you place an order, it will appear here.</p>
           </div>
         ) : (

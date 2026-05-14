@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { MessageCircle, X, Send, ChevronLeft, AlertTriangle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 
@@ -20,6 +21,7 @@ export default function FloatingChat() {
   const { user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
@@ -461,8 +463,8 @@ export default function FloatingChat() {
               <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
                 <div className="text-xs text-red-900">
-                  <p className="font-bold">⚠️ Security Warning</p>
-                  <p className="mt-1">Never share your OTP code in this chat. Delivery OTP should only be given to the driver in person when receiving your order.</p>
+                  <p className="font-bold">⚠️ {t("securityWarning")}</p>
+                  <p className="mt-1">{t("otpWarning")}</p>
                 </div>
               </div>
             )}
@@ -507,7 +509,7 @@ export default function FloatingChat() {
               type="text"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder="Type a message…"
+              placeholder={t("typeMessage")}
               maxLength={2000}
               data-testid="chat-input"
               className="flex-1 bg-[var(--js-subtle)] border border-[var(--js-border)] rounded-full px-4 py-2 text-sm focus:outline-none focus:border-[#C84B31]"

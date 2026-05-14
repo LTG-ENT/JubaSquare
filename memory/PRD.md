@@ -220,9 +220,19 @@ Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode fo
   - `DriverDashboard.jsx`: "My deliveries" + "My Accepted Deliveries" + dashboard eyebrow.
 - **Verified**: live screenshot test toggles EN ↔ AR ↔ EN; Arabic RTL renders correctly and translates header nav.
 
+### Iter 12b (Feb 2026) — **Extended i18n coverage**
+- **i18n.js** expanded to ~70 keys per language across all 7 languages (full Arabic/French/Chinese/Hindi translations; best-effort Tigrinya & Amharic).
+- **Translated surfaces (iter 12b)**:
+  - `Home.jsx`: hero tagline, title, subtitle, CTA buttons, "Browsing in:", "Shop by category", "Bulk Deals (Wholesale)" + sub + "Explore all wholesale", "Verified shops in Juba" + "View all shops", "Food & Restaurants" + "All restaurants", hero rotating slide labels (Retail / Wholesale / Food).
+  - `Cart.jsx`: "Your cart", empty-cart messaging, delivery form labels (Area / Address / Phone / Note + placeholders), summary labels (Subtotal / Delivery / Total / FREE), Place Order button + `placing` state, login hint. **Toasts translated**: cart empty, phone required, area required, order placed, place failed.
+  - `Orders.jsx`: "My orders" H1, "No orders yet" empty state, tab labels via `marketplace`/`restaurants` keys.
+  - `FloatingChat.jsx`: OTP "Security Warning" + full warning copy, message input placeholder.
+  - `AdminAnalytics.jsx`: all 8 KPI labels (Total Orders, Revenue, Pending/Delivered Orders, Customers, Sellers, Active Shops, Products), 2 chart titles, Top sellers table (incl. headers + "No sales yet"), loading/error states.
+- **Verified**: live screenshot test EN → AR (hero fully translated, RTL working) → FR (hero fully translated) → EN. All 6 modified files lint clean.
+
 ## Backlog (P1 / P2)
 - **P1** Driver Area Filter Dropdown — top-corner area selector in `DriverDashboard.jsx` to filter broadcasted orders by restaurant proximity (originally requested, deferred for broadcast-assignment work)
-- **P1** Extend i18n coverage — Home hero, customer Orders page, Cart, Checkout, FloatingChat, AdminAnalytics labels, toast strings
+- **P1** Further i18n coverage — Login/Register pages, Restaurant detail, Shop detail, Settings, seller-dashboard tabs (Wallet, Messages, Products), driver delivery detail buttons, remaining toast strings across SellerDashboard/DriverDashboard/Admin tabs
 - **P1** Marketplace `Cart.jsx` still shows "FREE" delivery in some paths — investigate `/orders/quote` payload (UNRESOLVED — user reported but deprioritised)
 - **P1** Verify shop-to-customer area delivery pricing rules apply configured rate vs falling back to default
 - **P1** Recharts `ResponsiveContainer` width=0/height=0 console warning on analytics charts
