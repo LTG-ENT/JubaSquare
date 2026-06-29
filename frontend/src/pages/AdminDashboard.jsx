@@ -476,6 +476,12 @@ function OdooConnectionSection({ detail, onUpdate }) {
   const [odooSettings, setOdooSettings] = useState(detail?.odoo_connection || {});
   const [isSaving, setIsSaving] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showLogsModal, setShowLogsModal] = useState(false);
+  const [syncLogs, setSyncLogs] = useState([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+  const [selectedLogs, setSelectedLogs] = useState([]);
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [connectionTestResult, setConnectionTestResult] = useState(null);
 
   useEffect(() => {
     setOdooSettings(detail?.odoo_connection || {
@@ -526,6 +532,85 @@ function OdooConnectionSection({ detail, onUpdate }) {
     }
   };
 
+  const loadSyncLogs = async () => {
+    setLoadingLogs(true);
+    try {
+      const params = new URLSearchParams({
+        limit: "50"
+      });
+      
+      // Filter by shop or restaurant
+      if (detail._kind === "shop" && detail.id) {
+        params.append("shop_id", detail.id);
+      } else if (detail._kind === "restaurant" && detail.id) {
+        params.append("restaurant_id", detail.id);
+      }
+      
+      const { data } = await api.get(`/admin/odoo/sync-logs?${params.toString()}`);
+      setSyncLogs(data || []);
+    } catch (err) {
+      toast.error("Failed to load sync logs");
+      setSyncLogs([]);
+    } finally {
+      setLoadingLogs(false);
+    }
+  };
+
+  const handleViewLogs = () => {
+    setShowLogsModal(true);
+    loadSyncLogs();
+  };
+
+  const handleTestConnection = async () => {
+    setIsTestingConnection(true);
+    setConnectionTestResult(null);
+    try {
+      const payload = detail._kind === "restaurant"
+        ? { restaurant_id: detail.id }
+        : { shop_id: detail.id };
+      
+      const { data } = await api.post("/admin/odoo/test-connection", payload);
+      setConnectionTestResult({
+        success: data.status !== "error",
+        message: data.message || "Connection test completed",
+        details: data
+      });
+      
+      if (data.status === "placeholder") {
+        toast.info("Test connection - to be implemented by your Odoo module");
+      } else {
+        toast.success("Connection test completed");
+      }
+    } catch (err) {
+      setConnectionTestResult({
+        success: false,
+        message: err.response?.data?.detail || "Connection test failed",
+        details: err.response?.data
+      });
+      toast.error("Connection test failed");
+    } finally {
+      setIsTestingConnection(false);
+    }
+  };
+
+  const handleRetryFailed = async () => {
+    if (selectedLogs.length === 0) {
+      toast.error("Please select logs to retry");
+      return;
+    }
+
+    try {
+      await api.post("/admin/odoo/retry-failed", {
+        log_ids: selectedLogs
+      });
+      toast.success(`Retrying ${selectedLogs.length} failed sync(s)`);
+      setSelectedLogs([]);
+      loadSyncLogs();
+    } catch (err) {
+      toast.error("Failed to retry syncs");
+    }
+  };
+
   const getStatusColor = () => {
     if (!odooSettings.enabled) return "gray";
     switch (odooSettings.sync_status) {
@@ -554,225 +639,489 @@ function OdooConnectionSection({ detail, onUpdate }) {
     gray: "bg-gray-100 text-gray-600"
   }[statusColor];
 
-  return (
-    <div className="bg-gradient-to-br from-purple-50 to-blue-50 border-2 border-purple-200 rounded-2xl p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-purple-600 rounded-lg flex items-center justify-center">
-            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-          </div>
-          <div>
-            <h3 className="font-display font-semibold text-sm text-purple-900">Odoo Connection</h3>
-            <p className="text-xs text-purple-700">Admin-only integration settings</p>
-          </div>
-        </div>
-        <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="p-2 rounded-lg hover:bg-purple-100 transition"
-        >
-          <svg
-            className={`w-5 h-5 text-purple-600 transition-transform ${isExpanded ? "rotate-180" : ""}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-      </div>
+  const failedLogsCount = syncLogs.filter(log => log.status === "failed").length;
 
-      {/* Status Badge */}
-      <div className="flex items-center gap-2 mb-3">
-        <span className={`inline-flex items-center gap-1 text-xs font-bold px-3 py-1 rounded-full ${statusBgColor}`}>
-          <span className={`w-2 h-2 rounded-full ${statusColor === 'green' ? 'bg-green-500' : statusColor === 'red' ? 'bg-red-500' : 'bg-gray-400'}`}></span>
-          {getStatusText()}
-        </span>
-        {odooSettings.last_sync_at && (
-          <span className="text-xs text-purple-600">
-            Last sync: {new Date(odooSettings.last_sync_at).toLocaleString()}
+  return (
+    <>
+      <div className="bg-gradient-to-br from-purple-50 to-blue-50 border-2 border-purple-200 rounded-2xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-purple-600 rounded-lg flex items-center justify-center">
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="font-display font-semibold text-sm text-purple-900">Odoo Connection</h3>
+              <p className="text-xs text-purple-700">Admin-only integration settings</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="p-2 rounded-lg hover:bg-purple-100 transition"
+          >
+            <svg
+              className={`w-5 h-5 text-purple-600 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Status Badge */}
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          <span className={`inline-flex items-center gap-1 text-xs font-bold px-3 py-1 rounded-full ${statusBgColor}`}>
+            <span className={`w-2 h-2 rounded-full ${statusColor === 'green' ? 'bg-green-500' : statusColor === 'red' ? 'bg-red-500' : 'bg-gray-400'}`}></span>
+            {getStatusText()}
           </span>
+          {odooSettings.last_sync_at && (
+            <span className="text-xs text-purple-600">
+              Last sync: {new Date(odooSettings.last_sync_at).toLocaleString()}
+            </span>
+          )}
+          {failedLogsCount > 0 && (
+            <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-full bg-red-100 text-red-800">
+              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              {failedLogsCount} failed
+            </span>
+          )}
+        </div>
+
+        {/* Quick Actions - Always Visible */}
+        {!isExpanded && odooSettings.enabled && (
+          <div className="flex gap-2">
+            <button
+              onClick={handleViewLogs}
+              className="flex-1 bg-white border border-purple-300 text-purple-700 hover:bg-purple-50 text-xs font-semibold py-2 rounded-lg transition flex items-center justify-center gap-1"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              View Logs
+            </button>
+            <button
+              onClick={handleTestConnection}
+              disabled={isTestingConnection}
+              className="bg-white border border-purple-300 text-purple-700 hover:bg-purple-50 text-xs font-semibold px-3 py-2 rounded-lg transition disabled:opacity-50"
+            >
+              {isTestingConnection ? "..." : "Test"}
+            </button>
+          </div>
+        )}
+
+        {isExpanded && (
+          <div className="space-y-4 mt-4">
+            {/* Enable/Disable Toggle */}
+            <div className="flex items-center gap-3 p-3 bg-white rounded-lg">
+              <input
+                type="checkbox"
+                id="odoo-enabled"
+                checked={odooSettings.enabled}
+                onChange={(e) => setOdooSettings({ ...odooSettings, enabled: e.target.checked })}
+                className="w-5 h-5 text-purple-600 rounded focus:ring-purple-500"
+              />
+              <label htmlFor="odoo-enabled" className="flex-1 cursor-pointer">
+                <span className="font-semibold text-sm text-purple-900">Connect this {detail._kind} to Odoo</span>
+                <p className="text-xs text-purple-600">Enable to sync with your Odoo 18 instance</p>
+              </label>
+            </div>
+
+            {odooSettings.enabled && (
+              <>
+                {/* Odoo Configuration Fields */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-purple-900 mb-1">Company ID</label>
+                    <input
+                      type="text"
+                      value={odooSettings.company_id || ""}
+                      onChange={(e) => setOdooSettings({ ...odooSettings, company_id: e.target.value })}
+                      placeholder="e.g., 1"
+                      className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-purple-900 mb-1">Company Name</label>
+                    <input
+                      type="text"
+                      value={odooSettings.company_name || ""}
+                      onChange={(e) => setOdooSettings({ ...odooSettings, company_name: e.target.value })}
+                      placeholder="e.g., My Company"
+                      className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-purple-900 mb-1">Warehouse ID</label>
+                    <input
+                      type="text"
+                      value={odooSettings.warehouse_id || ""}
+                      onChange={(e) => setOdooSettings({ ...odooSettings, warehouse_id: e.target.value })}
+                      placeholder="e.g., WH/01"
+                      className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-purple-900 mb-1">Warehouse Name</label>
+                    <input
+                      type="text"
+                      value={odooSettings.warehouse_name || ""}
+                      onChange={(e) => setOdooSettings({ ...odooSettings, warehouse_name: e.target.value })}
+                      placeholder="e.g., Main Warehouse"
+                      className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-purple-900 mb-1">Pricelist ID</label>
+                    <input
+                      type="text"
+                      value={odooSettings.pricelist_id || ""}
+                      onChange={(e) => setOdooSettings({ ...odooSettings, pricelist_id: e.target.value })}
+                      placeholder="e.g., 1"
+                      className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-purple-900 mb-1">Pricelist Name</label>
+                    <input
+                      type="text"
+                      value={odooSettings.pricelist_name || ""}
+                      onChange={(e) => setOdooSettings({ ...odooSettings, pricelist_name: e.target.value })}
+                      placeholder="e.g., Public Pricelist"
+                      className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-purple-900 mb-1">POS Config ID</label>
+                  <input
+                    type="text"
+                    value={odooSettings.pos_config_id || ""}
+                    onChange={(e) => setOdooSettings({ ...odooSettings, pos_config_id: e.target.value })}
+                    placeholder="e.g., pos_config_1"
+                    className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                {/* Sync Options */}
+                <div className="bg-white rounded-lg p-3 space-y-2">
+                  <p className="text-xs font-semibold text-purple-900 mb-2">Sync Options</p>
+                  
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={odooSettings.sync_products}
+                      onChange={(e) => setOdooSettings({ ...odooSettings, sync_products: e.target.checked })}
+                      className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                    />
+                    <span className="text-sm text-purple-900">Sync {detail._kind === "restaurant" ? "Menu Items" : "Products"} from Odoo</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={odooSettings.sync_stock}
+                      onChange={(e) => setOdooSettings({ ...odooSettings, sync_stock: e.target.checked })}
+                      className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                    />
+                    <span className="text-sm text-purple-900">Sync Stock from Odoo</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={odooSettings.send_orders}
+                      onChange={(e) => setOdooSettings({ ...odooSettings, send_orders: e.target.checked })}
+                      className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                    />
+                    <span className="text-sm text-purple-900">Send Orders to Odoo</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={odooSettings.send_delivery_updates}
+                      onChange={(e) => setOdooSettings({ ...odooSettings, send_delivery_updates: e.target.checked })}
+                      className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                    />
+                    <span className="text-sm text-purple-900">Send Delivery Updates to Odoo</span>
+                  </label>
+                </div>
+
+                {/* Connection Test Result */}
+                {connectionTestResult && (
+                  <div className={`rounded-lg p-3 ${connectionTestResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                    <p className={`text-xs font-semibold mb-1 ${connectionTestResult.success ? 'text-green-900' : 'text-red-900'}`}>
+                      {connectionTestResult.success ? '✓ Connection Test' : '✗ Connection Test Failed'}
+                    </p>
+                    <p className={`text-xs ${connectionTestResult.success ? 'text-green-700' : 'text-red-700'}`}>
+                      {connectionTestResult.message}
+                    </p>
+                  </div>
+                )}
+
+                {/* Error Display */}
+                {odooSettings.sync_error && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                    <p className="text-xs font-semibold text-red-900 mb-1">Sync Error</p>
+                    <p className="text-xs text-red-700">{odooSettings.sync_error}</p>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Action Buttons */}
+            <div className="grid grid-cols-2 gap-2 pt-2">
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                className="bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold py-2.5 rounded-full transition disabled:opacity-50"
+              >
+                {isSaving ? "Saving..." : "Save Settings"}
+              </button>
+              <button
+                onClick={handleTestConnection}
+                disabled={isTestingConnection || !odooSettings.enabled}
+                className="bg-white border-2 border-purple-600 text-purple-600 hover:bg-purple-50 text-sm font-semibold py-2.5 rounded-full transition disabled:opacity-50 disabled:border-gray-300 disabled:text-gray-400"
+              >
+                {isTestingConnection ? "Testing..." : "Test Connection"}
+              </button>
+            </div>
+
+            {odooSettings.enabled && (
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={handleViewLogs}
+                  className="bg-white border border-purple-300 text-purple-700 hover:bg-purple-50 text-sm font-semibold py-2.5 rounded-full transition flex items-center justify-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  View Sync Logs
+                </button>
+                <button
+                  onClick={handleRetryFailed}
+                  disabled={failedLogsCount === 0}
+                  className="bg-white border border-orange-300 text-orange-700 hover:bg-orange-50 text-sm font-semibold py-2.5 rounded-full transition disabled:opacity-50 disabled:border-gray-300 disabled:text-gray-400 flex items-center justify-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Retry Failed ({failedLogsCount})
+                </button>
+              </div>
+            )}
+
+            <p className="text-xs text-purple-600">
+              ℹ️ This configuration will be used by your Odoo 18 module to communicate with JubaSquare.
+            </p>
+          </div>
         )}
       </div>
 
-      {isExpanded && (
-        <div className="space-y-4 mt-4">
-          {/* Enable/Disable Toggle */}
-          <div className="flex items-center gap-3 p-3 bg-white rounded-lg">
-            <input
-              type="checkbox"
-              id="odoo-enabled"
-              checked={odooSettings.enabled}
-              onChange={(e) => setOdooSettings({ ...odooSettings, enabled: e.target.checked })}
-              className="w-5 h-5 text-purple-600 rounded focus:ring-purple-500"
-            />
-            <label htmlFor="odoo-enabled" className="flex-1 cursor-pointer">
-              <span className="font-semibold text-sm text-purple-900">Connect this {detail._kind} to Odoo</span>
-              <p className="text-xs text-purple-600">Enable to sync with your Odoo 18 instance</p>
-            </label>
-          </div>
-
-          {odooSettings.enabled && (
-            <>
-              {/* Odoo Configuration Fields */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-purple-900 mb-1">Company ID</label>
-                  <input
-                    type="text"
-                    value={odooSettings.company_id || ""}
-                    onChange={(e) => setOdooSettings({ ...odooSettings, company_id: e.target.value })}
-                    placeholder="e.g., 1"
-                    className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-purple-900 mb-1">Company Name</label>
-                  <input
-                    type="text"
-                    value={odooSettings.company_name || ""}
-                    onChange={(e) => setOdooSettings({ ...odooSettings, company_name: e.target.value })}
-                    placeholder="e.g., My Company"
-                    className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-purple-900 mb-1">Warehouse ID</label>
-                  <input
-                    type="text"
-                    value={odooSettings.warehouse_id || ""}
-                    onChange={(e) => setOdooSettings({ ...odooSettings, warehouse_id: e.target.value })}
-                    placeholder="e.g., WH/01"
-                    className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-purple-900 mb-1">Warehouse Name</label>
-                  <input
-                    type="text"
-                    value={odooSettings.warehouse_name || ""}
-                    onChange={(e) => setOdooSettings({ ...odooSettings, warehouse_name: e.target.value })}
-                    placeholder="e.g., Main Warehouse"
-                    className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-purple-900 mb-1">Pricelist ID</label>
-                  <input
-                    type="text"
-                    value={odooSettings.pricelist_id || ""}
-                    onChange={(e) => setOdooSettings({ ...odooSettings, pricelist_id: e.target.value })}
-                    placeholder="e.g., 1"
-                    className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-purple-900 mb-1">Pricelist Name</label>
-                  <input
-                    type="text"
-                    value={odooSettings.pricelist_name || ""}
-                    onChange={(e) => setOdooSettings({ ...odooSettings, pricelist_name: e.target.value })}
-                    placeholder="e.g., Public Pricelist"
-                    className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-purple-900 mb-1">POS Config ID</label>
-                <input
-                  type="text"
-                  value={odooSettings.pos_config_id || ""}
-                  onChange={(e) => setOdooSettings({ ...odooSettings, pos_config_id: e.target.value })}
-                  placeholder="e.g., pos_config_1"
-                  className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
-                />
-              </div>
-
-              {/* Sync Options */}
-              <div className="bg-white rounded-lg p-3 space-y-2">
-                <p className="text-xs font-semibold text-purple-900 mb-2">Sync Options</p>
-                
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={odooSettings.sync_products}
-                    onChange={(e) => setOdooSettings({ ...odooSettings, sync_products: e.target.checked })}
-                    className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
-                  />
-                  <span className="text-sm text-purple-900">Sync {detail._kind === "restaurant" ? "Menu Items" : "Products"} from Odoo</span>
-                </label>
-
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={odooSettings.sync_stock}
-                    onChange={(e) => setOdooSettings({ ...odooSettings, sync_stock: e.target.checked })}
-                    className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
-                  />
-                  <span className="text-sm text-purple-900">Sync Stock from Odoo</span>
-                </label>
-
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={odooSettings.send_orders}
-                    onChange={(e) => setOdooSettings({ ...odooSettings, send_orders: e.target.checked })}
-                    className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
-                  />
-                  <span className="text-sm text-purple-900">Send Orders to Odoo</span>
-                </label>
-
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={odooSettings.send_delivery_updates}
-                    onChange={(e) => setOdooSettings({ ...odooSettings, send_delivery_updates: e.target.checked })}
-                    className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
-                  />
-                  <span className="text-sm text-purple-900">Send Delivery Updates to Odoo</span>
-                </label>
-              </div>
-
-              {/* Error Display */}
-              {odooSettings.sync_error && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                  <p className="text-xs font-semibold text-red-900 mb-1">Sync Error</p>
-                  <p className="text-xs text-red-700">{odooSettings.sync_error}</p>
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Action Buttons */}
-          <div className="flex gap-2 pt-2">
-            <button
-              onClick={handleSave}
-              disabled={isSaving}
-              className="flex-1 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold py-2.5 rounded-full transition disabled:opacity-50"
-            >
-              {isSaving ? "Saving..." : "Save Odoo Settings"}
-            </button>
-            <button
-              onClick={() => toast.info("Test connection - to be implemented by Odoo module")}
-              className="bg-white border-2 border-purple-600 text-purple-600 hover:bg-purple-50 text-sm font-semibold px-4 py-2.5 rounded-full transition"
-            >
-              Test
-            </button>
-          </div>
-
-          <p className="text-xs text-purple-600">
-            ℹ️ This configuration will be used by your Odoo 18 module to communicate with JubaSquare.
-          </p>
-        </div>
+      {/* Sync Logs Modal */}
+      {showLogsModal && (
+        <OdooSyncLogsModal
+          logs={syncLogs}
+          loading={loadingLogs}
+          onClose={() => setShowLogsModal(false)}
+          onRefresh={loadSyncLogs}
+          selectedLogs={selectedLogs}
+          onSelectLog={(logId) => {
+            setSelectedLogs(prev =>
+              prev.includes(logId)
+                ? prev.filter(id => id !== logId)
+                : [...prev, logId]
+            );
+          }}
+          onRetrySelected={handleRetryFailed}
+        />
       )}
+    </>
+  );
+}
+
+// Sync Logs Modal Component
+function OdooSyncLogsModal({ logs, loading, onClose, onRefresh, selectedLogs, onSelectLog, onRetrySelected }) {
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterType, setFilterType] = useState("all");
+
+  const filteredLogs = logs.filter(log => {
+    if (filterStatus !== "all" && log.status !== filterStatus) return false;
+    if (filterType !== "all" && log.operation_type !== filterType) return false;
+    return true;
+  });
+
+  const getStatusBadge = (status) => {
+    const colors = {
+      success: "bg-green-100 text-green-800",
+      failed: "bg-red-100 text-red-800",
+      pending: "bg-yellow-100 text-yellow-800",
+      ignored: "bg-gray-100 text-gray-600",
+      duplicate: "bg-blue-100 text-blue-800"
+    };
+    return colors[status] || "bg-gray-100 text-gray-600";
+  };
+
+  const getDirectionIcon = (direction) => {
+    if (direction === "juba_to_odoo") {
+      return <span title="JubaSquare → Odoo">→</span>;
+    }
+    return <span title="Odoo → JubaSquare">←</span>;
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="bg-gradient-to-r from-purple-600 to-blue-600 p-6 text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="font-display font-bold text-2xl">Odoo Sync Logs</h2>
+              <p className="text-sm text-purple-100 mt-1">{logs.length} total operations</p>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-full hover:bg-white/20 transition"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          {/* Filters */}
+          <div className="flex gap-3 mt-4">
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="px-3 py-2 bg-white/20 backdrop-blur border border-white/30 rounded-lg text-sm text-white focus:outline-none focus:border-white/50"
+            >
+              <option value="all">All Status</option>
+              <option value="success">Success</option>
+              <option value="failed">Failed</option>
+              <option value="pending">Pending</option>
+              <option value="ignored">Ignored</option>
+            </select>
+
+            <select
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+              className="px-3 py-2 bg-white/20 backdrop-blur border border-white/30 rounded-lg text-sm text-white focus:outline-none focus:border-white/50"
+            >
+              <option value="all">All Types</option>
+              <option value="product_sync">Product Sync</option>
+              <option value="stock_sync">Stock Sync</option>
+              <option value="order_sync">Order Sync</option>
+              <option value="test_connection">Test Connection</option>
+              <option value="webhook">Webhook</option>
+            </select>
+
+            <button
+              onClick={onRefresh}
+              disabled={loading}
+              className="ml-auto px-4 py-2 bg-white/20 backdrop-blur hover:bg-white/30 border border-white/30 rounded-lg text-sm font-semibold transition disabled:opacity-50 flex items-center gap-2"
+            >
+              <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {/* Logs List */}
+        <div className="overflow-y-auto max-h-[calc(85vh-200px)] p-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+            </div>
+          ) : filteredLogs.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              <svg className="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <p>No sync logs found</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredLogs.map((log) => (
+                <div
+                  key={log.id}
+                  className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition"
+                >
+                  <div className="flex items-start gap-3">
+                    {/* Checkbox for failed logs */}
+                    {log.status === "failed" && (
+                      <input
+                        type="checkbox"
+                        checked={selectedLogs.includes(log.id)}
+                        onChange={() => onSelectLog(log.id)}
+                        className="mt-1 w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                      />
+                    )}
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-full ${getStatusBadge(log.status)}`}>
+                          {log.status}
+                        </span>
+                        <span className="text-xs text-gray-500">{getDirectionIcon(log.direction)}</span>
+                        <span className="text-xs font-semibold text-gray-700">{log.operation_type}</span>
+                        <span className="text-xs text-gray-400 ml-auto">
+                          {new Date(log.created_at).toLocaleString()}
+                        </span>
+                      </div>
+
+                      {log.error_message && (
+                        <div className="bg-red-50 border border-red-200 rounded p-2 mb-2">
+                          <p className="text-xs text-red-700 font-mono">{log.error_message}</p>
+                        </div>
+                      )}
+
+                      <div className="text-xs text-gray-600 space-y-1">
+                        {log.product_id && <p>Product: {log.product_id}</p>}
+                        {log.order_id && <p>Order: {log.order_id}</p>}
+                        {log.shop_id && <p>Shop: {log.shop_id}</p>}
+                        {log.restaurant_id && <p>Restaurant: {log.restaurant_id}</p>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Footer Actions */}
+        {selectedLogs.length > 0 && (
+          <div className="border-t border-gray-200 p-4 bg-gray-50">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-600">
+                {selectedLogs.length} log(s) selected
+              </p>
+              <button
+                onClick={onRetrySelected}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded-lg transition flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Retry Selected
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
