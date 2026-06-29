@@ -204,6 +204,11 @@ class OdooProductUpsert(BaseModel):
     image_url: Optional[str] = None
     stock_quantity: Optional[int] = None
     publish: bool = True
+    # Category fields (REQUIRED)
+    category_id: str  # Required - JubaSquare category UUID
+    category: Optional[str] = None  # Optional - category display name (deprecated, for backward compat)
+    food_category: Optional[str] = None  # Optional - for restaurants (deprecated)
+    mode: Optional[Literal["marketplace", "wholesale"]] = "marketplace"  # For shop products
     # Wholesale fields
     wholesale_enabled: bool = False
     minimum_order_qty: Optional[int] = None

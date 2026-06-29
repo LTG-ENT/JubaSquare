@@ -590,7 +590,7 @@ Content-Type: application/json
 
 **Backend `.env` Required:**
 ```bash
-ODOO_WEBHOOK_TOKEN=f1dcc35149542ed7afa011c171641617bb00913912f54be470c8efb04770fe9a
+ODOO_WEBHOOK_TOKEN=PUT_SECURE_TOKEN_HERE
 ```
 
 **⚠️ SECURITY:** This token is 64-character hex. Rotate before production deployment. Never commit to Git.

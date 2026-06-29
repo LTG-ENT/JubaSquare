@@ -142,13 +142,30 @@ def create_odoo_routes(db, require_role):
             else:
                 raise HTTPException(status_code=400, detail="Either shop_id or restaurant_id required")
             
+            # Validate category_id
+            if not payload.category_id:
+                raise HTTPException(status_code=400, detail="category_id is required for product upsert")
+            
+            # Get seller_id from shop or restaurant
+            seller_id = None
+            if entity_type == "shop":
+                shop = await db.shops.find_one({"id": payload.shop_id}, {"seller_id": 1})
+                if shop and "seller_id" in shop:
+                    seller_id = shop["seller_id"]
+            else:  # restaurant
+                restaurant = await db.restaurants.find_one({"id": payload.restaurant_id}, {"seller_id": 1})
+                if restaurant and "seller_id" in restaurant:
+                    seller_id = restaurant["seller_id"]
+            
             # Prepare product/menu item data
             product_data = {
                 "name": payload.name,
                 "description": payload.description or "",
                 "price_usd": payload.price,
                 "image_url": payload.image_url or "",
-                "stock_quantity": payload.stock_quantity if payload.stock_quantity is not None else 0,
+                "stock": payload.stock_quantity if payload.stock_quantity is not None else 100,  # PRIMARY: stock field
+                "stock_quantity": payload.stock_quantity if payload.stock_quantity is not None else 100,  # METADATA: for tracking
+                "category_id": payload.category_id,  # REQUIRED
                 # Odoo sync fields
                 "odoo_source": True,
                 "odoo_product_id": payload.odoo_product_id,
@@ -164,16 +181,23 @@ def create_odoo_routes(db, require_role):
                 "odoo_sync_error": None,
                 # Wholesale fields (optional)
                 "is_wholesale": payload.wholesale_enabled,
-                "min_order_qty": payload.minimum_order_qty,
+                "min_order_qty": payload.minimum_order_qty if payload.minimum_order_qty else 1,
                 "bulk_price_usd": payload.bulk_price,
-                "pricing_tiers": [tier.dict() for tier in payload.pricing_tiers] if payload.pricing_tiers else None
+                "pricing_tiers": [tier.dict() for tier in payload.pricing_tiers] if payload.pricing_tiers else []
             }
             
-            # Add shop_id or restaurant_id
+            # Add entity-specific fields
             if entity_type == "shop":
                 product_data["shop_id"] = payload.shop_id
-            else:
+                product_data["category"] = payload.category or ""  # Deprecated but keep for backward compat
+                product_data["mode"] = payload.mode if payload.mode else ("wholesale" if payload.wholesale_enabled else "marketplace")
+                if seller_id:
+                    product_data["seller_id"] = seller_id
+            else:  # restaurant
                 product_data["restaurant_id"] = payload.restaurant_id
+                product_data["food_category"] = payload.food_category or ""  # Deprecated but keep for backward compat
+                if seller_id:
+                    product_data["seller_id"] = seller_id
             
             # Check if product already exists (by odoo_product_id)
             existing_filter = {
@@ -277,7 +301,8 @@ def create_odoo_routes(db, require_role):
                 },
                 {
                     "$set": {
-                        "stock_quantity": payload.stock_quantity,
+                        "stock": payload.stock_quantity,  # PRIMARY: main stock field
+                        "stock_quantity": payload.stock_quantity,  # METADATA: for tracking
                         "odoo_last_sync_at": datetime.utcnow()
                     }
                 }
@@ -409,21 +434,45 @@ def create_admin_odoo_routes(db, require_role):
     """
     router = APIRouter(prefix="/api/admin/odoo", tags=["admin-odoo"])
     
+    # Service token authentication for Odoo module
+    async def verify_admin_or_service_token(
+        authorization: str = Header(None),
+        x_jubasquare_odoo_token: str = Header(None)
+    ):
+        """Allow either admin JWT token or service token for Odoo endpoints"""
+        # Try service token first
+        if x_jubasquare_odoo_token:
+            if not ODOO_WEBHOOK_TOKEN:
+                raise HTTPException(status_code=500, detail="Service token not configured")
+            if x_jubasquare_odoo_token == ODOO_WEBHOOK_TOKEN:
+                return {"role": "odoo_service", "service": True}
+            else:
+                log.warning("Invalid service token attempt on admin Odoo endpoint")
+                raise HTTPException(status_code=403, detail="Invalid service token")
+        
+        # Fall back to admin JWT
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Authentication required")
+        
+        # Use the existing require_role("admin") for JWT validation
+        user = await require_role("admin").__call__()
+        return user
+    
     @router.get("/shops")
-    async def get_odoo_shops(user=Depends(require_role("admin"))):
+    async def get_odoo_shops(user=Depends(verify_admin_or_service_token)):
         """Get all shops with Odoo connection status"""
         shops = await db.shops.find(
             {},
-            {"_id": 0, "id": 1, "name": 1, "odoo_connection": 1}
+            {"_id": 0, "id": 1, "name": 1, "seller_id": 1, "odoo_connection": 1}
         ).to_list(1000)
         return shops
     
     @router.get("/restaurants")
-    async def get_odoo_restaurants(user=Depends(require_role("admin"))):
+    async def get_odoo_restaurants(user=Depends(verify_admin_or_service_token)):
         """Get all restaurants with Odoo connection status"""
         restaurants = await db.restaurants.find(
             {},
-            {"_id": 0, "id": 1, "name": 1, "odoo_connection": 1}
+            {"_id": 0, "id": 1, "name": 1, "seller_id": 1, "odoo_connection": 1}
         ).to_list(1000)
         return restaurants
     
@@ -432,7 +481,7 @@ def create_admin_odoo_routes(db, require_role):
         limit: int = 100,
         status: Optional[str] = None,
         operation_type: Optional[str] = None,
-        user=Depends(require_role("admin"))
+        user=Depends(verify_admin_or_service_token)
     ):
         """Get Odoo sync logs"""
         filter_query = {}
@@ -451,7 +500,7 @@ def create_admin_odoo_routes(db, require_role):
     @router.post("/test-connection")
     async def test_odoo_connection(
         request: OdooTestConnectionRequest,
-        user=Depends(require_role("admin"))
+        user=Depends(verify_admin_or_service_token)
     ):
         """Test Odoo connection for a shop or restaurant"""
         log_id = str(uuid.uuid4())
@@ -476,7 +525,7 @@ def create_admin_odoo_routes(db, require_role):
     @router.post("/retry-failed")
     async def retry_failed_syncs(
         request: OdooRetryFailedRequest,
-        user=Depends(require_role("admin"))
+        user=Depends(verify_admin_or_service_token)
     ):
         """Retry failed sync operations"""
         return {
@@ -485,13 +534,28 @@ def create_admin_odoo_routes(db, require_role):
         }
     
     @router.get("/products/pending")
-    async def get_pending_product_syncs(user=Depends(require_role("admin"))):
+    async def get_pending_product_syncs(user=Depends(verify_admin_or_service_token)):
         """Get products pending Odoo sync"""
         return {"status": "placeholder", "message": "Pending products - to be implemented"}
     
     @router.get("/orders/pending")
-    async def get_pending_order_syncs(user=Depends(require_role("admin"))):
-        """Get orders pending Odoo sync"""
-        return {"status": "placeholder", "message": "Pending orders - to be implemented"}
+    async def get_pending_order_syncs(user=Depends(verify_admin_or_service_token)):
+        """Get orders pending Odoo sync - PLACEHOLDER"""
+        return {"status": "placeholder", "message": "Pending orders - to be implemented by Odoo module developer"}
+    
+    @router.get("/delivery-updates/pending")
+    async def get_pending_delivery_updates(user=Depends(verify_admin_or_service_token)):
+        """Get delivery updates pending Odoo sync - PLACEHOLDER"""
+        return {"status": "placeholder", "message": "Pending delivery updates - to be implemented by Odoo module developer"}
+    
+    @router.get("/payout-summaries/pending")
+    async def get_pending_payout_summaries(user=Depends(verify_admin_or_service_token)):
+        """Get seller payout summaries pending Odoo export - PLACEHOLDER"""
+        return {"status": "placeholder", "message": "Pending payout summaries - to be implemented by Odoo module developer"}
+    
+    @router.get("/driver-cash/pending")
+    async def get_pending_driver_cash(user=Depends(verify_admin_or_service_token)):
+        """Get driver cash summaries pending Odoo export - PLACEHOLDER"""
+        return {"status": "placeholder", "message": "Pending driver cash - to be implemented by Odoo module developer"}
     
     return router

@@ -376,7 +376,7 @@ curl http://localhost:8001/api/admin/odoo/shops \
 **Environment Variables:**
 ```bash
 # Backend .env
-ODOO_WEBHOOK_TOKEN=f1dcc35149542ed7afa011c171641617bb00913912f54be470c8efb04770fe9a
+ODOO_WEBHOOK_TOKEN=PUT_SECURE_TOKEN_HERE
 ```
 
 **Deployment Checklist:**
