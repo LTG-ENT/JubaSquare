@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field, EmailStr
 
 import email_service
 import cod
+import odoo_routes
 from pages_seed import PAGES_DEFAULT, PAGE_SLUGS
 from footer_seed import FOOTER_DEFAULT
 from categories_seed import CATEGORIES_DEFAULT, CATEGORY_GROUPS
@@ -1705,6 +1706,24 @@ async def create_shop(body: ShopIn, user: dict = Depends(require_role("seller", 
         "verification": initial_status,
         "created_at": now_iso(),
         **body.model_dump(),
+        # Initialize Odoo connection as disabled by default
+        "odoo_connection": {
+            "enabled": False,
+            "company_id": None,
+            "company_name": None,
+            "warehouse_id": None,
+            "warehouse_name": None,
+            "pricelist_id": None,
+            "pricelist_name": None,
+            "pos_config_id": None,
+            "sync_products": False,
+            "sync_stock": False,
+            "send_orders": False,
+            "send_delivery_updates": False,
+            "last_sync_at": None,
+            "sync_status": "not_configured",
+            "sync_error": None
+        }
     }
     await db.shops.insert_one(shop)
     shop.pop("_id", None)
@@ -2283,6 +2302,24 @@ async def create_restaurant(body: RestaurantIn, user: dict = Depends(require_rol
         "verification": initial_status,
         "created_at": now_iso(),
         **body.model_dump(),
+        # Initialize Odoo connection as disabled by default
+        "odoo_connection": {
+            "enabled": False,
+            "company_id": None,
+            "company_name": None,
+            "warehouse_id": None,
+            "warehouse_name": None,
+            "pricelist_id": None,
+            "pricelist_name": None,
+            "pos_config_id": None,
+            "sync_products": False,
+            "sync_stock": False,
+            "send_orders": False,
+            "send_delivery_updates": False,
+            "last_sync_at": None,
+            "sync_status": "not_configured",
+            "sync_error": None
+        }
     }
     await db.restaurants.insert_one(r)
     r.pop("_id", None)
@@ -4610,6 +4647,92 @@ async def admin_set_restaurant_invoice_frequency(restaurant_id: str, body: ShopI
     return await db.restaurants.find_one({"id": restaurant_id}, {"_id": 0})
 
 
+# ----------------------------------------------------------------------------
+# Admin Odoo Connection Management
+# ----------------------------------------------------------------------------
+
+class OdooConnectionUpdateIn(BaseModel):
+    """Admin-only: Update Odoo connection settings for a shop/restaurant"""
+    enabled: bool
+    company_id: Optional[str] = None
+    company_name: Optional[str] = None
+    warehouse_id: Optional[str] = None
+    warehouse_name: Optional[str] = None
+    pricelist_id: Optional[str] = None
+    pricelist_name: Optional[str] = None
+    pos_config_id: Optional[str] = None
+    sync_products: bool = False
+    sync_stock: bool = False
+    send_orders: bool = False
+    send_delivery_updates: bool = False
+
+
+@api.put("/admin/shops/{shop_id}/odoo-connection")
+async def admin_update_shop_odoo_connection(
+    shop_id: str,
+    body: OdooConnectionUpdateIn,
+    _: dict = Depends(require_role("admin"))
+):
+    """Admin-only: Configure Odoo connection for a shop"""
+    shop = await db.shops.find_one({"id": shop_id})
+    if not shop:
+        raise HTTPException(404, "Shop not found")
+    
+    odoo_connection = {
+        "enabled": body.enabled,
+        "company_id": body.company_id,
+        "company_name": body.company_name,
+        "warehouse_id": body.warehouse_id,
+        "warehouse_name": body.warehouse_name,
+        "pricelist_id": body.pricelist_id,
+        "pricelist_name": body.pricelist_name,
+        "pos_config_id": body.pos_config_id,
+        "sync_products": body.sync_products,
+        "sync_stock": body.sync_stock,
+        "send_orders": body.send_orders,
+        "send_delivery_updates": body.send_delivery_updates,
+        "sync_status": "active" if body.enabled else "disabled",
+        "last_sync_at": shop.get("odoo_connection", {}).get("last_sync_at"),
+        "sync_error": None if body.enabled else shop.get("odoo_connection", {}).get("sync_error")
+    }
+    
+    await db.shops.update_one({"id": shop_id}, {"$set": {"odoo_connection": odoo_connection}})
+    return await db.shops.find_one({"id": shop_id}, {"_id": 0})
+
+
+@api.put("/admin/restaurants/{restaurant_id}/odoo-connection")
+async def admin_update_restaurant_odoo_connection(
+    restaurant_id: str,
+    body: OdooConnectionUpdateIn,
+    _: dict = Depends(require_role("admin"))
+):
+    """Admin-only: Configure Odoo connection for a restaurant"""
+    restaurant = await db.restaurants.find_one({"id": restaurant_id})
+    if not restaurant:
+        raise HTTPException(404, "Restaurant not found")
+    
+    odoo_connection = {
+        "enabled": body.enabled,
+        "company_id": body.company_id,
+        "company_name": body.company_name,
+        "warehouse_id": body.warehouse_id,
+        "warehouse_name": body.warehouse_name,
+        "pricelist_id": body.pricelist_id,
+        "pricelist_name": body.pricelist_name,
+        "pos_config_id": body.pos_config_id,
+        "sync_products": body.sync_products,
+        "sync_stock": body.sync_stock,
+        "send_orders": body.send_orders,
+        "send_delivery_updates": body.send_delivery_updates,
+        "sync_status": "active" if body.enabled else "disabled",
+        "last_sync_at": restaurant.get("odoo_connection", {}).get("last_sync_at"),
+        "sync_error": None if body.enabled else restaurant.get("odoo_connection", {}).get("sync_error")
+    }
+    
+    await db.restaurants.update_one({"id": restaurant_id}, {"$set": {"odoo_connection": odoo_connection}})
+    return await db.restaurants.find_one({"id": restaurant_id}, {"_id": 0})
+
+
 @api.get("/admin/blocked-emails")
 async def list_blocked(_: dict = Depends(require_role("admin"))):
     return await db.blocked_emails.find({}, {"_id": 0}).to_list(500)
@@ -5094,6 +5217,51 @@ async def on_startup():
         log.warning(f"COD backfill skipped: {exc}")
     # Mount the COD router AFTER it's been rebuilt by register_endpoints.
     app.include_router(cod.router)
+    
+    # Register Odoo integration routes (webhook + admin)
+    odoo_webhook_router = odoo_routes.create_odoo_routes(db, require_role)
+    odoo_admin_router = odoo_routes.create_admin_odoo_routes(db, require_role)
+    app.include_router(odoo_webhook_router)
+    app.include_router(odoo_admin_router)
+    log.info("✅ Odoo integration routes registered")
+    
+    # Backfill existing shops/restaurants with default Odoo connection settings
+    try:
+        default_odoo_connection = {
+            "enabled": False,
+            "company_id": None,
+            "company_name": None,
+            "warehouse_id": None,
+            "warehouse_name": None,
+            "pricelist_id": None,
+            "pricelist_name": None,
+            "pos_config_id": None,
+            "sync_products": False,
+            "sync_stock": False,
+            "send_orders": False,
+            "send_delivery_updates": False,
+            "last_sync_at": None,
+            "sync_status": "not_configured",
+            "sync_error": None
+        }
+        
+        # Backfill shops
+        shops_updated = await db.shops.update_many(
+            {"odoo_connection": {"$exists": False}},
+            {"$set": {"odoo_connection": default_odoo_connection}}
+        )
+        if shops_updated.modified_count > 0:
+            log.info(f"✅ Backfilled Odoo connection for {shops_updated.modified_count} shops")
+        
+        # Backfill restaurants
+        restaurants_updated = await db.restaurants.update_many(
+            {"odoo_connection": {"$exists": False}},
+            {"$set": {"odoo_connection": default_odoo_connection}}
+        )
+        if restaurants_updated.modified_count > 0:
+            log.info(f"✅ Backfilled Odoo connection for {restaurants_updated.modified_count} restaurants")
+    except Exception as exc:
+        log.warning(f"Odoo connection backfill skipped: {exc}")
 
     # Backfill shop ratings once on startup so existing shops without the
     # average_rating/review_count fields show ratings rolled-up from product

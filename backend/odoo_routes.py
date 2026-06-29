@@ -29,13 +29,13 @@ log = logging.getLogger(__name__)
 # Odoo webhook secret token (from environment)
 ODOO_WEBHOOK_TOKEN = os.environ.get("ODOO_WEBHOOK_TOKEN", "")
 
-def create_odoo_routes(db, admin_only):
+def create_odoo_routes(db, require_role):
     """
     Create Odoo integration routes
     
     Args:
         db: MongoDB database instance
-        admin_only: Dependency for admin-only routes
+        require_role: Function to require specific role (e.g., require_role("admin"))
     """
     router = APIRouter(prefix="/api/odoo", tags=["odoo"])
     
@@ -399,18 +399,18 @@ def create_odoo_routes(db, admin_only):
     return router
 
 
-def create_admin_odoo_routes(db, admin_only):
+def create_admin_odoo_routes(db, require_role):
     """
     Create admin-only Odoo management routes
     
     Args:
         db: MongoDB database instance
-        admin_only: Dependency for admin-only routes
+        require_role: Function to require specific role (e.g., require_role("admin"))
     """
     router = APIRouter(prefix="/api/admin/odoo", tags=["admin-odoo"])
     
     @router.get("/shops")
-    async def get_odoo_shops(user=Depends(admin_only)):
+    async def get_odoo_shops(user=Depends(require_role("admin"))):
         """Get all shops with Odoo connection status"""
         shops = await db.shops.find(
             {},
@@ -419,7 +419,7 @@ def create_admin_odoo_routes(db, admin_only):
         return shops
     
     @router.get("/restaurants")
-    async def get_odoo_restaurants(user=Depends(admin_only)):
+    async def get_odoo_restaurants(user=Depends(require_role("admin"))):
         """Get all restaurants with Odoo connection status"""
         restaurants = await db.restaurants.find(
             {},
@@ -432,7 +432,7 @@ def create_admin_odoo_routes(db, admin_only):
         limit: int = 100,
         status: Optional[str] = None,
         operation_type: Optional[str] = None,
-        user=Depends(admin_only)
+        user=Depends(require_role("admin"))
     ):
         """Get Odoo sync logs"""
         filter_query = {}
@@ -451,7 +451,7 @@ def create_admin_odoo_routes(db, admin_only):
     @router.post("/test-connection")
     async def test_odoo_connection(
         request: OdooTestConnectionRequest,
-        user=Depends(admin_only)
+        user=Depends(require_role("admin"))
     ):
         """Test Odoo connection for a shop or restaurant"""
         log_id = str(uuid.uuid4())
@@ -476,7 +476,7 @@ def create_admin_odoo_routes(db, admin_only):
     @router.post("/retry-failed")
     async def retry_failed_syncs(
         request: OdooRetryFailedRequest,
-        user=Depends(admin_only)
+        user=Depends(require_role("admin"))
     ):
         """Retry failed sync operations"""
         return {
@@ -485,12 +485,12 @@ def create_admin_odoo_routes(db, admin_only):
         }
     
     @router.get("/products/pending")
-    async def get_pending_product_syncs(user=Depends(admin_only)):
+    async def get_pending_product_syncs(user=Depends(require_role("admin"))):
         """Get products pending Odoo sync"""
         return {"status": "placeholder", "message": "Pending products - to be implemented"}
     
     @router.get("/orders/pending")
-    async def get_pending_order_syncs(user=Depends(admin_only)):
+    async def get_pending_order_syncs(user=Depends(require_role("admin"))):
         """Get orders pending Odoo sync"""
         return {"status": "placeholder", "message": "Pending orders - to be implemented"}
     
