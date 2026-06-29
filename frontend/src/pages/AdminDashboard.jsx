@@ -460,8 +460,317 @@ function AdminShopsTab() {
                   Current: {detail.invoice_frequency ? <strong>{detail.invoice_frequency}</strong> : <span>using global ({globalFrequency})</span>}
                 </p>
               </div>
+
+              {/* Odoo Connection Section - Admin Only */}
+              <OdooConnectionSection detail={detail} onUpdate={() => load()} />
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Odoo Connection Section Component
+function OdooConnectionSection({ detail, onUpdate }) {
+  const [odooSettings, setOdooSettings] = useState(detail?.odoo_connection || {});
+  const [isSaving, setIsSaving] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  useEffect(() => {
+    setOdooSettings(detail?.odoo_connection || {
+      enabled: false,
+      company_id: null,
+      company_name: null,
+      warehouse_id: null,
+      warehouse_name: null,
+      pricelist_id: null,
+      pricelist_name: null,
+      pos_config_id: null,
+      sync_products: false,
+      sync_stock: false,
+      send_orders: false,
+      send_delivery_updates: false,
+      sync_status: "not_configured"
+    });
+  }, [detail]);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      const endpoint = detail._kind === "restaurant"
+        ? `/admin/restaurants/${detail.id}/odoo-connection`
+        : `/admin/shops/${detail.id}/odoo-connection`;
+      
+      await api.put(endpoint, {
+        enabled: odooSettings.enabled,
+        company_id: odooSettings.company_id || null,
+        company_name: odooSettings.company_name || null,
+        warehouse_id: odooSettings.warehouse_id || null,
+        warehouse_name: odooSettings.warehouse_name || null,
+        pricelist_id: odooSettings.pricelist_id || null,
+        pricelist_name: odooSettings.pricelist_name || null,
+        pos_config_id: odooSettings.pos_config_id || null,
+        sync_products: odooSettings.sync_products,
+        sync_stock: odooSettings.sync_stock,
+        send_orders: odooSettings.send_orders,
+        send_delivery_updates: odooSettings.send_delivery_updates
+      });
+      
+      toast.success("Odoo connection settings saved");
+      onUpdate();
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail) || "Failed to save Odoo settings");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const getStatusColor = () => {
+    if (!odooSettings.enabled) return "gray";
+    switch (odooSettings.sync_status) {
+      case "active": return "green";
+      case "error": return "red";
+      case "disabled": return "gray";
+      default: return "gray";
+    }
+  };
+
+  const getStatusText = () => {
+    if (!odooSettings.enabled) return "Disabled";
+    switch (odooSettings.sync_status) {
+      case "active": return "Connected";
+      case "error": return "Error";
+      case "disabled": return "Disabled";
+      case "not_configured": return "Not Configured";
+      default: return "Unknown";
+    }
+  };
+
+  const statusColor = getStatusColor();
+  const statusBgColor = {
+    green: "bg-green-100 text-green-800",
+    red: "bg-red-100 text-red-800",
+    gray: "bg-gray-100 text-gray-600"
+  }[statusColor];
+
+  return (
+    <div className="bg-gradient-to-br from-purple-50 to-blue-50 border-2 border-purple-200 rounded-2xl p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-purple-600 rounded-lg flex items-center justify-center">
+            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="font-display font-semibold text-sm text-purple-900">Odoo Connection</h3>
+            <p className="text-xs text-purple-700">Admin-only integration settings</p>
+          </div>
+        </div>
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="p-2 rounded-lg hover:bg-purple-100 transition"
+        >
+          <svg
+            className={`w-5 h-5 text-purple-600 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Status Badge */}
+      <div className="flex items-center gap-2 mb-3">
+        <span className={`inline-flex items-center gap-1 text-xs font-bold px-3 py-1 rounded-full ${statusBgColor}`}>
+          <span className={`w-2 h-2 rounded-full ${statusColor === 'green' ? 'bg-green-500' : statusColor === 'red' ? 'bg-red-500' : 'bg-gray-400'}`}></span>
+          {getStatusText()}
+        </span>
+        {odooSettings.last_sync_at && (
+          <span className="text-xs text-purple-600">
+            Last sync: {new Date(odooSettings.last_sync_at).toLocaleString()}
+          </span>
+        )}
+      </div>
+
+      {isExpanded && (
+        <div className="space-y-4 mt-4">
+          {/* Enable/Disable Toggle */}
+          <div className="flex items-center gap-3 p-3 bg-white rounded-lg">
+            <input
+              type="checkbox"
+              id="odoo-enabled"
+              checked={odooSettings.enabled}
+              onChange={(e) => setOdooSettings({ ...odooSettings, enabled: e.target.checked })}
+              className="w-5 h-5 text-purple-600 rounded focus:ring-purple-500"
+            />
+            <label htmlFor="odoo-enabled" className="flex-1 cursor-pointer">
+              <span className="font-semibold text-sm text-purple-900">Connect this {detail._kind} to Odoo</span>
+              <p className="text-xs text-purple-600">Enable to sync with your Odoo 18 instance</p>
+            </label>
+          </div>
+
+          {odooSettings.enabled && (
+            <>
+              {/* Odoo Configuration Fields */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-purple-900 mb-1">Company ID</label>
+                  <input
+                    type="text"
+                    value={odooSettings.company_id || ""}
+                    onChange={(e) => setOdooSettings({ ...odooSettings, company_id: e.target.value })}
+                    placeholder="e.g., 1"
+                    className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-purple-900 mb-1">Company Name</label>
+                  <input
+                    type="text"
+                    value={odooSettings.company_name || ""}
+                    onChange={(e) => setOdooSettings({ ...odooSettings, company_name: e.target.value })}
+                    placeholder="e.g., My Company"
+                    className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-purple-900 mb-1">Warehouse ID</label>
+                  <input
+                    type="text"
+                    value={odooSettings.warehouse_id || ""}
+                    onChange={(e) => setOdooSettings({ ...odooSettings, warehouse_id: e.target.value })}
+                    placeholder="e.g., WH/01"
+                    className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-purple-900 mb-1">Warehouse Name</label>
+                  <input
+                    type="text"
+                    value={odooSettings.warehouse_name || ""}
+                    onChange={(e) => setOdooSettings({ ...odooSettings, warehouse_name: e.target.value })}
+                    placeholder="e.g., Main Warehouse"
+                    className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-purple-900 mb-1">Pricelist ID</label>
+                  <input
+                    type="text"
+                    value={odooSettings.pricelist_id || ""}
+                    onChange={(e) => setOdooSettings({ ...odooSettings, pricelist_id: e.target.value })}
+                    placeholder="e.g., 1"
+                    className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-purple-900 mb-1">Pricelist Name</label>
+                  <input
+                    type="text"
+                    value={odooSettings.pricelist_name || ""}
+                    onChange={(e) => setOdooSettings({ ...odooSettings, pricelist_name: e.target.value })}
+                    placeholder="e.g., Public Pricelist"
+                    className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-purple-900 mb-1">POS Config ID</label>
+                <input
+                  type="text"
+                  value={odooSettings.pos_config_id || ""}
+                  onChange={(e) => setOdooSettings({ ...odooSettings, pos_config_id: e.target.value })}
+                  placeholder="e.g., pos_config_1"
+                  className="w-full px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500"
+                />
+              </div>
+
+              {/* Sync Options */}
+              <div className="bg-white rounded-lg p-3 space-y-2">
+                <p className="text-xs font-semibold text-purple-900 mb-2">Sync Options</p>
+                
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={odooSettings.sync_products}
+                    onChange={(e) => setOdooSettings({ ...odooSettings, sync_products: e.target.checked })}
+                    className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                  />
+                  <span className="text-sm text-purple-900">Sync {detail._kind === "restaurant" ? "Menu Items" : "Products"} from Odoo</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={odooSettings.sync_stock}
+                    onChange={(e) => setOdooSettings({ ...odooSettings, sync_stock: e.target.checked })}
+                    className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                  />
+                  <span className="text-sm text-purple-900">Sync Stock from Odoo</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={odooSettings.send_orders}
+                    onChange={(e) => setOdooSettings({ ...odooSettings, send_orders: e.target.checked })}
+                    className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                  />
+                  <span className="text-sm text-purple-900">Send Orders to Odoo</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={odooSettings.send_delivery_updates}
+                    onChange={(e) => setOdooSettings({ ...odooSettings, send_delivery_updates: e.target.checked })}
+                    className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                  />
+                  <span className="text-sm text-purple-900">Send Delivery Updates to Odoo</span>
+                </label>
+              </div>
+
+              {/* Error Display */}
+              {odooSettings.sync_error && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <p className="text-xs font-semibold text-red-900 mb-1">Sync Error</p>
+                  <p className="text-xs text-red-700">{odooSettings.sync_error}</p>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Action Buttons */}
+          <div className="flex gap-2 pt-2">
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="flex-1 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold py-2.5 rounded-full transition disabled:opacity-50"
+            >
+              {isSaving ? "Saving..." : "Save Odoo Settings"}
+            </button>
+            <button
+              onClick={() => toast.info("Test connection - to be implemented by Odoo module")}
+              className="bg-white border-2 border-purple-600 text-purple-600 hover:bg-purple-50 text-sm font-semibold px-4 py-2.5 rounded-full transition"
+            >
+              Test
+            </button>
+          </div>
+
+          <p className="text-xs text-purple-600">
+            ℹ️ This configuration will be used by your Odoo 18 module to communicate with JubaSquare.
+          </p>
         </div>
       )}
     </div>
