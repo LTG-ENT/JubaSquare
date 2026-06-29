@@ -174,6 +174,14 @@ Content-Type: application/json
 }
 ```
 
+**Behavior & Data Mapping:**
+- `category_id` is **required**. Use a UUID returned by `GET /api/categories/tree` (group=`shop` for shops, group=`restaurant` for restaurants). Missing/empty → HTTP 422.
+- `stock_quantity` → written to JubaSquare's primary `stock` field (and also kept as `stock_quantity` metadata). Defaults to **100** if omitted.
+- `seller_id` is automatically derived from the target shop's or restaurant's owner. The Odoo payload does NOT (and must NOT) provide it.
+- `is_active` is set to the value of `publish` so the product appears in marketplace listings exactly like a manually-created one.
+- If the target shop/restaurant has `odoo_connection.enabled=false`, the request returns HTTP 200 with `status="ignored"` (not an error). Claude's module should treat this as a no-op.
+- Existing product is matched by `(shop_id|restaurant_id, odoo_product_id)` and updated; otherwise a new row is created. The response `action` field tells you which path ran.
+
 **Rules:**
 - Only processes if shop/restaurant has `odoo_connection.enabled = true`
 - If shop/restaurant not connected, returns `status: "ignored"` (NOT an error)
