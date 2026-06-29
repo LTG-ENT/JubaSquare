@@ -4,12 +4,31 @@ Complete JSON examples for all Odoo ↔ JubaSquare operations.
 
 ---
 
+## Authentication (All Endpoints)
+
+Every request to JubaSquare's Odoo endpoints MUST include the service token header:
+
+```
+X-JubaSquare-Odoo-Token: PUT_SECURE_TOKEN_HERE
+Content-Type: application/json
+```
+
+Replace `PUT_SECURE_TOKEN_HERE` with the value of `ODOO_WEBHOOK_TOKEN` configured in the JubaSquare `.env` file.
+
+- **Webhook endpoints** (`/api/odoo/*`) → require the service token only.
+- **Admin endpoints** (`/api/admin/odoo/*`) → accept EITHER the service token OR an admin JWT (`Authorization: Bearer <jwt>`).
+
+NEVER commit the real token to git or include it in code/docs. Only the placeholder `PUT_SECURE_TOKEN_HERE` should appear here.
+
+---
+
 ## 1. Product Upsert (Odoo → JubaSquare)
 
 ### Regular Product (Not Wholesale)
 ```json
 {
   "shop_id": "550e8400-e29b-41d4-a716-446655440000",
+  "category_id": "cat-uuid-electronics",
   "odoo_product_id": "123",
   "odoo_product_sku": "TECH-LAPTOP-001",
   "name": "Gaming Laptop Pro 15",
@@ -26,10 +45,14 @@ Complete JSON examples for all Odoo ↔ JubaSquare operations.
 }
 ```
 
+> `category_id` is **required**. It must be a UUID of an existing JubaSquare category (group=`shop` for shops, group=`restaurant` for restaurants). Fetch valid IDs via `GET /api/categories/tree`.
+> `stock_quantity` maps to JubaSquare's primary `stock` field (defaults to `100` if omitted).
+
 ### Wholesale Product (Complete)
 ```json
 {
   "shop_id": "550e8400-e29b-41d4-a716-446655440000",
+  "category_id": "cat-uuid-electronics",
   "odoo_product_id": "456",
   "odoo_product_sku": "BULK-CABLE-USB-C",
   "name": "USB-C Cable 2m - Bulk Pack",
@@ -66,6 +89,7 @@ Complete JSON examples for all Odoo ↔ JubaSquare operations.
 ```json
 {
   "shop_id": "550e8400-e29b-41d4-a716-446655440000",
+  "category_id": "cat-uuid-electronics",
   "odoo_product_id": "789",
   "name": "Generic Wholesale Item",
   "description": "Marked as wholesale but pricing not configured yet",
@@ -85,6 +109,7 @@ Complete JSON examples for all Odoo ↔ JubaSquare operations.
 ```json
 {
   "restaurant_id": "660e8400-e29b-41d4-a716-446655440001",
+  "category_id": "cat-uuid-pizza",
   "odoo_product_id": "MENU-001",
   "odoo_product_sku": "PIZZA-MARGHERITA",
   "name": "Margherita Pizza",
@@ -573,17 +598,19 @@ cash_balance = cash_collected - cash_handed_over
 ### Optional vs Required Fields
 ```python
 # Always required:
-- shop_id OR restaurant_id
-- odoo_product_id (for existing products)
-- name (for new products)
-- price (for new products)
+- shop_id OR restaurant_id (exactly one)
+- category_id              (UUID from /api/categories/tree)
+- odoo_product_id          (for upsert idempotency)
+- name                     (for new products)
+- price                    (for new products)
 
 # Always optional:
 - description
 - image_url
-- stock_quantity (defaults to 0)
-- all wholesale fields (MOQ, bulk_price, pricing_tiers)
-- all sync flags (default to true)
+- stock_quantity           (defaults to 100 if omitted; maps to `stock`)
+- all wholesale fields     (MOQ, bulk_price, pricing_tiers)
+- all sync flags           (default to true)
+- seller_id                (auto-derived from shop/restaurant by JubaSquare)
 ```
 
 ### Wholesale Product Flexibility

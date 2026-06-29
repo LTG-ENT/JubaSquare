@@ -230,6 +230,29 @@ Invoices module (admin + seller) auto-generated per shop/week. Product 3-mode fo
   - `AdminAnalytics.jsx`: all 8 KPI labels (Total Orders, Revenue, Pending/Delivered Orders, Customers, Sellers, Active Shops, Products), 2 chart titles, Top sellers table (incl. headers + "No sales yet"), loading/error states.
 - **Verified**: live screenshot test EN → AR (hero fully translated, RTL working) → FR (hero fully translated) → EN. All 6 modified files lint clean.
 
+### Iter 13 (Jun 2026) — **Odoo 18 Integration Readiness (handoff to external module)**
+JubaSquare backend + admin UI now expose everything an external Odoo 18 module needs. No Odoo module is built here — only the contract.
+
+- **Backend modules added:**
+  - `/app/backend/odoo_schema.py` — Pydantic models (`OdooProductUpsert`, `OdooStockUpdate`, `OdooProductUnpublish`, connection settings, sync logs).
+  - `/app/backend/odoo_routes.py` — webhook + admin routers. Mounted from `server.py`.
+- **DB schema additions:** `odoo_connection {enabled, company_id, warehouse_id, …}` on shops and restaurants; `odoo_source`, `odoo_product_id`, `odoo_sync_status`, etc. on products/menu_items/orders; `odoo_sync_logs` collection.
+- **Auth model:** webhook endpoints accept `X-JubaSquare-Odoo-Token` only; admin endpoints accept **either** the service token OR a valid admin JWT (Bearer). Bug fixed where the JWT fallback crashed because `require_role` was called without FastAPI DI — now uses `get_current_user(request)` directly.
+- **Mapping enforced in webhook upsert:**
+  - `payload.stock_quantity` → `product.stock` (primary) + `product.stock_quantity` (metadata). Default 100.
+  - `payload.category_id` → **required**. 422 if missing.
+  - `seller_id` auto-derived from the shop/restaurant.
+- **Admin UI** in `AdminDashboard.jsx` Odoo Connection tab (admin-only, default disabled).
+- **Docs (all use `PUT_SECURE_TOKEN_HERE` placeholder — real token never written to git):**
+  - `/app/ODOO_API_DOCUMENTATION.md`
+  - `/app/ODOO_SAMPLE_PAYLOADS.md`
+  - `/app/ODOO_HANDOFF_FOR_CLAUDE.md` (the brief the next AI consumes)
+- **Smoke tests passed (2026-06-29):**
+  - `GET /api/odoo/health` → 200 public ✅
+  - `GET /api/admin/odoo/shops` → 401 (no token), 403 (bad token), 200 (valid service token), 200 (valid admin JWT) ✅
+  - `POST /api/odoo/products/upsert` with missing `category_id` → 422 ✅; with missing `shop_id`/`restaurant_id` → 400 ✅
+  - Placeholder `GET /api/admin/odoo/orders/pending` returns clear placeholder payload ✅
+
 ## Backlog (P1 / P2)
 - **P1** Driver Area Filter Dropdown — top-corner area selector in `DriverDashboard.jsx` to filter broadcasted orders by restaurant proximity (originally requested, deferred for broadcast-assignment work)
 - **P1** Further i18n coverage — Login/Register pages, Restaurant detail, Shop detail, Settings, seller-dashboard tabs (Wallet, Messages, Products), driver delivery detail buttons, remaining toast strings across SellerDashboard/DriverDashboard/Admin tabs

@@ -9,7 +9,7 @@ import uuid
 import logging
 from datetime import datetime, timezone
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends, Header, Request
 
 from odoo_schema import (
     OdooConnectionSettings,
@@ -243,6 +243,8 @@ def create_odoo_routes(db, require_role):
                 "log_id": log_id
             }
         
+        except HTTPException:
+            raise
         except Exception as e:
             log.error(f"Odoo product upsert error: {e}", exc_info=True)
             # Log failure
@@ -325,6 +327,8 @@ def create_odoo_routes(db, require_role):
             
             return {"status": "success", "log_id": log_id}
         
+        except HTTPException:
+            raise
         except Exception as e:
             log.error(f"Odoo stock update error: {e}", exc_info=True)
             await db.odoo_sync_logs.insert_one({
@@ -424,19 +428,20 @@ def create_odoo_routes(db, require_role):
     return router
 
 
-def create_admin_odoo_routes(db, require_role):
+def create_admin_odoo_routes(db, require_role, get_current_user=None):
     """
     Create admin-only Odoo management routes
     
     Args:
         db: MongoDB database instance
         require_role: Function to require specific role (e.g., require_role("admin"))
+        get_current_user: FastAPI dependency that resolves the current JWT user
     """
     router = APIRouter(prefix="/api/admin/odoo", tags=["admin-odoo"])
     
     # Service token authentication for Odoo module
     async def verify_admin_or_service_token(
-        authorization: str = Header(None),
+        request: Request,
         x_jubasquare_odoo_token: str = Header(None)
     ):
         """Allow either admin JWT token or service token for Odoo endpoints"""
@@ -446,16 +451,15 @@ def create_admin_odoo_routes(db, require_role):
                 raise HTTPException(status_code=500, detail="Service token not configured")
             if x_jubasquare_odoo_token == ODOO_WEBHOOK_TOKEN:
                 return {"role": "odoo_service", "service": True}
-            else:
-                log.warning("Invalid service token attempt on admin Odoo endpoint")
-                raise HTTPException(status_code=403, detail="Invalid service token")
+            log.warning("Invalid service token attempt on admin Odoo endpoint")
+            raise HTTPException(status_code=403, detail="Invalid service token")
         
-        # Fall back to admin JWT
-        if not authorization or not authorization.startswith("Bearer "):
+        # Fall back to admin JWT — resolve the current user manually
+        if get_current_user is None:
             raise HTTPException(status_code=401, detail="Authentication required")
-        
-        # Use the existing require_role("admin") for JWT validation
-        user = await require_role("admin").__call__()
+        user = await get_current_user(request)
+        if user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Admin role required")
         return user
     
     @router.get("/shops")

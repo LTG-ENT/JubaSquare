@@ -8,18 +8,28 @@
 
 ## Security & Authentication
 
-### Webhook Authentication
-All Odoo → JubaSquare webhook endpoints require:
+### Webhook Authentication (Odoo → JubaSquare)
+All Odoo → JubaSquare webhook endpoints (`/api/odoo/*`) require:
 - **Header:** `X-JubaSquare-Odoo-Token`
-- **Value:** The secure token from backend `.env` file (64-character hex string)
-- **Location:** This token is stored in `/app/backend/.env` as `ODOO_WEBHOOK_TOKEN`
+- **Value:** `PUT_SECURE_TOKEN_HERE` (replace with the secure token from backend `.env` `ODOO_WEBHOOK_TOKEN`, 64-character hex recommended)
+- **Location:** Stored in `/app/backend/.env` as `ODOO_WEBHOOK_TOKEN`
 
-**⚠️ CRITICAL: Never expose this token in frontend, logs, or UI. Backend only.**
+**⚠️ CRITICAL: Never expose this token in frontend code, git, logs, or UI. Backend-only.**
 
-### Admin Authentication
-All admin endpoints require:
-- **Header:** `Authorization: Bearer {jwt_token}`
-- **Role:** User must have `role: "admin"`
+### Admin / Service Authentication (`/api/admin/odoo/*`)
+Admin Odoo endpoints accept **either** of these:
+
+1. **Service Token (recommended for the Odoo module):**
+   ```
+   X-JubaSquare-Odoo-Token: PUT_SECURE_TOKEN_HERE
+   ```
+2. **Admin JWT (for human admins via the UI):**
+   ```
+   Authorization: Bearer {jwt_token}
+   ```
+   The decoded JWT user must have `role: "admin"`.
+
+If both headers are present, the service token is validated first.
 
 ---
 
@@ -78,7 +88,7 @@ GET  /api/admin/odoo/driver-cash/pending          # Get pending driver cash summ
 **Authentication:** Required  
 **Headers:**
 ```
-X-JubaSquare-Odoo-Token: {your_webhook_token}
+X-JubaSquare-Odoo-Token: PUT_SECURE_TOKEN_HERE
 Content-Type: application/json
 ```
 
@@ -89,13 +99,14 @@ Content-Type: application/json
 {
   "shop_id": "uuid-string",                    // Required if not restaurant
   "restaurant_id": "uuid-string",              // Required if not shop
+  "category_id": "uuid-string",                // REQUIRED - JubaSquare category UUID
   "odoo_product_id": "123",                    // Required - Odoo product ID
   "odoo_product_sku": "SKU-001",               // Optional - Product SKU
   "name": "Product Name",                      // Required
   "description": "Product description",        // Optional
   "price": 29.99,                              // Required - Price in USD
   "image_url": "https://example.com/img.jpg",  // Optional
-  "stock_quantity": 100,                       // Optional - Default 0
+  "stock_quantity": 100,                       // Optional - Maps to JubaSquare `stock`. Defaults to 100.
   "publish": true,                             // Optional - Default true
   "wholesale_enabled": false,                  // Optional - Default false
   "minimum_order_qty": 10,                     // Optional - Can be null even if wholesale_enabled=true
@@ -179,7 +190,7 @@ Content-Type: application/json
 **Authentication:** Required  
 **Headers:**
 ```
-X-JubaSquare-Odoo-Token: {your_webhook_token}
+X-JubaSquare-Odoo-Token: PUT_SECURE_TOKEN_HERE
 Content-Type: application/json
 ```
 
@@ -224,7 +235,7 @@ Content-Type: application/json
 **Authentication:** Required  
 **Headers:**
 ```
-X-JubaSquare-Odoo-Token: {your_webhook_token}
+X-JubaSquare-Odoo-Token: PUT_SECURE_TOKEN_HERE
 Content-Type: application/json
 ```
 
@@ -607,7 +618,7 @@ curl http://localhost:8001/api/odoo/health
 ### 2. Test Product Upsert
 ```bash
 curl -X POST http://localhost:8001/api/odoo/products/upsert \
-  -H "X-JubaSquare-Odoo-Token: your_token_here" \
+  -H "X-JubaSquare-Odoo-Token: PUT_SECURE_TOKEN_HERE" \
   -H "Content-Type: application/json" \
   -d '{
     "shop_id": "shop-uuid",

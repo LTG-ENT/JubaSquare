@@ -5220,7 +5220,7 @@ async def on_startup():
     
     # Register Odoo integration routes (webhook + admin)
     odoo_webhook_router = odoo_routes.create_odoo_routes(db, require_role)
-    odoo_admin_router = odoo_routes.create_admin_odoo_routes(db, require_role)
+    odoo_admin_router = odoo_routes.create_admin_odoo_routes(db, require_role, get_current_user)
     app.include_router(odoo_webhook_router)
     app.include_router(odoo_admin_router)
     log.info("✅ Odoo integration routes registered")
