@@ -51,13 +51,13 @@ POST /api/odoo/invoice/status-update       # Update invoice status (placeholder)
 GET  /api/admin/odoo/shops                        # List shops with Odoo status
 GET  /api/admin/odoo/restaurants                  # List restaurants with Odoo status
 GET  /api/admin/odoo/sync-logs                    # View sync operation logs
-POST /api/admin/odoo/test-connection              # Test Odoo connection
-POST /api/admin/odoo/retry-failed                 # Retry failed operations
-GET  /api/admin/odoo/products/pending             # Get pending product syncs (placeholder)
-GET  /api/admin/odoo/orders/pending               # Get pending order syncs (placeholder)
-GET  /api/admin/odoo/delivery-updates/pending     # Get pending delivery updates (placeholder)
-GET  /api/admin/odoo/payout-summaries/pending     # Get pending seller payouts (placeholder)
-GET  /api/admin/odoo/driver-cash/pending          # Get pending driver cash summaries (placeholder)
+POST /api/admin/odoo/test-connection              # Test Odoo connection (placeholder)
+POST /api/admin/odoo/retry-failed                 # Retry failed operations (placeholder)
+GET  /api/admin/odoo/products/pending             # Real: pending/failed Odoo-sourced products
+GET  /api/admin/odoo/orders/pending               # Real: orders for Odoo-connected shops/restaurants pending sync
+GET  /api/admin/odoo/delivery-updates/pending     # Real: delivered/failed orders pending Odoo sync
+GET  /api/admin/odoo/payout-summaries/pending     # Real: seller payouts pending Odoo export
+GET  /api/admin/odoo/driver-cash/pending          # Real: aggregated driver cash positions pending export
 ```
 
 ---

@@ -1,0 +1,35 @@
+{
+  "summary": "Backend-only verification of Odoo 18 integration fixes. All 19 tests passed: webhook auth (401/403/422/400), Odoo-disabled-shop ignored path, end-to-end product upsert writes stock+stock_quantity+seller_id+category_id+is_active+odoo_source correctly, stock-update writes both fields, admin Odoo endpoints accept JWT OR service token (with 401/403 negatives), service token does NOT bypass auth on /api/admin/users (returns 401), all 5 pending endpoints return real list/dict shapes (no placeholders), and /app/ODOO_INTEGRATION_CONFIRMATION.md no longer contains 'juba-odoo-secure-'.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter11_odoo.py",
+    "/app/test_reports/pytest/iter11_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "odoo_routes.py is ~740 lines and growing — consider splitting webhook handlers and admin handlers into separate modules for maintainability.",
+    "Webhook auth dependency `verify_odoo_webhook` returns 500 if ODOO_WEBHOOK_TOKEN env var is unset; that's fail-fast and correct, but should also be checked at startup and logged loudly.",
+    "Pydantic v1-style `.dict()` is used in odoo_routes.py (lines 108, 132, 191, 237, 261, 327, 344, 396). If/when the app upgrades to Pydantic v2, switch to `.model_dump()`.",
+    "`category_id` is enforced as required at the schema level (good), but the route also re-checks `if not payload.category_id` which can never trigger since Pydantic already rejects missing/empty strings — minor dead code.",
+    "The route does NOT validate `category_id` against the `categories` collection (per the request that's intentional), but a follow-up should probably warn if the UUID doesn't resolve to a real category.",
+    "On Odoo-disabled shops the upsert returns 200 with status='ignored' — good — but `odoo_sync_logs` still logs as `error_message='Shop not connected to Odoo'`. Consider clearing error_message for clean reporting since status is 'ignored', not 'failed'.",
+    "`verify_admin_or_service_token` correctly scopes the service token to /api/admin/odoo/* only — verified by the negative test on /api/admin/users."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter11_odoo.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "N/A (skipped per request)"},
+  "test_credentials": "admin@LTG.com / Kokobleake1 (admin)",
+  "seed_data_creation": "Test creates one product against shop 'LTG SuperMarket' with odoo_product_id 'odoo-<uuid>'. Cleanup step deletes the product and its sync logs. Also sets odoo_connection.enabled=true on that shop (left enabled — no negative impact).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Test file /app/backend/tests/test_iter11_odoo.py covers all Odoo webhook + admin auth paths. ODOO_WEBHOOK_TOKEN is read from /app/backend/.env. The shop 'LTG SuperMarket' (id 925ca61e-4802-411b-a785-13429c390d51) has odoo_connection.enabled=true now. To re-run: `pytest /app/backend/tests/test_iter11_odoo.py -v`."
+}

@@ -150,12 +150,16 @@ def create_odoo_routes(db, require_role):
             seller_id = None
             if entity_type == "shop":
                 shop = await db.shops.find_one({"id": payload.shop_id}, {"seller_id": 1})
-                if shop and "seller_id" in shop:
-                    seller_id = shop["seller_id"]
+                if not shop:
+                    raise HTTPException(status_code=404, detail=f"Shop {payload.shop_id} not found")
+                seller_id = shop.get("seller_id")
             else:  # restaurant
                 restaurant = await db.restaurants.find_one({"id": payload.restaurant_id}, {"seller_id": 1})
-                if restaurant and "seller_id" in restaurant:
-                    seller_id = restaurant["seller_id"]
+                if not restaurant:
+                    raise HTTPException(status_code=404, detail=f"Restaurant {payload.restaurant_id} not found")
+                seller_id = restaurant.get("seller_id")
+            if not seller_id:
+                raise HTTPException(status_code=400, detail=f"Cannot derive seller_id from {entity_type}")
             
             # Prepare product/menu item data
             product_data = {
@@ -166,6 +170,7 @@ def create_odoo_routes(db, require_role):
                 "stock": payload.stock_quantity if payload.stock_quantity is not None else 100,  # PRIMARY: stock field
                 "stock_quantity": payload.stock_quantity if payload.stock_quantity is not None else 100,  # METADATA: for tracking
                 "category_id": payload.category_id,  # REQUIRED
+                "is_active": bool(payload.publish),  # Marketplace visibility — mirrors publish flag
                 # Odoo sync fields
                 "odoo_source": True,
                 "odoo_product_id": payload.odoo_product_id,
@@ -191,13 +196,11 @@ def create_odoo_routes(db, require_role):
                 product_data["shop_id"] = payload.shop_id
                 product_data["category"] = payload.category or ""  # Deprecated but keep for backward compat
                 product_data["mode"] = payload.mode if payload.mode else ("wholesale" if payload.wholesale_enabled else "marketplace")
-                if seller_id:
-                    product_data["seller_id"] = seller_id
+                product_data["seller_id"] = seller_id
             else:  # restaurant
                 product_data["restaurant_id"] = payload.restaurant_id
                 product_data["food_category"] = payload.food_category or ""  # Deprecated but keep for backward compat
-                if seller_id:
-                    product_data["seller_id"] = seller_id
+                product_data["seller_id"] = seller_id
             
             # Check if product already exists (by odoo_product_id)
             existing_filter = {
@@ -539,27 +542,198 @@ def create_admin_odoo_routes(db, require_role, get_current_user=None):
     
     @router.get("/products/pending")
     async def get_pending_product_syncs(user=Depends(verify_admin_or_service_token)):
-        """Get products pending Odoo sync"""
-        return {"status": "placeholder", "message": "Pending products - to be implemented"}
-    
+        """
+        Get products pending Odoo sync (i.e. odoo_source=True products where
+        odoo_sync_status is 'failed' or 'pending' / not yet synced).
+        """
+        cursor = db.products.find(
+            {
+                "odoo_source": True,
+                "odoo_sync_status": {"$in": ["failed", "pending"]},
+            },
+            {"_id": 0}
+        ).limit(500)
+        products = await cursor.to_list(500)
+
+        cursor2 = db.menu_items.find(
+            {
+                "odoo_source": True,
+                "odoo_sync_status": {"$in": ["failed", "pending"]},
+            },
+            {"_id": 0}
+        ).limit(500)
+        menu_items = await cursor2.to_list(500)
+
+        return {"products": products, "menu_items": menu_items}
+
     @router.get("/orders/pending")
     async def get_pending_order_syncs(user=Depends(verify_admin_or_service_token)):
-        """Get orders pending Odoo sync - PLACEHOLDER"""
-        return {"status": "placeholder", "message": "Pending orders - to be implemented by Odoo module developer"}
-    
+        """
+        Get JubaSquare orders that need to be synced TO Odoo.
+        Filters: seller's shop OR restaurant has odoo_connection.enabled=true
+                 AND send_orders=true
+                 AND order's odoo_sync_status is missing / "pending" / "failed".
+        Returns a flat list of marketplace splits and restaurant orders.
+        """
+        connected_shop_ids = await db.shops.distinct(
+            "id",
+            {"odoo_connection.enabled": True, "odoo_connection.send_orders": True}
+        )
+        connected_restaurant_ids = await db.restaurants.distinct(
+            "id",
+            {"odoo_connection.enabled": True, "odoo_connection.send_orders": True}
+        )
+
+        pending = []
+
+        if connected_shop_ids:
+            splits = await db.seller_order_splits.find(
+                {
+                    "shop_id": {"$in": connected_shop_ids},
+                    "$or": [
+                        {"odoo_sync_status": {"$in": [None, "pending", "failed", "not_required"]}},
+                        {"odoo_sync_status": {"$exists": False}},
+                    ],
+                },
+                {"_id": 0}
+            ).sort("created_at", -1).limit(500).to_list(500)
+            for s in splits:
+                s["entity_type"] = "shop_order_split"
+            pending.extend(splits)
+
+        if connected_restaurant_ids:
+            r_orders = await db.restaurant_orders.find(
+                {
+                    "restaurant_id": {"$in": connected_restaurant_ids},
+                    "$or": [
+                        {"odoo_sync_status": {"$in": [None, "pending", "failed", "not_required"]}},
+                        {"odoo_sync_status": {"$exists": False}},
+                    ],
+                },
+                {"_id": 0}
+            ).sort("created_at", -1).limit(500).to_list(500)
+            for o in r_orders:
+                o["entity_type"] = "restaurant_order"
+            pending.extend(r_orders)
+
+        return pending
+
     @router.get("/delivery-updates/pending")
     async def get_pending_delivery_updates(user=Depends(verify_admin_or_service_token)):
-        """Get delivery updates pending Odoo sync - PLACEHOLDER"""
-        return {"status": "placeholder", "message": "Pending delivery updates - to be implemented by Odoo module developer"}
-    
+        """
+        Get delivered orders whose delivery update has not yet been pushed to Odoo.
+        Looks at seller_order_splits with delivery_status in
+        {delivered, failed, returned} and odoo_sync_status not 'synced'.
+        Only orders for shops/restaurants with odoo_connection.send_delivery_updates=true.
+        """
+        connected_shop_ids = await db.shops.distinct(
+            "id",
+            {"odoo_connection.enabled": True, "odoo_connection.send_delivery_updates": True}
+        )
+        connected_restaurant_ids = await db.restaurants.distinct(
+            "id",
+            {"odoo_connection.enabled": True, "odoo_connection.send_delivery_updates": True}
+        )
+
+        updates = []
+
+        if connected_shop_ids:
+            splits = await db.seller_order_splits.find(
+                {
+                    "shop_id": {"$in": connected_shop_ids},
+                    "delivery_status": {"$in": ["delivered", "failed", "returned"]},
+                    "$or": [
+                        {"odoo_sync_status": {"$ne": "synced"}},
+                        {"odoo_sync_status": {"$exists": False}},
+                    ],
+                },
+                {"_id": 0}
+            ).sort("delivered_at", -1).limit(500).to_list(500)
+            for s in splits:
+                s["entity_type"] = "shop_delivery"
+            updates.extend(splits)
+
+        if connected_restaurant_ids:
+            r_orders = await db.restaurant_orders.find(
+                {
+                    "restaurant_id": {"$in": connected_restaurant_ids},
+                    "delivery_status": {"$in": ["delivered", "failed", "returned"]},
+                    "$or": [
+                        {"odoo_sync_status": {"$ne": "synced"}},
+                        {"odoo_sync_status": {"$exists": False}},
+                    ],
+                },
+                {"_id": 0}
+            ).sort("delivered_at", -1).limit(500).to_list(500)
+            for o in r_orders:
+                o["entity_type"] = "restaurant_delivery"
+            updates.extend(r_orders)
+
+        return updates
+
     @router.get("/payout-summaries/pending")
     async def get_pending_payout_summaries(user=Depends(verify_admin_or_service_token)):
-        """Get seller payout summaries pending Odoo export - PLACEHOLDER"""
-        return {"status": "placeholder", "message": "Pending payout summaries - to be implemented by Odoo module developer"}
-    
+        """
+        Get seller payout summaries pending Odoo export.
+        Returns seller_payouts with odoo_export_status not 'exported'.
+        """
+        payouts = await db.seller_payouts.find(
+            {
+                "$or": [
+                    {"odoo_export_status": {"$in": [None, "not_exported", "pending", "failed"]}},
+                    {"odoo_export_status": {"$exists": False}},
+                ]
+            },
+            {"_id": 0}
+        ).sort("created_at", -1).limit(500).to_list(500)
+        return payouts
+
     @router.get("/driver-cash/pending")
     async def get_pending_driver_cash(user=Depends(verify_admin_or_service_token)):
-        """Get driver cash summaries pending Odoo export - PLACEHOLDER"""
-        return {"status": "placeholder", "message": "Pending driver cash - to be implemented by Odoo module developer"}
-    
+        """
+        Aggregate driver cash positions from seller_order_splits that have been
+        delivered & cash collected but not yet marked exported to Odoo.
+        Returns a list grouped by driver_id with totals.
+        """
+        pipeline = [
+            {
+                "$match": {
+                    "delivery_status": "delivered",
+                    "cash_collected_at": {"$ne": None},
+                    "$or": [
+                        {"odoo_export_status": {"$ne": "exported"}},
+                        {"odoo_export_status": {"$exists": False}},
+                    ],
+                    "driver_id": {"$ne": None},
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$driver_id",
+                    "cash_collected": {"$sum": {"$ifNull": ["$order_total_usd", 0]}},
+                    "cash_handed_over": {"$sum": {"$ifNull": ["$cash_handed_over_usd", 0]}},
+                    "delivery_count": {"$sum": 1},
+                    "related_orders": {"$addToSet": "$order_id"},
+                }
+            },
+            {
+                "$project": {
+                    "_id": 0,
+                    "driver_id": "$_id",
+                    "cash_collected": 1,
+                    "cash_handed_over": 1,
+                    "cash_balance": {"$subtract": ["$cash_collected", "$cash_handed_over"]},
+                    "delivery_count": 1,
+                    "related_orders": 1,
+                    "odoo_export_status": {"$literal": "not_exported"},
+                }
+            },
+        ]
+        try:
+            rows = await db.seller_order_splits.aggregate(pipeline).to_list(500)
+        except Exception as e:
+            log.error(f"driver-cash aggregation failed: {e}")
+            rows = []
+        return rows
+
     return router

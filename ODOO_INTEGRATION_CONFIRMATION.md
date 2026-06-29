@@ -40,7 +40,7 @@ api.post("/admin/odoo/test-connection")  // Becomes: /api/admin/odoo/test-connec
 
 **Old Token (EXPOSED - INVALID):**
 ```
-❌ juba-odoo-secure-883d0f3fbae13ce63dce7467f6ce1341
+❌ OLD_TOKEN_REMOVED
 ```
 
 **New Token (SECURE):**
@@ -432,6 +432,30 @@ Build Odoo 18 module that:
 - Manages driver cash summaries
 
 **JubaSquare is Ready! 🚀**
+
+---
+
+## ✅ Final State Snapshot (Jun 2026 — updated after 10-point fix round)
+
+| Item | Status |
+|---|---|
+| `stock_quantity` → updates `stock` field | ✅ Yes (also stored as `stock_quantity` metadata) |
+| `category_id` required on product upsert | ✅ Yes (422 if missing) |
+| `seller_id` auto-set from shop/restaurant owner | ✅ Yes (404 if entity missing, 400 if no seller_id) |
+| Odoo-created products show `is_active=true` when published | ✅ Yes |
+| Service token works for `/api/admin/odoo/*` | ✅ Yes (admin JWT also accepted) |
+| Service token blocked on non-Odoo admin endpoints | ✅ Yes (only Odoo routes accept it) |
+| `GET /api/admin/odoo/products/pending` | ✅ Real (queries `db.products` + `db.menu_items`) |
+| `GET /api/admin/odoo/orders/pending` | ✅ Real (queries `seller_order_splits` + `restaurant_orders`) |
+| `GET /api/admin/odoo/delivery-updates/pending` | ✅ Real (delivered/failed splits + restaurant orders) |
+| `GET /api/admin/odoo/payout-summaries/pending` | ✅ Real (queries `seller_payouts`) |
+| `GET /api/admin/odoo/driver-cash/pending` | ✅ Real (aggregates from `seller_order_splits`) |
+| `POST /api/admin/odoo/test-connection` | ⚠️ Placeholder — Claude's Odoo module performs the actual handshake |
+| `POST /api/admin/odoo/retry-failed` | ⚠️ Placeholder — Claude's Odoo module is responsible for re-queueing |
+| `POST /api/odoo/orders/status-update` | ⚠️ Placeholder — Claude defines exact payload, JubaSquare stores updates |
+| `POST /api/odoo/delivery/status-update` | ⚠️ Placeholder — same as above |
+| `POST /api/odoo/invoice/status-update` | ⚠️ Placeholder — same as above |
+| Old exposed token removed from docs | ✅ Yes (`OLD_TOKEN_REMOVED`) |
 
 ---
 
