@@ -14,7 +14,8 @@ import AdminFooterTab from "@/components/AdminFooterTab";
 import AdminCategoriesTab from "@/components/AdminCategoriesTab";
 import AdminDeliveryTab from "@/components/AdminDeliveryTab";
 import AdminDeliveryPricingTab from "@/components/AdminDeliveryPricingTab";
-import { Store, Mail, CheckCircle2, XCircle, Clock, Plus, Trash2, X, BarChart3, Settings as SettingsIcon, BookOpen, Sliders, PanelBottom, FolderTree, Ban, Activity, Truck, MapPin } from "lucide-react";
+import AdminOdooTokenManager from "@/components/AdminOdooTokenManager";
+import { Store, Mail, CheckCircle2, XCircle, Clock, Plus, Trash2, X, BarChart3, Settings as SettingsIcon, BookOpen, Sliders, PanelBottom, FolderTree, Ban, Activity, Truck, MapPin, Key } from "lucide-react";
 import { toast } from "sonner";
 
 const TABS = [
@@ -30,6 +31,7 @@ const TABS = [
   { id: "footer", label: "Footer", icon: PanelBottom },
   { id: "settings", label: "Settings", icon: Sliders },
   { id: "integrations", label: "Integrations", icon: SettingsIcon },
+  { id: "odoo", label: "Odoo Integration", icon: Key },
 ];
 
 export default function AdminDashboard() {
@@ -153,6 +155,7 @@ export default function AdminDashboard() {
           {tab === "footer" && <AdminFooterTab />}
           {tab === "settings" && <AdminSettingsTab onGoToShop={() => setTab("shops")} />}
           {tab === "integrations" && <AdminIntegrations />}
+          {tab === "odoo" && <AdminOdooTokenManager />}
         </div>
       </div>
       <Footer />

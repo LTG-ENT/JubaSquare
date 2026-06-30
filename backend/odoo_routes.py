@@ -23,10 +23,11 @@ from odoo_schema import (
     WholesaleFields,
     PricingTier
 )
+from odoo_token_manager import OdooTokenManager
 
 log = logging.getLogger(__name__)
 
-# Odoo webhook secret token (from environment)
+# Legacy env-only token (used as a fallback inside OdooTokenManager)
 ODOO_WEBHOOK_TOKEN = os.environ.get("ODOO_WEBHOOK_TOKEN", "")
 
 def create_odoo_routes(db, require_role):
@@ -38,23 +39,24 @@ def create_odoo_routes(db, require_role):
         require_role: Function to require specific role (e.g., require_role("admin"))
     """
     router = APIRouter(prefix="/api/odoo", tags=["odoo"])
+    token_manager = OdooTokenManager(db)
     
     # ========================================================================
     # Webhook Authentication
     # ========================================================================
     
     async def verify_odoo_webhook(x_jubasquare_odoo_token: str = Header(None)):
-        """Verify Odoo webhook request"""
-        if not ODOO_WEBHOOK_TOKEN:
-            log.error("ODOO_WEBHOOK_TOKEN not configured")
+        """Verify Odoo webhook request against DB token (or env fallback)."""
+        if not await token_manager.is_configured():
+            log.error("No Odoo service token configured (DB nor env)")
             raise HTTPException(status_code=500, detail="Odoo webhook not configured")
         
         if not x_jubasquare_odoo_token:
             log.warning("Odoo webhook request without token")
             raise HTTPException(status_code=401, detail="Missing Odoo token")
         
-        if x_jubasquare_odoo_token != ODOO_WEBHOOK_TOKEN:
-            log.warning(f"Invalid Odoo webhook token attempt")
+        if not await token_manager.verify(x_jubasquare_odoo_token):
+            log.warning("Invalid Odoo webhook token attempt")
             raise HTTPException(status_code=403, detail="Invalid Odoo token")
         
         return True
@@ -66,10 +68,11 @@ def create_odoo_routes(db, require_role):
     @router.get("/health")
     async def odoo_health_check():
         """Public health check for Odoo integration"""
+        configured = await token_manager.is_configured()
         return {
             "status": "ok",
             "service": "jubasquare-odoo-integration",
-            "webhook_configured": bool(ODOO_WEBHOOK_TOKEN),
+            "webhook_configured": configured,
             "timestamp": datetime.utcnow().isoformat()
         }
     
@@ -441,6 +444,7 @@ def create_admin_odoo_routes(db, require_role, get_current_user=None):
         get_current_user: FastAPI dependency that resolves the current JWT user
     """
     router = APIRouter(prefix="/api/admin/odoo", tags=["admin-odoo"])
+    token_manager = OdooTokenManager(db)
     
     # Service token authentication for Odoo module
     async def verify_admin_or_service_token(
@@ -450,9 +454,9 @@ def create_admin_odoo_routes(db, require_role, get_current_user=None):
         """Allow either admin JWT token or service token for Odoo endpoints"""
         # Try service token first
         if x_jubasquare_odoo_token:
-            if not ODOO_WEBHOOK_TOKEN:
+            if not await token_manager.is_configured():
                 raise HTTPException(status_code=500, detail="Service token not configured")
-            if x_jubasquare_odoo_token == ODOO_WEBHOOK_TOKEN:
+            if await token_manager.verify(x_jubasquare_odoo_token):
                 return {"role": "odoo_service", "service": True}
             log.warning("Invalid service token attempt on admin Odoo endpoint")
             raise HTTPException(status_code=403, detail="Invalid service token")
@@ -464,6 +468,62 @@ def create_admin_odoo_routes(db, require_role, get_current_user=None):
         if user.get("role") != "admin":
             raise HTTPException(status_code=403, detail="Admin role required")
         return user
+    
+    # Admin-JWT-only dependency for token-management endpoints.
+    # IMPORTANT: We deliberately do NOT accept the service token here so that
+    # a leaked service token cannot be used to rotate itself.
+    async def verify_admin_only(request: Request):
+        if get_current_user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        user = await get_current_user(request)
+        if user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Admin role required")
+        return user
+    
+    # ========================================================================
+    # Service Token Management (admin-JWT-only)
+    # ========================================================================
+    
+    @router.get("/service-token")
+    async def get_service_token_status(user=Depends(verify_admin_only)):
+        """Return masked status of the Odoo service token. Never returns raw token."""
+        return await token_manager.get_status()
+    
+    @router.post("/service-token/generate")
+    async def generate_service_token(user=Depends(verify_admin_only)):
+        """
+        Create a new Odoo service token. Returns the raw token EXACTLY ONCE.
+        If an active token already exists, returns 409 — the admin must rotate.
+        """
+        result = await token_manager.generate(admin_email=user.get("email", ""))
+        if result.get("error") == "already_exists":
+            raise HTTPException(
+                status_code=409,
+                detail="A token already exists. Use rotate to replace it."
+            )
+        log.info(f"Odoo service token generated by {user.get('email')}")
+        return {
+            "raw_token": result["raw_token"],
+            "masked_preview": result["masked_preview"],
+            "created_at": result["created_at"],
+            "warning": "Copy this token now. It will not be shown again."
+        }
+    
+    @router.post("/service-token/rotate")
+    async def rotate_service_token(user=Depends(verify_admin_only)):
+        """
+        Invalidate all existing tokens and issue a brand-new one.
+        Returns the raw token EXACTLY ONCE. The previous token stops working immediately.
+        """
+        result = await token_manager.rotate(admin_email=user.get("email", ""))
+        log.info(f"Odoo service token rotated by {user.get('email')}")
+        return {
+            "raw_token": result["raw_token"],
+            "masked_preview": result["masked_preview"],
+            "created_at": result["created_at"],
+            "last_rotated_at": result["last_rotated_at"],
+            "warning": "Copy this token now. It will not be shown again. Previous token has been revoked."
+        }
     
     @router.get("/shops")
     async def get_odoo_shops(user=Depends(verify_admin_or_service_token)):
