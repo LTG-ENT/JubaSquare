@@ -749,7 +749,7 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Maintenance mode + Password change form (backend regression)"
+    - "Password change + Maintenance mode toggle regression (mobile-optimized)"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"

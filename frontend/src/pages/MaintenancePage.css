@@ -13,6 +13,18 @@
   isolation: isolate;
   z-index: 2147483000; /* on top of everything, incl. toasts / modals */
   font-family: Arial, Helvetica, sans-serif;
+  /* dvh helps Android when the URL bar shows/hides */
+  min-height: 100vh;
+  min-height: 100dvh;
+  /* Improve performance on mobile GPUs */
+  will-change: transform;
+  contain: layout paint;
+  /* Disable text selection so the whole thing feels like an "app screen" */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  /* Better rendering on small screens */
+  -webkit-font-smoothing: antialiased;
 }
 
 .jsm-page,
@@ -213,7 +225,65 @@
   }
 }
 
-@media (max-width: 768px) {
-  .jsm-orbit          { width: 82vw; height: 48vw; }
-  .jsm-orbit--second  { width: 64vw; height: 38vw; }
+/* Tablet */
+@media (max-width: 900px) {
+  .jsm-orbit          { width: 80vw; height: 46vw; }
+  .jsm-orbit--second  { width: 62vw; height: 36vw; }
+}
+
+/* Mobile (portrait phones) */
+@media (max-width: 640px) {
+  .jsm-background {
+    /* Use `contain` on portrait phones so the full artwork (including the
+       "WE'RE UNDER MAINTENANCE" text baked into the image) stays visible.
+       The navy background (#061331) matches the image edges so the letterbox
+       is invisible. */
+    background-size: contain;
+    background-position: center 47%;
+    background-color: #061331;
+  }
+  .jsm-orbit {
+    top: 46%;
+    width: 92vw;
+    height: 92vw;
+    border-width: 1px;
+    opacity: 0.7;
+  }
+  .jsm-orbit--second {
+    width: 70vw;
+    height: 70vw;
+  }
+  .jsm-dot { width: 6px; height: 6px; box-shadow: 0 0 12px currentColor; }
+  .jsm-particle { animation-duration: 6s; }
+  .jsm-soft-glow { inset: -8%; opacity: 0.85; }
+  .jsm-bottom-wave { bottom: 1%; height: 10%; filter: blur(8px); }
+  .jsm-light-sweep { display: none; } /* Perf saver on low-end devices */
+}
+
+/* Very small phones */
+@media (max-width: 380px) {
+  .jsm-background { background-position: center 45%; }
+  .jsm-orbit          { width: 96vw; height: 96vw; }
+  .jsm-orbit--second  { width: 74vw; height: 74vw; }
+}
+
+/* Landscape phones — keep orbits horizontally elongated so they fit */
+@media (max-width: 900px) and (orientation: landscape) {
+  .jsm-orbit          { width: 70vw; height: 38vh; top: 50%; }
+  .jsm-orbit--second  { width: 54vw; height: 30vh; }
+  .jsm-background     { background-position: center center; }
+}
+
+/* High-DPR / retina — nothing extra needed, but hint the browser we want smooth */
+@supports (image-rendering: -webkit-optimize-contrast) {
+  .jsm-background { image-rendering: -webkit-optimize-contrast; }
+}
+
+/* Battery saver / very low bandwidth: pause heavy animations on save-data */
+@media (prefers-reduced-data: reduce) {
+  .jsm-light-sweep,
+  .jsm-particle,
+  .jsm-dot {
+    animation: none !important;
+  }
 }
