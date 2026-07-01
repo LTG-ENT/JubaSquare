@@ -118,15 +118,18 @@ user_problem_statement: |
 backend:
   - task: "Homepage customization API (hero slides / tagline / title / subtitle / announcement bar)"
     implemented: true
-    working: "NA"
+    working: true
     file: "/app/backend/server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
         - working: "NA"
           agent: "main"
           comment: "Added DEFAULT_HERO_SLIDES + DEFAULT_HOMEPAGE structure. New endpoints: GET /api/homepage (public), PUT /api/admin/homepage (admin only). Also embedded settings.homepage into GET /api/settings/public so the announcement bar reflects in the header. Sanitizes hero_slides (max 6), limits text lengths, and validates announcement_bar object. Cache-invalidates homepage: and settings: prefixes on write."
+        - working: true
+          agent: "testing"
+          comment: "All homepage endpoints verified: GET /api/homepage returns default structure with 3 slides; PUT /api/admin/homepage updates with sanitization; public settings includes homepage; 401/403 auth gating works; sanitization caps to 6 slides and rejects non-list; cache invalidation confirmed (GET after PUT reflects updates immediately)."
 
   - task: "Bulk product import via CSV"
     implemented: true
