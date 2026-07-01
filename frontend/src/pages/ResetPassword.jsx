@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import api, { formatDetail } from "@/lib/api";
+import PasswordInput from "@/components/PasswordInput";
 import { Logo } from "@/components/Logo";
 import { KeyRound, Loader2, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
@@ -47,16 +48,28 @@ export default function ResetPassword() {
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="bg-white border border-[var(--js-border)] rounded-3xl p-6 sm:p-8 space-y-4">
-            <label className="block">
-              <span className="text-xs font-semibold text-[var(--js-text-secondary)] uppercase tracking-wider">New password</span>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={6} required data-testid="reset-password"
-                className="mt-1.5 w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#1A1A1A]" />
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold text-[var(--js-text-secondary)] uppercase tracking-wider">Confirm new password</span>
-              <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} minLength={6} required data-testid="reset-confirm"
-                className="mt-1.5 w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#1A1A1A]" />
-            </label>
+            <PasswordInput
+              label="New password"
+              value={password}
+              onChange={setPassword}
+              minLength={6}
+              required
+              testId="reset-password"
+              autoComplete="new-password"
+              inputClassName="mt-1.5 w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:border-[#1A1A1A]"
+              labelClassName="text-xs font-semibold text-[var(--js-text-secondary)] uppercase tracking-wider"
+            />
+            <PasswordInput
+              label="Confirm new password"
+              value={confirm}
+              onChange={setConfirm}
+              minLength={6}
+              required
+              testId="reset-confirm"
+              autoComplete="new-password"
+              inputClassName="mt-1.5 w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:border-[#1A1A1A]"
+              labelClassName="text-xs font-semibold text-[var(--js-text-secondary)] uppercase tracking-wider"
+            />
             <button type="submit" disabled={busy} data-testid="reset-submit"
               className="w-full bg-[#C84B31] hover:bg-[#A83A23] text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60">
               {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import api, { formatDetail } from "@/lib/api";
 import AdminPerformanceSection from "@/components/AdminPerformanceSection";
+import PasswordInput from "@/components/PasswordInput";
 import { Percent, Save, RotateCcw, Info, Store, ArrowRight, Users, Search, Filter, MoreVertical, Edit, Key, Mail, Power, Trash2, Eye, X, CheckCircle, XCircle, ShoppingBag, DollarSign, Plus } from "lucide-react";
 import { toast } from "sonner";
 
@@ -1097,13 +1098,15 @@ function CreateUserModal({ onClose, onSuccess }) {
 
           <div>
             <label className="block text-sm font-semibold mb-1">Password *</label>
-            <input
-              type="password"
+            <PasswordInput
               value={formData.password}
-              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              onChange={(v) => setFormData({ ...formData, password: v })}
               placeholder="Minimum 6 characters"
-              className="w-full px-3 py-2 border border-[var(--js-border)] rounded-xl focus:outline-none focus:border-[#C84B31]"
               required
+              minLength={6}
+              testId="admin-create-user-password"
+              autoComplete="new-password"
+              inputClassName="w-full px-3 py-2 pr-11 border border-[var(--js-border)] rounded-xl focus:outline-none focus:border-[#C84B31]"
             />
             <p className="text-xs text-[var(--js-text-secondary)] mt-1">User will be able to login with this password</p>
           </div>

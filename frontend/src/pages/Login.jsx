@@ -3,6 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useTranslation } from "react-i18next";
 import { ArrowLeft, Loader2, LogIn as LogInIcon } from "lucide-react";
+import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 import { Logo } from "@/components/Logo";
 
@@ -71,19 +72,19 @@ export default function Login() {
               className="mt-1.5 w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#1A1A1A] transition"
             />
           </label>
-          <label className="block mb-2">
-            <span className="text-xs font-semibold text-[var(--js-text-secondary)] uppercase tracking-wider">{t("password")}</span>
-            <input
-              type="password"
+          <div className="mb-2">
+            <PasswordInput
+              label={t("password")}
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={setPassword}
               placeholder="••••••••"
-              data-testid="login-password"
+              testId="login-password"
               autoComplete="current-password"
               required
-              className="mt-1.5 w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#1A1A1A] transition"
+              inputClassName="mt-1.5 w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:border-[#1A1A1A] transition"
+              labelClassName="text-xs font-semibold text-[var(--js-text-secondary)] uppercase tracking-wider"
             />
-          </label>
+          </div>
           <div className="flex justify-end mb-6">
             <Link to="/forgot-password" className="text-xs text-[#C84B31] hover:underline font-semibold" data-testid="forgot-password-link">
               {t("forgotPassword")}

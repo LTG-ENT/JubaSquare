@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import api, { formatDetail } from "@/lib/api";
 import { Logo } from "@/components/Logo";
+import PasswordInput from "@/components/PasswordInput";
 import { ArrowLeft, User, Store, Loader2, CheckCircle2, Mail } from "lucide-react";
 import { toast } from "sonner";
 
@@ -136,12 +137,20 @@ export default function Signup() {
                    className="mt-1.5 w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#1A1A1A]" />
           </label>
 
-          <label className="block">
-            <span className="text-xs font-semibold text-[var(--js-text-secondary)] uppercase tracking-wider">{t("password")}</span>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} data-testid="signup-password"
-                   className="mt-1.5 w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#1A1A1A]" />
+          <div className="block">
+            <PasswordInput
+              label={t("password")}
+              value={password}
+              onChange={setPassword}
+              required
+              minLength={6}
+              testId="signup-password"
+              autoComplete="new-password"
+              inputClassName="mt-1.5 w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-xl px-4 py-2.5 pr-11 text-sm focus:outline-none focus:border-[#1A1A1A]"
+              labelClassName="text-xs font-semibold text-[var(--js-text-secondary)] uppercase tracking-wider"
+            />
             <span className="text-[11px] text-[var(--js-text-secondary)] mt-1 inline-block">{t("atLeast6Chars")}</span>
-          </label>
+          </div>
 
           <button type="submit" disabled={busy} data-testid="signup-submit"
             className="w-full bg-[#C84B31] hover:bg-[#A83A23] text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 transition disabled:opacity-60">
