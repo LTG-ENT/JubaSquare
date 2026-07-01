@@ -15,7 +15,7 @@ import pytest
 import requests
 from motor.motor_asyncio import AsyncIOMotorClient
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://locale-switcher-5.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://jubasquare-odoo-v2.preview.emergentagent.com").rstrip("/")
 
 # Load backend .env directly for the service token
 def _load_env_value(key: str) -> str:

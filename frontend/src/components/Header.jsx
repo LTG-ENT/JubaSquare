@@ -13,6 +13,7 @@ import NotificationBell from "@/components/NotificationBell";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import CategoriesNavMenu from "@/components/CategoriesNavMenu";
 import SearchButton from "@/components/SearchButton";
+import GlobalSearch from "@/components/GlobalSearch";
 
 const Brand = ({ to = "/" }) => (
   <Link to={to} className="flex items-center gap-1.5 sm:gap-2 md:gap-3 shrink-0 min-w-0 max-w-full" data-testid="brand-logo">

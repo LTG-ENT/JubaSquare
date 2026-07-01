@@ -14,7 +14,7 @@ import pytest
 import requests
 
 BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL")
-            or "https://locale-switcher-5.preview.emergentagent.com").rstrip("/")
+            or "https://jubasquare-odoo-v2.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
 ADMIN = {"email": "admin@LTG.com", "password": "Kokobleake1"}
