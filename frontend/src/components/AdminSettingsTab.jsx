@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import api, { formatDetail } from "@/lib/api";
 import AdminPerformanceSection from "@/components/AdminPerformanceSection";
 import PasswordInput from "@/components/PasswordInput";
+import DeleteUserConfirmModal from "@/components/DeleteUserConfirmModal";
 import { Percent, Save, RotateCcw, Info, Store, ArrowRight, Users, Search, Filter, MoreVertical, Edit, Key, Mail, Power, Trash2, Eye, X, CheckCircle, XCircle, ShoppingBag, DollarSign, Plus } from "lucide-react";
 import { toast } from "sonner";
 
@@ -632,6 +633,7 @@ function UserManagement() {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState([]);
+  const [deleteTargets, setDeleteTargets] = useState(null); // null | [{id,name,email,role}]
 
   const loadUsers = async () => {
     setLoading(true);
@@ -672,35 +674,38 @@ function UserManagement() {
     }
   };
 
-  const deleteUser = async (user) => {
-    if (!window.confirm(`Delete ${user.name}'s account? This action cannot be undone.\n\nAll their data (shops, products, orders history) will be removed.`)) return;
-    
-    try {
-      await api.delete(`/admin/users/${user.id}`);
-      toast.success("User deleted successfully");
-      loadUsers();
-    } catch (err) {
-      toast.error(formatDetail(err.response?.data?.detail) || "Failed to delete user");
-    }
+  const deleteUser = (user) => {
+    // Open the typed-confirm modal instead of window.confirm.
+    setDeleteTargets([user]);
   };
 
-
-  const bulkDeleteUsers = async () => {
+  const bulkDeleteUsers = () => {
     if (selectedUserIds.length === 0) {
       toast.error("No users selected");
       return;
     }
-    
-    const confirmMsg = `Delete ${selectedUserIds.length} selected user(s)? This action cannot be undone.\n\nAll their data (shops, products, orders) will be removed.`;
-    if (!window.confirm(confirmMsg)) return;
-    
+    const targets = users.filter((u) => selectedUserIds.includes(u.id));
+    setDeleteTargets(targets);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTargets || deleteTargets.length === 0) return;
     try {
-      const { data } = await api.post("/admin/users/bulk-delete", { user_ids: selectedUserIds });
-      toast.success(data.message || `${selectedUserIds.length} user(s) deleted successfully`);
-      setSelectedUserIds([]);
+      if (deleteTargets.length === 1) {
+        await api.delete(`/admin/users/${deleteTargets[0].id}`);
+        toast.success("User deleted successfully");
+      } else {
+        const { data } = await api.post("/admin/users/bulk-delete", {
+          user_ids: deleteTargets.map((u) => u.id),
+        });
+        toast.success(data.message || `${deleteTargets.length} user(s) deleted successfully`);
+        setSelectedUserIds([]);
+      }
+      setDeleteTargets(null);
       loadUsers();
     } catch (err) {
-      toast.error(formatDetail(err.response?.data?.detail) || "Failed to delete users");
+      toast.error(formatDetail(err.response?.data?.detail) || "Failed to delete user(s)");
+      throw err;
     }
   };
 
@@ -897,6 +902,13 @@ function UserManagement() {
           onSuccess={() => { setShowCreateModal(false); loadUsers(); }}
         />
       )}
+
+      <DeleteUserConfirmModal
+        open={!!deleteTargets}
+        users={deleteTargets || []}
+        onCancel={() => setDeleteTargets(null)}
+        onConfirm={confirmDelete}
+      />
     </div>
   );
 }

@@ -4956,6 +4956,9 @@ async def admin_analytics(_: dict = Depends(require_role("admin"))):
     for u in users:
         try:
             dt = datetime.fromisoformat(u.get("created_at") or "")
+            # Coerce naive datetimes to UTC so we can compare against since30
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
         except Exception:
             continue
         if dt < since30:
@@ -5278,6 +5281,53 @@ async def admin_update_user_status(user_id: str, body: AdminUserStatusIn, admin:
     
     action = "enabled" if body.is_active else "disabled"
     return {"ok": True, "message": f"User {user.get('name') or user.get('email')} has been {action}"}
+
+
+@api.get("/admin/users/{user_id}/delete-preview")
+async def admin_delete_preview(user_id: str, admin: dict = Depends(require_role("admin"))):
+    """Return a summary of what a hard-delete would cascade — used by the
+    admin UI to show a confirmation modal ('this will also delete X shops,
+    Y products, Z restaurants — cannot be undone')."""
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    counts = {
+        "notifications": await db.notifications.count_documents({"user_id": user_id}),
+        "favorites": await db.favorites.count_documents({"user_id": user_id}),
+        "reviews_written": await db.reviews.count_documents({"user_id": user_id}),
+        "messages_sent": (
+            await db.order_messages.count_documents({"sender_id": user_id})
+            + await db.shop_messages.count_documents({"customer_id": user_id})
+        ),
+    }
+
+    if user.get("role") == "seller":
+        shops = await db.shops.find({"seller_id": user_id}, {"_id": 0, "id": 1}).to_list(1000)
+        shop_ids = [s["id"] for s in shops]
+        restaurants = await db.restaurants.find({"seller_id": user_id}, {"_id": 0, "id": 1}).to_list(1000)
+        restaurant_ids = [r["id"] for r in restaurants]
+        counts.update({
+            "shops": len(shop_ids),
+            "products": await db.products.count_documents({"shop_id": {"$in": shop_ids}}),
+            "restaurants": len(restaurant_ids),
+            "menu_items": await db.menu_items.count_documents({"restaurant_id": {"$in": restaurant_ids}}),
+            "reviews_received": (
+                await db.reviews.count_documents({"shop_id": {"$in": shop_ids}})
+                + await db.reviews.count_documents({"restaurant_id": {"$in": restaurant_ids}})
+            ),
+            "invoices": (
+                await db.invoices.count_documents({"seller_id": user_id})
+                + await db.restaurant_invoices.count_documents({"seller_id": user_id})
+            ),
+            "payouts": await db.seller_payouts.count_documents({"seller_id": user_id}),
+        })
+
+    return {
+        "user": {"id": user["id"], "email": user.get("email"), "name": user.get("name"), "role": user.get("role")},
+        "counts": counts,
+        "orders_kept": True,  # Orders are retained for historical/accounting records
+    }
 
 
 @api.delete("/admin/users/{user_id}")
