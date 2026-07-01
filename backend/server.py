@@ -5291,21 +5291,68 @@ async def admin_delete_user(user_id: str, admin: dict = Depends(require_role("ad
     if user_id == admin["id"]:
         raise HTTPException(400, "You cannot delete your own account")
     
-    # Delete user and related data
+    await _cascade_delete_user(user)
+
+
+async def _cascade_delete_user(user: dict) -> None:
+    """Hard-delete a user + everything they own.
+
+    - Users, notifications, favorites, email_verifications, password_resets,
+      onboarding_progress, reports (authored by the user), order_messages
+      (sent by them), shop_messages (sent by them as customer_id).
+    - If seller: also delete their shops, products, restaurants, menu_items,
+      reviews on those shops/products/restaurants, shop_messages & order_messages
+      touching those shops, seller_payouts, seller_order_splits, invoices,
+      restaurant_invoices.
+    - Orders are KEPT for historical/accounting records — `seller_id` will
+      orphan, but customer order history + platform revenue reports survive.
+    """
+    user_id = user["id"]
+
+    # Per-user cleanup (applies to any role)
     await db.users.delete_one({"id": user_id})
     await db.notifications.delete_many({"user_id": user_id})
     await db.favorites.delete_many({"user_id": user_id})
     await db.email_verifications.delete_many({"user_id": user_id})
     await db.password_resets.delete_many({"user_id": user_id})
-    
-    # If seller, delete their shops, products, restaurants
-    if user.get("role") == "seller":
-        shops = await db.shops.find({"seller_id": user_id}, {"_id": 0, "id": 1}).to_list(1000)
-        shop_ids = [s["id"] for s in shops]
-        await db.shops.delete_many({"seller_id": user_id})
-        await db.products.delete_many({"shop_id": {"$in": shop_ids}})
-        await db.restaurants.delete_many({"seller_id": user_id})
-        # Note: Orders are kept for historical records but seller_id will be orphaned
+    await db.onboarding_progress.delete_many({"user_id": user_id})
+    await db.reports.delete_many({"reporter_id": user_id})
+    await db.reviews.delete_many({"user_id": user_id})
+    await db.order_messages.delete_many({"sender_id": user_id})
+    await db.shop_messages.delete_many({"customer_id": user_id})
+
+    if user.get("role") != "seller":
+        return
+
+    # Seller cascade — gather owned entities first so we can filter dependents.
+    shops = await db.shops.find({"seller_id": user_id}, {"_id": 0, "id": 1}).to_list(1000)
+    shop_ids = [s["id"] for s in shops]
+    products = await db.products.find({"shop_id": {"$in": shop_ids}}, {"_id": 0, "id": 1}).to_list(10000)
+    product_ids = [p["id"] for p in products]
+    restaurants = await db.restaurants.find({"seller_id": user_id}, {"_id": 0, "id": 1}).to_list(1000)
+    restaurant_ids = [r["id"] for r in restaurants]
+
+    # Delete owned entities
+    await db.shops.delete_many({"seller_id": user_id})
+    await db.products.delete_many({"shop_id": {"$in": shop_ids}})
+    await db.restaurants.delete_many({"seller_id": user_id})
+    await db.menu_items.delete_many({"restaurant_id": {"$in": restaurant_ids}})
+
+    # Reviews left on any of those shops / products / restaurants
+    await db.reviews.delete_many({"shop_id": {"$in": shop_ids}})
+    await db.reviews.delete_many({"product_id": {"$in": product_ids}})
+    await db.reviews.delete_many({"restaurant_id": {"$in": restaurant_ids}})
+
+    # Messages tied to those shops
+    await db.shop_messages.delete_many({"shop_id": {"$in": shop_ids}})
+    await db.order_messages.delete_many({"seller_id": user_id})
+
+    # Payouts / invoices / reports about the seller
+    await db.seller_payouts.delete_many({"seller_id": user_id})
+    await db.seller_order_splits.delete_many({"seller_id": user_id})
+    await db.invoices.delete_many({"seller_id": user_id})
+    await db.restaurant_invoices.delete_many({"seller_id": user_id})
+    await db.reports.delete_many({"shop_id": {"$in": shop_ids}})
 
 
 @api.post("/admin/users/bulk-delete")
@@ -5317,47 +5364,14 @@ async def admin_bulk_delete_users(body: AdminBulkDeleteUsersIn, admin: dict = De
     if admin["id"] in user_ids:
         raise HTTPException(400, "You cannot delete your own account")
     
-    # Get all users to delete
     users = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0}).to_list(1000)
     if not users:
         raise HTTPException(404, "No users found to delete")
-    
-    deleted_count = 0
-    seller_ids = []
-    
-    for user in users:
-        user_id = user["id"]
-        
-        # Delete user and related data
-        await db.users.delete_one({"id": user_id})
-        await db.notifications.delete_many({"user_id": user_id})
-        await db.favorites.delete_many({"user_id": user_id})
-        await db.email_verifications.delete_many({"user_id": user_id})
-        await db.password_resets.delete_many({"user_id": user_id})
-        
-        # Track sellers for cascade delete
-        if user.get("role") == "seller":
-            seller_ids.append(user_id)
-        
-        deleted_count += 1
-    
-    # Cascade delete for sellers (shops, products, restaurants)
-    if seller_ids:
-        shops = await db.shops.find({"seller_id": {"$in": seller_ids}}, {"_id": 0, "id": 1}).to_list(10000)
-        shop_ids = [s["id"] for s in shops]
-        await db.shops.delete_many({"seller_id": {"$in": seller_ids}})
-        await db.products.delete_many({"shop_id": {"$in": shop_ids}})
-        await db.restaurants.delete_many({"seller_id": {"$in": seller_ids}})
-    
-    return {
-        "ok": True,
-        "message": f"Successfully deleted {deleted_count} user(s)",
-        "deleted_count": deleted_count,
-    }
 
-    
-    return {"ok": True, "message": f"User {user.get('name') or user.get('email')} has been deleted"}
+    for u in users:
+        await _cascade_delete_user(u)
 
+    return {"deleted": len(users)}
 
 
 @api.post("/admin/areas")

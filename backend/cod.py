@@ -27,6 +27,7 @@ Endpoints exposed:
 """
 from __future__ import annotations
 
+import os
 import uuid
 import secrets
 import logging
@@ -2716,21 +2717,24 @@ async def seed_cod():
     await db.delivery_pricing_rules.create_index([("restaurant_id", 1)])
     await db.delivery_pricing_rules.create_index([("active", 1)])
 
-    # Demo driver
-    demo_email = "driver@demo.com"
-    if not await db.users.find_one({"email": demo_email}):
-        await db.users.insert_one({
-            "id": str(uuid.uuid4()),
-            "email": demo_email,
-            "name": "Demo Driver",
-            "phone": "+211900000001",
-            "role": "driver",
-            "settings": {},
-            "email_verified": True,
-            "is_active": True,
-            "must_change_password": False,
-            "password_hash": hash_password("1234"),
-            "created_at": now_iso(),
-        })
-        if log:
-            log.info("🚚 Seeded demo driver: driver@demo.com / 1234")
+    # Demo driver — disabled for production. Toggle back on by setting
+    # SEED_DEMO_DRIVER=1 in backend/.env if you need a demo driver account
+    # (development/local testing).
+    if os.environ.get("SEED_DEMO_DRIVER") == "1":
+        demo_email = "driver@demo.com"
+        if not await db.users.find_one({"email": demo_email}):
+            await db.users.insert_one({
+                "id": str(uuid.uuid4()),
+                "email": demo_email,
+                "name": "Demo Driver",
+                "phone": "+211900000001",
+                "role": "driver",
+                "settings": {},
+                "email_verified": True,
+                "is_active": True,
+                "must_change_password": False,
+                "password_hash": hash_password("1234"),
+                "created_at": now_iso(),
+            })
+            if log:
+                log.info("🚚 Seeded demo driver: driver@demo.com / 1234")
