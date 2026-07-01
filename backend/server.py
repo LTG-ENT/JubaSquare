@@ -1641,8 +1641,11 @@ async def check_category_integrity(user: dict = Depends(require_role("admin"))):
     all_cats = await db.categories.find({}, {"_id": 0, "id": 1}).to_list(10000)
     valid_cat_ids = {c["id"] for c in all_cats}
     
-    # Check products
-    all_products = await db.products.find({}, {"_id": 0}).to_list(10000)
+    # Check products (project only the fields we actually read below)
+    all_products = await db.products.find(
+        {},
+        {"_id": 0, "id": 1, "name": 1, "shop_id": 1, "category_id": 1, "category": 1},
+    ).to_list(10000)
     products_without_category_id = []
     products_with_invalid_category_id = []
     
