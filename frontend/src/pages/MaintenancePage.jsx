@@ -78,54 +78,17 @@ export default function MaintenancePage() {
         {/* -------- Center content -------- */}
         <div className="jsm-content">
           <div className="jsm-logo-wrap" aria-hidden="true">
-            {/* Shopping-bag JS mark rendered as SVG (crisp at any size) */}
-            <svg viewBox="0 0 120 120" className="jsm-logo" role="img" aria-label="JubaSquare logo">
-              <defs>
-                <linearGradient id="jsm-bag-grad" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%"  stopColor="#f4a261" />
-                  <stop offset="55%" stopColor="#e07a2a" />
-                  <stop offset="100%" stopColor="#b64a12" />
-                </linearGradient>
-                <linearGradient id="jsm-hand-grad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%"  stopColor="#3aa0ff" />
-                  <stop offset="100%" stopColor="#1a63b3" />
-                </linearGradient>
-                <filter id="jsm-logo-glow" x="-30%" y="-30%" width="160%" height="160%">
-                  <feGaussianBlur stdDeviation="2.4" result="b" />
-                  <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-                </filter>
-              </defs>
-
-              {/* Handle */}
-              <path
-                d="M45 40 Q 45 22 60 22 Q 75 22 75 40"
-                fill="none"
-                stroke="url(#jsm-hand-grad)"
-                strokeWidth="5"
-                strokeLinecap="round"
-                filter="url(#jsm-logo-glow)"
-              />
-              {/* Bag */}
-              <path
-                d="M30 42 L90 42 L96 100 Q96 106 90 106 L30 106 Q24 106 24 100 Z"
-                fill="url(#jsm-bag-grad)"
-                stroke="#2a1206"
-                strokeWidth="1"
-                filter="url(#jsm-logo-glow)"
-              />
-              {/* JS lettering */}
-              <text
-                x="60" y="82"
-                textAnchor="middle"
-                fontFamily="Georgia, 'Times New Roman', serif"
-                fontWeight="700"
-                fontSize="34"
-                fill="#fff5e8"
-                style={{ paintOrder: "stroke" }}
-                stroke="#3a1a08"
-                strokeWidth="0.6"
-              >JS</text>
-            </svg>
+            {/* Real JubaSquare logo — properly-centered 1024x1024 export
+                (icon-512.png was offset to the upper-left corner, which
+                made the shopping bag look squished/deformed in the square
+                wrapper). This file letterboxes the source cleanly. */}
+            <img
+              src="/icons/jubasquare-logo.png"
+              alt="JubaSquare"
+              className="jsm-logo"
+              draggable="false"
+              decoding="async"
+            />
           </div>
 
           <p className="jsm-wordmark">JubaSquare</p>

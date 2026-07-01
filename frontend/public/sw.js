@@ -7,7 +7,7 @@
  * Version bumped to invalidate old caches on deploys.
  */
 
-const SW_VERSION = "js-sw-v1";
+const SW_VERSION = "js-sw-v2"; /* Bump to invalidate stale caches when app UI changes */
 const RUNTIME_CACHE = `js-runtime-${SW_VERSION}`;
 const STATIC_CACHE = `js-static-${SW_VERSION}`;
 
@@ -73,21 +73,18 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Static assets: cache-first
-  if (
+  // Static assets: for hashed bundle files use cache-first (they're immutable),
+  // but for non-hashed CSS/JS (dev mode / no hash) use network-first so updates
+  // are picked up immediately without needing an SW version bump.
+  const hasHash = /\.[a-f0-9]{8,}\.(css|js|woff2?)$/i.test(url.pathname);
+  const isStatic =
     url.pathname.startsWith("/static/") ||
     url.pathname.startsWith("/icons/") ||
-    url.pathname.endsWith(".png") ||
-    url.pathname.endsWith(".jpg") ||
-    url.pathname.endsWith(".jpeg") ||
-    url.pathname.endsWith(".webp") ||
-    url.pathname.endsWith(".svg") ||
-    url.pathname.endsWith(".ico") ||
-    url.pathname.endsWith(".woff2") ||
-    url.pathname.endsWith(".woff") ||
-    url.pathname.endsWith(".css") ||
-    url.pathname.endsWith(".js")
-  ) {
+    /\.(png|jpe?g|webp|svg|ico|woff2?)$/i.test(url.pathname);
+  const isBundle = /\.(css|js)$/i.test(url.pathname);
+
+  if (isStatic && (hasHash || !isBundle)) {
+    // Cache-first for images/fonts and hashed bundles
     event.respondWith(
       caches.match(req).then(
         (cached) =>
@@ -98,6 +95,19 @@ self.addEventListener("fetch", (event) => {
             return res;
           }).catch(() => cached)
       )
+    );
+    return;
+  }
+  if (isBundle) {
+    // Network-first for un-hashed bundles (webpack dev / hot reload)
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(RUNTIME_CACHE).then((c) => c.put(req, copy));
+          return res;
+        })
+        .catch(() => caches.match(req))
     );
   }
 });
