@@ -273,5 +273,17 @@ JubaSquare backend + admin UI now expose everything an external Odoo 18 module n
 - **P2** Invoice detail page with line-item orders
 - **P2** Email notifications, i18n, document upload for verification
 
+### Iter 14 (Feb 2026) — **Maintenance Page logo fix + Seller Onboarding Guide**
+- Fixed maintenance page logo (was using `icon-512.png` with the shopping-bag offset to the upper-left → looked squished). New `/icons/jubasquare-logo.png` letterboxes the source PNG with the bag properly centered.
+- **Seller Onboarding Guide** (option 1D — all-of-the-above):
+  - New route `/seller/guide` — 9-step comprehensive guide (profile, shop, product, delivery, payout, orders, analytics, bulk import, reviews). Core steps flagged; auto-detected steps flagged.
+  - `SellerOnboardingCard` on top of the Seller Dashboard: progress bar, 3 pending step tiles, "Open full guide" + "Show me around" buttons. Auto-hides at 100%.
+  - `SellerFirstLoginWizard` — 3-step modal (Set up shop → Add first product → Configure delivery). Dismissable, persists on server.
+  - `SellerDashboardTour` — react-joyride 3.1 interactive tour with 7 tooltips pointing at dashboard tabs.
+  - Backend: 5 endpoints (`/api/seller/onboarding/{progress,complete-step,uncheck-step,dismiss-wizard,complete-tour}`), auto-detection of shop/product/delivery/bulk from existing collections, "Setup Verified" badge earned when all 5 core steps done.
+  - i18n: full translations for English + Arabic (RTL verified); other 5 languages fall back to English.
+  - Tested by testing_agent_v3_fork: 8/8 backend pytest + all frontend flows pass.
+
+
 ## Test Credentials
 See `/app/memory/test_credentials.md`.
