@@ -3,6 +3,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useSystem } from "@/context/SystemContext";
 import { useTranslation } from "react-i18next";
 import api, { formatDetail } from "@/lib/api";
+import PasswordChangeForm from "@/components/PasswordChangeForm";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { toast } from "sonner";
@@ -242,25 +243,7 @@ function ProfileSection() {
 }
 
 function PasswordSection() {
-  const { t } = useTranslation();
-  const [pw, setPw] = useState({ current_password: "", new_password: "" });
-  const submit = async (e) => {
-    e.preventDefault();
-    try {
-      await api.post("/auth/change-password", pw);
-      setPw({ current_password: "", new_password: "" });
-      toast.success(t("toastPasswordChanged"));
-    } catch (err) { toast.error(formatDetail(err.response?.data?.detail)); }
-  };
-  return (
-    <Card title={`🔑 ${t("updatePassword")}`}>
-      <form onSubmit={submit} className="space-y-3">
-        <Row label={t("currentPassword")}><input type="password" value={pw.current_password} onChange={(e) => setPw({ ...pw, current_password: e.target.value })} data-testid="current-pw" className="js-input max-w-md" /></Row>
-        <Row label={t("newPassword")}><input type="password" value={pw.new_password} onChange={(e) => setPw({ ...pw, new_password: e.target.value })} data-testid="new-pw" className="js-input max-w-md" /></Row>
-        <button type="submit" data-testid="change-pw-btn" className="bg-[#C84B31] hover:bg-[#A83A23] text-white text-sm font-semibold px-5 py-2.5 rounded-full">{t("updatePassword")}</button>
-      </form>
-    </Card>
-  );
+  return <PasswordChangeForm />;
 }
 
 function Card({ title, children }) {

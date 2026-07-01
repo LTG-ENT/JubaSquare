@@ -8,7 +8,9 @@
         <meta name="description" content="JubaSquare is South Sudan's online marketplace — shop groceries, electronics, fashion, food delivery and wholesale bulk deals in Juba. By L.T.G Enterprise." />
         <meta name="keywords" content="Juba marketplace, South Sudan online shopping, Juba wholesale, Juba food delivery, JubaSquare, LTG Enterprise" />
         <meta name="author" content="L.T.G Enterprise" />
-        <meta name="robots" content="index, follow" />
+        <!-- No default robots meta — pages set their own via react-helmet-async
+             (the maintenance page uses "noindex, nofollow"; everything else is
+             indexable by default, which is what search engines assume anyway.) -->
 
         <!-- Open Graph / Facebook -->
         <meta property="og:type" content="website" />

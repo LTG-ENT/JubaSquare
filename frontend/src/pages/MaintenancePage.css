@@ -1,0 +1,219 @@
+/*
+ * JubaSquare Maintenance Page styles.
+ * Ported 1:1 from the design package (jubasquare_css_maintenance.zip),
+ * with class names prefixed `jsm-` to avoid clashing with the rest of the app.
+ * Pure CSS animations. Respects prefers-reduced-motion.
+ */
+
+.jsm-page {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #061331;
+  isolation: isolate;
+  z-index: 2147483000; /* on top of everything, incl. toasts / modals */
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.jsm-page,
+.jsm-page * {
+  box-sizing: border-box;
+}
+
+.jsm-background {
+  position: absolute;
+  inset: 0;
+  /* background-image is set inline in MaintenancePage.jsx to avoid CSS build-time path resolution */
+  background-position: center center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  transform: scale(1.01);
+  animation: jsmSettledZoom 18s ease-in-out infinite alternate;
+  z-index: 1;
+}
+
+.jsm-soft-glow {
+  position: absolute;
+  inset: -15%;
+  z-index: 2;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 20%, rgba(43, 140, 255, 0.18), transparent 20%),
+    radial-gradient(circle at 50% 77%, rgba(255, 138, 28, 0.13), transparent 25%),
+    radial-gradient(circle at 21% 70%, rgba(43, 140, 255, 0.08), transparent 18%),
+    radial-gradient(circle at 79% 68%, rgba(255, 138, 28, 0.08), transparent 18%);
+  mix-blend-mode: screen;
+  animation: jsmSettledGlow 8s ease-in-out infinite;
+}
+
+.jsm-light-sweep {
+  position: absolute;
+  inset: -25%;
+  z-index: 3;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    transparent 44%,
+    rgba(255, 255, 255, 0.12) 49%,
+    rgba(255, 255, 255, 0.03) 52%,
+    transparent 58%,
+    transparent 100%
+  );
+  transform: translateX(-130%) skewX(-10deg);
+  mix-blend-mode: screen;
+  animation: jsmSettledSweep 9s ease-in-out infinite;
+}
+
+.jsm-orbit {
+  position: absolute;
+  left: 50%;
+  top: 40.5%;
+  width: min(56vw, 900px);
+  height: min(33vw, 520px);
+  border-radius: 50%;
+  border: 1px solid rgba(255, 138, 28, 0.18);
+  border-left-color: rgba(43, 140, 255, 0.20);
+  border-right-color: rgba(255, 138, 28, 0.22);
+  box-shadow:
+    0 0 20px rgba(43, 140, 255, 0.08),
+    inset 0 0 18px rgba(255, 138, 28, 0.07);
+  z-index: 3;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  animation: jsmSettledOrbit 38s linear infinite;
+}
+
+.jsm-orbit--second {
+  width: min(45vw, 720px);
+  height: min(26vw, 420px);
+  border-color: rgba(43, 140, 255, 0.14);
+  border-top-color: rgba(255, 138, 28, 0.18);
+  animation-duration: 52s;
+  animation-direction: reverse;
+}
+
+.jsm-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #ff8a1c;
+  box-shadow: 0 0 18px rgba(255, 138, 28, 0.75);
+  z-index: 4;
+  pointer-events: none;
+  animation: jsmSettledDot 6s ease-in-out infinite;
+}
+
+.jsm-dot--blue {
+  background: #2b8cff;
+  box-shadow: 0 0 18px rgba(43, 140, 255, 0.75);
+  animation-delay: -2.5s;
+}
+
+.jsm-dot--one   { left: 47%; top: 14%; }
+.jsm-dot--two   { right: 26%; top: 39%; }
+.jsm-dot--three { left: 27%; top: 42%; }
+
+.jsm-particle {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  width: calc(4px * var(--s));
+  height: calc(4px * var(--s));
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.80);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.7), 0 0 20px rgba(43, 140, 255, 0.3);
+  z-index: 4;
+  opacity: 0.45;
+  pointer-events: none;
+  animation: jsmSettledParticle 7s ease-in-out infinite;
+  animation-delay: var(--d);
+}
+
+.jsm-particle:nth-child(even) {
+  background: rgba(255, 138, 28, 0.85);
+  box-shadow: 0 0 10px rgba(255, 138, 28, 0.65), 0 0 20px rgba(255, 138, 28, 0.25);
+}
+
+.jsm-bottom-wave {
+  position: absolute;
+  left: -20%;
+  right: -20%;
+  bottom: 3%;
+  height: 13%;
+  z-index: 3;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 50% 100%, rgba(255, 138, 28, 0.16), transparent 55%),
+    linear-gradient(90deg, transparent, rgba(43, 140, 255, 0.10), rgba(255, 138, 28, 0.12), transparent);
+  filter: blur(12px);
+  opacity: 0.7;
+  animation: jsmSettledWave 10s ease-in-out infinite alternate;
+}
+
+.jsm-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes jsmSettledZoom {
+  from { transform: scale(1.01); }
+  to   { transform: scale(1.025); }
+}
+
+@keyframes jsmSettledGlow {
+  0%, 100% { opacity: 0.70; transform: scale(1); }
+  50%      { opacity: 0.95; transform: scale(1.025); }
+}
+
+@keyframes jsmSettledSweep {
+  0%   { transform: translateX(-130%) skewX(-10deg); opacity: 0; }
+  28%  { opacity: 0.7; }
+  54%  { transform: translateX(130%) skewX(-10deg); opacity: 0; }
+  100% { transform: translateX(130%) skewX(-10deg); opacity: 0; }
+}
+
+@keyframes jsmSettledOrbit {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to   { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+@keyframes jsmSettledDot {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(0.85); opacity: 0.45; }
+  50%      { transform: translate3d(10px, -12px, 0) scale(1.12); opacity: 0.9; }
+}
+
+@keyframes jsmSettledParticle {
+  0%, 100% { transform: translateY(0); opacity: 0.2; }
+  50%      { transform: translateY(-18px); opacity: 0.75; }
+}
+
+@keyframes jsmSettledWave {
+  from { transform: translateX(-3%) translateY(0); opacity: 0.45; }
+  to   { transform: translateX(3%)  translateY(-4%); opacity: 0.8; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jsm-background,
+  .jsm-soft-glow,
+  .jsm-light-sweep,
+  .jsm-orbit,
+  .jsm-dot,
+  .jsm-particle,
+  .jsm-bottom-wave {
+    animation: none !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .jsm-orbit          { width: 82vw; height: 48vw; }
+  .jsm-orbit--second  { width: 64vw; height: 38vw; }
+}

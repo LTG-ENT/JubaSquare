@@ -11,6 +11,7 @@ import OrderChatButton from "@/components/OrderChatButton";
 import SellerWalletTab from "@/components/SellerWalletTab";
 import BulkImportModal from "@/components/BulkImportModal";
 import SellerAnalyticsTab from "@/components/SellerAnalyticsTab";
+import PasswordChangeForm from "@/components/PasswordChangeForm";
 import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle, ExternalLink, MessageCircle, Mail, Phone, ChefHat, Wallet, MapPin, Upload, TrendingUp, PackageCheck } from "lucide-react";
 import { useSearchParams, Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -1915,7 +1916,6 @@ function RateTab() {
 function SettingsTab() {
   const { user, setUser } = useAuth();
   const [form, setForm] = useState({ name: user?.name || "", phone: user?.phone || "" });
-  const [pw, setPw] = useState({ current_password: "", new_password: "" });
 
   const saveProfile = async (e) => {
     e.preventDefault();
@@ -1923,17 +1923,6 @@ function SettingsTab() {
       const { data } = await api.put("/auth/profile", form);
       setUser(data);
       toast.success("Profile updated");
-    } catch (err) {
-      toast.error(formatDetail(err.response?.data?.detail));
-    }
-  };
-
-  const changePw = async (e) => {
-    e.preventDefault();
-    try {
-      await api.post("/auth/change-password", pw);
-      setPw({ current_password: "", new_password: "" });
-      toast.success("Password changed");
     } catch (err) {
       toast.error(formatDetail(err.response?.data?.detail));
     }
@@ -1947,12 +1936,7 @@ function SettingsTab() {
         <Input label="Phone" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} testId="settings-phone-input" />
         <button type="submit" data-testid="save-profile-btn" className="bg-[#1A1A1A] text-white font-semibold px-5 py-2.5 rounded-full">Save profile</button>
       </form>
-      <form onSubmit={changePw} className="bg-white border border-[#E2E2D9] rounded-3xl p-6 space-y-3">
-        <h2 className="font-display font-semibold text-xl">Change password</h2>
-        <Input label="Current password" type="password" value={pw.current_password} onChange={(v) => setPw({ ...pw, current_password: v })} testId="current-pw-input" />
-        <Input label="New password" type="password" value={pw.new_password} onChange={(v) => setPw({ ...pw, new_password: v })} testId="new-pw-input" />
-        <button type="submit" data-testid="change-pw-btn" className="bg-[#C84B31] text-white font-semibold px-5 py-2.5 rounded-full">Update password</button>
-      </form>
+      <PasswordChangeForm />
     </div>
   );
 }

@@ -6,13 +6,14 @@ import "@/App.css";
 
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { CartProvider } from "@/context/CartContext";
-import { SystemProvider } from "@/context/SystemContext";
+import { SystemProvider, useSystem } from "@/context/SystemContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import RouteLoader from "@/components/RouteLoader";
 import DarkModeIconButton from "@/components/DarkModeIconButton";
 import FloatingChat from "@/components/FloatingChat";
 import InstallAppBanner from "@/components/InstallAppBanner";
+import MaintenancePage from "@/pages/MaintenancePage";
 import { useLocation, Navigate as RRNavigate } from "react-router-dom";
 
 // ---------------------------------------------------------------------------
@@ -78,6 +79,41 @@ function DriverGate({ children }) {
   return children;
 }
 
+/**
+ * MaintenanceGate — when the existing platform setting `maintenance_mode` is ON,
+ * we render the branded MaintenancePage to normal visitors. Admins and a small
+ * allowlist of paths (login/signup/admin) keep working so an admin can flip the
+ * switch back off. This uses the SAME settings.maintenance_mode from
+ * Admin → Platform Settings — no new toggle, no new setting.
+ */
+const MAINTENANCE_ALLOWED_PATHS = [
+  "/login",
+  "/signup",
+  "/forgot-password",
+  "/reset-password",
+  "/verify-email",
+  "/admin",              // AdminDashboard root
+];
+function MaintenanceGate({ children }) {
+  const { settings } = useSystem();
+  const { user } = useAuth();
+  const location = useLocation();
+
+  const isMaintenance = !!settings?.maintenance_mode;
+  if (!isMaintenance) return children;
+
+  // Admins bypass the maintenance page entirely so they can turn it off.
+  if (user?.role === "admin") return children;
+
+  // Allow the auth flows and admin routes so admins can log in.
+  const path = location.pathname || "/";
+  const isAllowed = MAINTENANCE_ALLOWED_PATHS.some((p) => path === p || path.startsWith(p + "/"));
+  if (isAllowed) return children;
+
+  return <MaintenancePage />;
+}
+
+
 export default function App() {
   return (
     <HelmetProvider>
@@ -88,6 +124,7 @@ export default function App() {
             <BrowserRouter>
               <Suspense fallback={<RouteLoader />}>
                 <DriverGate>
+                <MaintenanceGate>
                   <Routes>
                   <Route path="/" element={<Home />} />
                   <Route path="/login" element={<Login />} />
@@ -118,6 +155,7 @@ export default function App() {
                   <Route path="/returns" element={<Returns />} />
                   <Route path="*" element={<NotFound />} />
                   </Routes>
+                </MaintenanceGate>
                 </DriverGate>
               </Suspense>
               <FloatingChat />

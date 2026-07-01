@@ -358,6 +358,59 @@ backend:
             
             All SEO endpoints working correctly. No auth required (public). Valid XML and robots.txt format. No critical issues found.
 
+  - task: "Maintenance mode + Password change form (backend regression)"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            Frontend changes only (MaintenanceGate wrapper + PasswordChangeForm.jsx). Backend endpoints unchanged.
+            This is a regression verification task to confirm no backend functionality broke.
+        - working: true
+          agent: "testing"
+          comment: |
+            ✅ PASSED all 21 backend regression tests (21/21 = 100%):
+            
+            **1. MAINTENANCE MODE SETTINGS TOGGLE: ✅ ALL WORKING (7/7 tests passed)**
+            - Admin login with email succeeds (token obtained, role=admin) ✓
+            - GET /api/settings/public returns maintenance_mode field (initial: false) ✓
+            - PUT /api/admin/settings {"maintenance_mode": true} returns 200 and echoes maintenance_mode:true ✓
+            - GET /api/settings/public reflects maintenance_mode:true (cache invalidation works) ✓
+            - PUT /api/admin/settings {"maintenance_mode": false} returns 200 and echoes maintenance_mode:false ✓
+            - GET /api/settings/public reflects maintenance_mode:false (cache invalidation works for disable) ✓
+            - Non-admin PUT /api/admin/settings returns 403 Forbidden (customer cannot flip maintenance mode) ✓
+            
+            **2. PASSWORD CHANGE ENDPOINT REGRESSION: ✅ ALL WORKING (6/6 tests passed)**
+            - POST /api/auth/change-password with valid current password (admin: 1234 → newtest123) returns 200 ✓
+            - Login with old password (1234) returns 401 (password change took effect) ✓
+            - Login with new password (newtest123) succeeds with role=admin ✓
+            - Change password back to original (newtest123 → 1234) returns 200 ✓
+            - POST /api/auth/change-password with wrong current password returns 400 ✓
+            - POST /api/auth/change-password without auth returns 401 ✓
+            
+            **3. REGRESSION SMOKE TESTS: ✅ ALL WORKING (8/8 tests passed)**
+            - GET /api/homepage returns 200 with correct structure (hero_slides, hero_tagline, hero_title, hero_subtitle, announcement_bar) ✓
+            - GET /api/products/bulk-template (CSV) returns 200 with Content-Type: text/csv (232 bytes) ✓
+            - GET /api/products/bulk-template?fmt=xlsx returns 200 with XLSX file (starts with PK magic bytes) ✓
+            - GET /api/products/stock-update-template?fmt=xlsx returns 200 with XLSX file (starts with PK magic bytes) ✓
+            - GET /api/push/public-key returns 200 with public_key string (87 chars) ✓
+            - GET /api/admin/health (as admin) returns 200 with mongo.status=ok, mongo.ping_ms=102.49ms ✓
+            - GET /api/sitemap.xml returns 200 with valid XML (Content-Type: application/xml, starts with <?xml) ✓
+            - GET /api/robots.txt returns 200 with valid robots.txt (User-agent, Disallow, Sitemap directives) ✓
+            
+            **OVERALL ASSESSMENT:**
+            All backend endpoints working correctly. No regressions detected. Maintenance mode toggle works with proper cache invalidation. Password change endpoint works correctly with all validation scenarios. All prior features (homepage, bulk templates, push, health, SEO) remain functional.
+            
+            **NOTE:** Response times slightly higher than before (mongo.ping_ms ~100ms vs previous ~0.3ms) - this is expected as the system is now running against MongoDB Atlas instead of local MongoDB.
+            
+            **RECOMMENDATION:**
+            All backend endpoints verified and working. No critical issues found. Main agent can proceed to summarize and finish.
+
 
 backend:
   - task: "Shop delivery pricing fields (free/fixed/per_area)"
@@ -690,18 +743,13 @@ frontend:
 
 metadata:
   created_by: "main_agent"
-  version: "1.4"
-  test_sequence: 5
+  version: "1.5"
+  test_sequence: 6
   run_ui: false
 
 test_plan:
   current_focus:
-    - "Web Push (VAPID) endpoints"
-    - "Bulk stock update + XLSX templates"
-    - "Seller sales analytics"
-    - "Reports (create + admin list/update)"
-    - "Admin health endpoint"
-    - "SEO: sitemap.xml + robots.txt"
+    - "Maintenance mode + Password change form (backend regression)"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -3960,3 +4008,59 @@ agent_communication:
         
         **RECOMMENDATION:**
         All backend endpoints are ready for production. Main agent can proceed to summarize and finish.
+
+
+    - agent: "testing"
+      message: |
+        ✅ MAINTENANCE MODE + PASSWORD CHANGE BACKEND REGRESSION TESTING COMPLETE (21/21 tests PASSED, 100% success rate)
+        
+        **CONTEXT:**
+        Frontend-only changes (MaintenanceGate wrapper + PasswordChangeForm.jsx). Backend endpoints unchanged.
+        This is a formal verification to confirm no backend functionality broke.
+        
+        **TEST SUMMARY:**
+        All 21 backend regression tests passed with 100% success rate:
+        
+        **1. MAINTENANCE MODE SETTINGS TOGGLE: ✅ ALL WORKING (7/7 tests passed)**
+        - Admin login with email succeeds (token obtained, role=admin) ✓
+        - GET /api/settings/public returns maintenance_mode field (initial: false) ✓
+        - PUT /api/admin/settings {"maintenance_mode": true} returns 200 and echoes maintenance_mode:true ✓
+        - GET /api/settings/public reflects maintenance_mode:true (cache invalidation works) ✓
+        - PUT /api/admin/settings {"maintenance_mode": false} returns 200 and echoes maintenance_mode:false ✓
+        - GET /api/settings/public reflects maintenance_mode:false (cache invalidation works for disable) ✓
+        - Non-admin PUT /api/admin/settings returns 403 Forbidden (customer cannot flip maintenance mode) ✓
+        
+        **2. PASSWORD CHANGE ENDPOINT REGRESSION: ✅ ALL WORKING (6/6 tests passed)**
+        - POST /api/auth/change-password with valid current password (admin: 1234 → newtest123) returns 200 ✓
+        - Login with old password (1234) returns 401 (password change took effect) ✓
+        - Login with new password (newtest123) succeeds with role=admin ✓
+        - Change password back to original (newtest123 → 1234) returns 200 ✓
+        - POST /api/auth/change-password with wrong current password returns 400 ✓
+        - POST /api/auth/change-password without auth returns 401 ✓
+        
+        **3. REGRESSION SMOKE TESTS: ✅ ALL WORKING (8/8 tests passed)**
+        - GET /api/homepage returns 200 with correct structure (hero_slides, hero_tagline, hero_title, hero_subtitle, announcement_bar) ✓
+        - GET /api/products/bulk-template (CSV) returns 200 with Content-Type: text/csv (232 bytes) ✓
+        - GET /api/products/bulk-template?fmt=xlsx returns 200 with XLSX file (starts with PK magic bytes) ✓
+        - GET /api/products/stock-update-template?fmt=xlsx returns 200 with XLSX file (starts with PK magic bytes) ✓
+        - GET /api/push/public-key returns 200 with public_key string (87 chars) ✓
+        - GET /api/admin/health (as admin) returns 200 with mongo.status=ok, mongo.ping_ms=102.49ms ✓
+        - GET /api/sitemap.xml returns 200 with valid XML (Content-Type: application/xml, starts with <?xml) ✓
+        - GET /api/robots.txt returns 200 with valid robots.txt (User-agent, Disallow, Sitemap directives) ✓
+        
+        **KEY FINDINGS:**
+        - Maintenance mode toggle works correctly with proper cache invalidation
+        - Password change endpoint works correctly with all validation scenarios (valid/invalid current password, no auth)
+        - All prior features remain functional (homepage, bulk templates, push, health, SEO)
+        - Auth gating correct on all endpoints (401 without token, 403 for non-admin on admin endpoints)
+        - No regressions detected
+        
+        **NOTE:**
+        Response times slightly higher than before (mongo.ping_ms ~100ms vs previous ~0.3ms).
+        This is EXPECTED and NORMAL - the system is now running against MongoDB Atlas (cloud) instead of local MongoDB.
+        
+        **OVERALL ASSESSMENT:**
+        All backend endpoints working correctly. No regressions detected. Frontend changes did not break any backend functionality.
+        
+        **RECOMMENDATION:**
+        All backend endpoints verified and working. No critical issues found. Main agent can proceed to summarize and finish.
