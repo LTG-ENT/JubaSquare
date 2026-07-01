@@ -2147,6 +2147,21 @@ async def list_products(category_id: Optional[str] = None, category: Optional[st
     return products[off : off + lim]
 
 
+@api.get("/products/bulk-template")
+async def products_bulk_template(user: dict = Depends(require_role("seller", "admin"))):
+    """Return a CSV template for bulk product upload.
+    NOTE: This route MUST be declared before `/products/{product_id}` to avoid
+    FastAPI matching 'bulk-template' as a product_id parameter.
+    """
+    from fastapi.responses import PlainTextResponse
+    csv_content = (
+        "name,category_name,price_usd,description,stock,image_url,is_wholesale,min_order_qty,bulk_price_usd\n"
+        "Sample Product,Groceries,10.50,A short description,100,,false,1,\n"
+        "Bulk Rice 50kg,Groceries,45.00,Wholesale rice bag,50,,true,10,42.00\n"
+    )
+    return PlainTextResponse(csv_content, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=products_template.csv"})
+
+
 @api.get("/products/{product_id}")
 async def get_product(product_id: str):
     p = await db.products.find_one({"id": product_id}, {"_id": 0})
@@ -2301,18 +2316,6 @@ async def bulk_import_products(
             results["errors"].append({"row": idx, "name": (row.get("name") or "").strip()[:80], "error": str(e)})
 
     return results
-
-
-@api.get("/products/bulk-template")
-async def products_bulk_template(user: dict = Depends(require_role("seller", "admin"))):
-    """Return a CSV template for bulk product upload."""
-    from fastapi.responses import PlainTextResponse
-    csv_content = (
-        "name,category_name,price_usd,description,stock,image_url,is_wholesale,min_order_qty,bulk_price_usd\n"
-        "Sample Product,Groceries,10.50,A short description,100,,false,1,\n"
-        "Bulk Rice 50kg,Groceries,45.00,Wholesale rice bag,50,,true,10,42.00\n"
-    )
-    return PlainTextResponse(csv_content, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=products_template.csv"})
 
 
 @api.put("/products/{product_id}")
