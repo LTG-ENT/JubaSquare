@@ -245,6 +245,21 @@ backend:
     working: true
     file: "/app/backend/server.py"
     stuck_count: 0
+
+  - task: "Public signup is customer-only (role forced)"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py, /app/frontend/src/pages/Signup.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            SignupIn model no longer accepts `role` (field removed entirely). POST /api/auth/signup unconditionally sets role="customer" on the new user. Any extra role field in the request body is ignored (Pydantic default). Frontend Signup.jsx removed the role toggle buttons and only sends {email, password, name, phone}. A "Customer account" banner tells prospective sellers to contact the team; sellers/drivers must be created by an admin via /api/admin/users.
+
+
     priority: "high"
     needs_retesting: false
     status_history:
@@ -749,7 +764,7 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Password change + Maintenance mode toggle regression (mobile-optimized)"
+    - "Public signup is customer-only (role hardcoded)"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"

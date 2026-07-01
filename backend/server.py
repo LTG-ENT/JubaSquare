@@ -500,10 +500,11 @@ class LoginIn(BaseModel):
 
 
 class SignupIn(BaseModel):
+    """Public self-signup — customer accounts only.
+    Sellers and drivers must be created by an admin via /api/admin/users."""
     email: EmailStr
     password: str = Field(min_length=6)
     name: str = Field(min_length=1, max_length=120)
-    role: Literal["customer", "seller"] = "customer"
     phone: Optional[str] = ""
 
 
@@ -976,7 +977,7 @@ async def signup(body: SignupIn):
         "id": uid,
         "email": email,
         "name": body.name.strip(),
-        "role": body.role,  # customer | seller
+        "role": "customer",  # public signup is customer-only; sellers/drivers are admin-created
         "phone": (body.phone or "").strip(),
         "password_hash": hash_password(body.password),
         "email_verified": False,

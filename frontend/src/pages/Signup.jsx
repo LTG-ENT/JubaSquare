@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import api, { formatDetail } from "@/lib/api";
 import { Logo } from "@/components/Logo";
 import PasswordInput from "@/components/PasswordInput";
-import { ArrowLeft, User, Store, Loader2, CheckCircle2, Mail } from "lucide-react";
+import { ArrowLeft, Loader2, CheckCircle2, Mail, Store } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Signup() {
@@ -14,7 +14,6 @@ export default function Signup() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [phone, setPhone] = useState("");
-  const [role, setRole] = useState("customer");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
 
@@ -26,12 +25,12 @@ export default function Signup() {
     }
     setBusy(true);
     try {
+      // Public signup is customer-only. Sellers/drivers are created by an admin.
       await api.post("/auth/signup", {
         email: email.trim().toLowerCase(),
         password,
         name: name.trim(),
         phone: phone.trim(),
-        role,
       });
       setDone(true);
     } catch (e) {
@@ -98,25 +97,19 @@ export default function Signup() {
         </div>
 
         <form onSubmit={handleSubmit} className="bg-white border border-[var(--js-border)] rounded-3xl p-6 sm:p-8 shadow-[0_8px_32px_rgba(0,0,0,0.06)] space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={() => setRole("customer")}
-              data-testid="role-customer"
-              className={`flex flex-col items-center gap-1.5 py-3 px-3 rounded-xl border-2 transition ${role === "customer" ? "border-[#C84B31] bg-[#C84B31]/5" : "border-[var(--js-border)] hover:border-[#1A1A1A]"}`}
-            >
-              <User className="w-5 h-5" />
-              <span className="text-xs font-semibold">{t("shopAsCustomer")}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setRole("seller")}
-              data-testid="role-seller"
-              className={`flex flex-col items-center gap-1.5 py-3 px-3 rounded-xl border-2 transition ${role === "seller" ? "border-[#C84B31] bg-[#C84B31]/5" : "border-[var(--js-border)] hover:border-[#1A1A1A]"}`}
-            >
-              <Store className="w-5 h-5" />
-              <span className="text-xs font-semibold">{t("sellOnJubaSquare")}</span>
-            </button>
+          {/* Customer-only signup banner */}
+          <div className="rounded-xl bg-[#C84B31]/8 border border-[#C84B31]/25 px-3 py-2.5 flex items-start gap-2" data-testid="signup-customer-notice">
+            <Store className="w-4 h-4 text-[#C84B31] mt-0.5 flex-shrink-0" />
+            <div className="text-xs text-[var(--js-text)] leading-snug">
+              <p className="font-semibold">Customer account</p>
+              <p className="text-[var(--js-text-secondary)] mt-0.5">
+                Want to sell on JubaSquare?{" "}
+                <Link to="/contact" className="text-[#C84B31] font-semibold hover:underline">
+                  Contact our team
+                </Link>
+                {" "}to get a seller account.
+              </p>
+            </div>
           </div>
 
           <label className="block">
