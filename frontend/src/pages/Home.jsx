@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import api, { safeArray } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import SeoMeta, { websiteSchema, organizationSchema } from "@/components/SeoMeta";
 import ShopCard from "@/components/ShopCard";
 import WholesaleCard from "@/components/WholesaleCard";
 import RestaurantCard from "@/components/RestaurantCard";
@@ -93,6 +94,13 @@ export default function Home() {
 
   return (
     <div className="min-h-screen flex flex-col">
+      <SeoMeta
+        title="JubaSquare — Juba's Trusted Marketplace | Retail, Wholesale & Food"
+        description="Shop groceries, electronics, fashion, wholesale bulk deals and food delivery from trusted local shops and restaurants in Juba, South Sudan. By L.T.G Enterprise."
+        canonical={typeof window !== "undefined" ? window.location.origin + "/" : undefined}
+        image={typeof window !== "undefined" ? window.location.origin + "/icons/icon-512.png" : undefined}
+        schema={typeof window !== "undefined" ? [organizationSchema(window.location.origin), websiteSchema(window.location.origin)] : []}
+      />
       <Header />
 
       {/* HERO */}

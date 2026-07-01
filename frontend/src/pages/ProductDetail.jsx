@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import api, { formatPrice, formatPriceAlt } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import SeoMeta, { productSchema } from "@/components/SeoMeta";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { Plus, Minus, Heart, ChevronLeft, Star, Store, Truck, Package } from "lucide-react";
@@ -159,6 +160,16 @@ export default function ProductDetail() {
 
   return (
     <div className="min-h-screen flex flex-col">
+      {product && typeof window !== "undefined" && (
+        <SeoMeta
+          title={`${product.name} — JubaSquare`}
+          description={(product.description || `Buy ${product.name} on JubaSquare.`).slice(0, 200)}
+          canonical={`${window.location.origin}/product/${product.id}`}
+          image={product.image_url || `${window.location.origin}/icons/icon-512.png`}
+          type="product"
+          schema={productSchema({ product, shop, origin: window.location.origin })}
+        />
+      )}
       <Header />
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full flex-1">

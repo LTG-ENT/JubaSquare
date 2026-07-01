@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
+import { HelmetProvider } from "react-helmet-async";
 import "@/App.css";
 
 import { AuthProvider, useAuth } from "@/context/AuthContext";
@@ -11,6 +12,7 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import RouteLoader from "@/components/RouteLoader";
 import DarkModeIconButton from "@/components/DarkModeIconButton";
 import FloatingChat from "@/components/FloatingChat";
+import InstallAppBanner from "@/components/InstallAppBanner";
 import { useLocation, Navigate as RRNavigate } from "react-router-dom";
 
 // ---------------------------------------------------------------------------
@@ -78,6 +80,7 @@ function DriverGate({ children }) {
 
 export default function App() {
   return (
+    <HelmetProvider>
     <ErrorBoundary>
       <AuthProvider>
         <SystemProvider>
@@ -118,6 +121,7 @@ export default function App() {
                 </DriverGate>
               </Suspense>
               <FloatingChat />
+              <InstallAppBanner />
             </BrowserRouter>
             <DarkModeIconButton />
             <Toaster
@@ -130,5 +134,6 @@ export default function App() {
         </SystemProvider>
       </AuthProvider>
     </ErrorBoundary>
+    </HelmetProvider>
   );
 }

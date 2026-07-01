@@ -1,16 +1,18 @@
 import { useState } from "react";
 import api from "@/lib/api";
 import { toast } from "sonner";
-import { X, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { X, Upload, Download, CheckCircle2, AlertCircle, Loader2, FileSpreadsheet, FileText } from "lucide-react";
 
 /**
- * Bulk product import modal.
+ * Bulk modal for products.
+ *
  * Props:
+ *   mode: "import" (create products) | "stock-update" (update stock/prices)
  *   shops: [{id, name, kind}]
  *   onClose(): void
- *   onSuccess(createdCount): void
+ *   onSuccess(count): void
  */
-export default function BulkImportModal({ shops = [], onClose, onSuccess }) {
+export default function BulkImportModal({ mode = "import", shops = [], onClose, onSuccess }) {
   const [shopId, setShopId] = useState("");
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -18,13 +20,38 @@ export default function BulkImportModal({ shops = [], onClose, onSuccess }) {
 
   const retailShops = shops.filter((s) => s.kind !== "restaurant");
 
-  const downloadTemplate = async () => {
+  const cfg = mode === "stock-update"
+    ? {
+        title: "Bulk Stock & Price Update",
+        templatePath: "/products/stock-update-template",
+        importPath: "/products/bulk-stock-update",
+        templateBaseName: "stock_update_template",
+        successKey: "updated",
+        successVerb: "updated",
+        errorIdKey: "product_id",
+        description:
+          "Update stock levels and/or prices for existing products in bulk. Leave a cell blank to skip that field for that row. product_id is required.",
+      }
+    : {
+        title: "Bulk Import Products",
+        templatePath: "/products/bulk-template",
+        importPath: "/products/bulk-import",
+        templateBaseName: "products_template",
+        successKey: "created",
+        successVerb: "imported",
+        errorIdKey: "name",
+        description:
+          "Fill in one row per product. Required columns: name, category_name (or category_id), price_usd.",
+      };
+
+  const downloadTemplate = async (fmt) => {
     try {
-      const res = await api.get("/products/bulk-template", { responseType: "blob" });
+      const res = await api.get(`${cfg.templatePath}?fmt=${fmt}`, { responseType: "blob" });
+      const ext = fmt === "xlsx" ? "xlsx" : "csv";
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const link = document.createElement("a");
       link.href = url;
-      link.setAttribute("download", "products_template.csv");
+      link.setAttribute("download", `${cfg.templateBaseName}.${ext}`);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -40,7 +67,7 @@ export default function BulkImportModal({ shops = [], onClose, onSuccess }) {
       return;
     }
     if (!file) {
-      toast.error("Please choose a CSV file");
+      toast.error("Please choose a CSV or Excel file");
       return;
     }
     setUploading(true);
@@ -48,18 +75,19 @@ export default function BulkImportModal({ shops = [], onClose, onSuccess }) {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const res = await api.post(`/products/bulk-import?shop_id=${encodeURIComponent(shopId)}`, fd, {
+      const res = await api.post(`${cfg.importPath}?shop_id=${encodeURIComponent(shopId)}`, fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setResult(res.data);
-      if (res.data.created > 0) {
-        toast.success(`${res.data.created} product(s) imported`);
-        onSuccess?.(res.data.created);
+      const n = res.data[cfg.successKey] || 0;
+      if (n > 0) {
+        toast.success(`${n} product(s) ${cfg.successVerb}`);
+        onSuccess?.(n);
       } else {
-        toast.error("No products imported");
+        toast.error(`No products ${cfg.successVerb}`);
       }
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Import failed");
+      toast.error(e?.response?.data?.detail || "Operation failed");
     } finally {
       setUploading(false);
     }
@@ -70,7 +98,7 @@ export default function BulkImportModal({ shops = [], onClose, onSuccess }) {
       <div className="bg-white dark:bg-[var(--js-panel)] rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-[var(--js-border)]">
-          <h2 className="font-display font-bold text-xl text-[var(--js-text)]">Bulk Import Products</h2>
+          <h2 className="font-display font-bold text-xl text-[var(--js-text)]">{cfg.title}</h2>
           <button onClick={onClose} className="p-1 rounded-full hover:bg-[var(--js-subtle)]" data-testid="close-bulk-import">
             <X className="w-5 h-5" />
           </button>
@@ -82,18 +110,27 @@ export default function BulkImportModal({ shops = [], onClose, onSuccess }) {
           <div className="rounded-xl border border-[var(--js-border)] p-4 bg-[var(--js-bg)]">
             <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
               <div>
-                <p className="font-bold text-sm text-[var(--js-text)]">Step 1 — Download the CSV template</p>
-                <p className="text-xs text-[var(--js-text-secondary)] mt-0.5">
-                  Fill in one row per product. Required columns: name, category_name (or category_id), price_usd.
-                </p>
+                <p className="font-bold text-sm text-[var(--js-text)]">Step 1 — Download a template</p>
+                <p className="text-xs text-[var(--js-text-secondary)] mt-0.5">{cfg.description}</p>
               </div>
-              <button
-                onClick={downloadTemplate}
-                className="inline-flex items-center gap-2 bg-[#0E1A2B] hover:bg-[#1E3A5F] text-white text-xs font-semibold px-3 py-1.5 rounded-full"
-                data-testid="download-template-btn"
-              >
-                <Download className="w-3.5 h-3.5" /> Download Template
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => downloadTemplate("csv")}
+                  className="inline-flex items-center gap-1.5 bg-[#0E1A2B] hover:bg-[#1E3A5F] text-white text-xs font-semibold px-3 py-1.5 rounded-full"
+                  data-testid="download-template-csv"
+                  title="Download CSV template"
+                >
+                  <FileText className="w-3.5 h-3.5" /> CSV
+                </button>
+                <button
+                  onClick={() => downloadTemplate("xlsx")}
+                  className="inline-flex items-center gap-1.5 bg-[#217346] hover:bg-[#1a5c38] text-white text-xs font-semibold px-3 py-1.5 rounded-full"
+                  data-testid="download-template-xlsx"
+                  title="Download Excel template"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" /> Excel
+                </button>
+              </div>
             </div>
           </div>
 
@@ -118,10 +155,12 @@ export default function BulkImportModal({ shops = [], onClose, onSuccess }) {
 
           {/* Step 3: File */}
           <div>
-            <label className="text-xs uppercase tracking-wide font-bold text-[var(--js-text-secondary)]">Step 3 — Upload CSV</label>
+            <label className="text-xs uppercase tracking-wide font-bold text-[var(--js-text-secondary)]">
+              Step 3 — Upload CSV or Excel
+            </label>
             <input
               type="file"
-              accept=".csv,text/csv"
+              accept=".csv,.xlsx,.xlsm,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               onChange={(e) => setFile(e.target.files?.[0] || null)}
               className="mt-1 w-full text-sm text-[var(--js-text)] file:mr-3 file:px-3 file:py-1.5 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-[#C84B31] file:text-white hover:file:bg-[#A83A23]"
               data-testid="bulk-import-file-input"
@@ -139,7 +178,7 @@ export default function BulkImportModal({ shops = [], onClose, onSuccess }) {
               <div className="flex items-center gap-2 mb-3">
                 <CheckCircle2 className="w-5 h-5 text-green-600" />
                 <p className="font-bold text-sm text-[var(--js-text)]">
-                  {result.created} of {result.total} imported successfully
+                  {result[cfg.successKey] || 0} of {result.total} {cfg.successVerb} successfully
                 </p>
               </div>
               {result.errors?.length > 0 && (
@@ -152,7 +191,7 @@ export default function BulkImportModal({ shops = [], onClose, onSuccess }) {
                       <thead>
                         <tr className="text-left">
                           <th className="p-1 text-[var(--js-text-secondary)]">Row</th>
-                          <th className="p-1 text-[var(--js-text-secondary)]">Name</th>
+                          <th className="p-1 text-[var(--js-text-secondary)]">{cfg.errorIdKey === "product_id" ? "Product ID" : "Name"}</th>
                           <th className="p-1 text-[var(--js-text-secondary)]">Error</th>
                         </tr>
                       </thead>
@@ -160,7 +199,7 @@ export default function BulkImportModal({ shops = [], onClose, onSuccess }) {
                         {result.errors.map((e, i) => (
                           <tr key={i} className="border-t border-[var(--js-border)]">
                             <td className="p-1">{e.row}</td>
-                            <td className="p-1 truncate max-w-[120px]">{e.name || "-"}</td>
+                            <td className="p-1 truncate max-w-[140px]">{e[cfg.errorIdKey] || "-"}</td>
                             <td className="p-1 text-[#C84B31]">{e.error}</td>
                           </tr>
                         ))}
@@ -189,7 +228,7 @@ export default function BulkImportModal({ shops = [], onClose, onSuccess }) {
             data-testid="bulk-import-submit"
           >
             {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-            {uploading ? "Importing…" : "Import"}
+            {uploading ? "Uploading…" : (mode === "stock-update" ? "Update" : "Import")}
           </button>
         </div>
       </div>

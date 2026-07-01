@@ -6,6 +6,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ProductCard from "@/components/ProductCard";
 import ContactSellerModal from "@/components/ContactSellerModal";
+import ReportButton from "@/components/ReportButton";
 import { MapPin, Clock, MessageCircle, Store, ShieldCheck, Banknote, ArrowLeft, AlertCircle, Star } from "lucide-react";
 
 export default function ShopPage() {
@@ -178,6 +179,9 @@ export default function ShopPage() {
                       >
                         Edit Shop Page
                       </Link>
+                    )}
+                    {!isOwner && (
+                      <ReportButton targetType="shop" targetId={shop_id} label="Report shop" />
                     )}
                   </div>
                 </div>

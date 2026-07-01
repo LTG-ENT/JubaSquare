@@ -5,6 +5,13 @@ import { useOptimizedPolling } from "@/hooks/useOptimizedPolling";
 import api from "@/lib/api";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import {
+  isPushSupported,
+  getPushPermission,
+  subscribeToPush,
+  unsubscribeFromPush,
+  getSubscription,
+} from "@/lib/pwa";
 
 const ICONS = {
   order: Package,
@@ -17,21 +24,6 @@ const TYPE_COLORS = {
   commission: "bg-[#E9C46A]/25 text-[#7A5C12]",
   alert: "bg-[#C84B31]/15 text-[#A83A23]",
 };
-
-const PUSH_PREF_KEY = "js_push_notifications_enabled";
-const PUSH_SEEN_KEY = "js_push_seen_ids";
-
-function loadSeenIds() {
-  try {
-    return new Set(JSON.parse(localStorage.getItem(PUSH_SEEN_KEY) || "[]"));
-  } catch { return new Set(); }
-}
-function saveSeenIds(set) {
-  try {
-    // Keep at most 200 latest ids to avoid quota bloat
-    localStorage.setItem(PUSH_SEEN_KEY, JSON.stringify(Array.from(set).slice(-200)));
-  } catch {}
-}
 
 function timeAgo(iso) {
   if (!iso) return "";
@@ -49,52 +41,35 @@ export default function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState([]);
   const [unread, setUnread] = useState(0);
-  const [pushEnabled, setPushEnabled] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem(PUSH_PREF_KEY) === "1";
-  });
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
   const wrapRef = useRef(null);
-  const seenRef = useRef(loadSeenIds());
-  const firstLoadRef = useRef(true);
 
-  const supportsNotifications = typeof window !== "undefined" && "Notification" in window;
+  const pushSupported = isPushSupported();
+
+  // On mount, check if this browser already has an active push subscription.
+  useEffect(() => {
+    if (!pushSupported || !user) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const sub = await getSubscription();
+        if (!cancelled) setPushEnabled(!!sub && getPushPermission() === "granted");
+      } catch {/* ignore */}
+    })();
+    return () => { cancelled = true; };
+  }, [pushSupported, user]);
 
   const load = useCallback(async () => {
     if (!user) return;
     try {
       const { data } = await api.get("/notifications");
-      const newItems = data.items || [];
-      setItems(newItems);
+      setItems(data.items || []);
       setUnread(data.unread_count || 0);
-
-      // Browser push: on subsequent loads, show system notification for unseen unread items
-      if (!firstLoadRef.current && pushEnabled && supportsNotifications && Notification.permission === "granted") {
-        const seen = seenRef.current;
-        const fresh = newItems.filter((n) => !n.is_read && !seen.has(n.id));
-        for (const n of fresh.slice(0, 3)) { // cap to 3 to avoid spam
-          try {
-            const notif = new Notification("JubaSquare", {
-              body: n.message,
-              tag: n.id,
-              icon: "/favicon.ico",
-            });
-            notif.onclick = () => { window.focus(); notif.close(); };
-          } catch {}
-          seen.add(n.id);
-        }
-        // Also add newly seen read items so we don't re-notify if they flip back
-        newItems.forEach((n) => seen.add(n.id));
-        saveSeenIds(seen);
-      } else if (firstLoadRef.current) {
-        // On first load, mark existing items as already seen so we don't spam
-        newItems.forEach((n) => seenRef.current.add(n.id));
-        saveSeenIds(seenRef.current);
-      }
-      firstLoadRef.current = false;
     } catch (_) {
       /* silent */
     }
-  }, [user, pushEnabled, supportsNotifications]);
+  }, [user]);
 
   useEffect(() => {
     if (!user) {
@@ -149,39 +124,27 @@ export default function NotificationBell() {
   };
 
   const togglePush = async () => {
-    if (!supportsNotifications) {
-      toast.error("Browser notifications are not supported on this device");
+    if (!pushSupported) {
+      toast.error("Push notifications are not supported on this device");
       return;
     }
-    if (pushEnabled) {
-      // Turn off (permission can only be revoked in browser settings, but stop firing)
-      setPushEnabled(false);
-      localStorage.setItem(PUSH_PREF_KEY, "0");
-      toast.success("Browser notifications disabled");
-      return;
-    }
-    // Turn on: request permission
+    setPushBusy(true);
     try {
-      let perm = Notification.permission;
-      if (perm === "default") {
-        perm = await Notification.requestPermission();
-      }
-      if (perm === "granted") {
-        setPushEnabled(true);
-        localStorage.setItem(PUSH_PREF_KEY, "1");
-        // Fire a test notification
-        try {
-          new Notification("JubaSquare", {
-            body: "Browser notifications are now enabled.",
-            icon: "/favicon.ico",
-          });
-        } catch {}
-        toast.success("Browser notifications enabled");
+      if (pushEnabled) {
+        await unsubscribeFromPush();
+        setPushEnabled(false);
+        toast.success("Push notifications disabled");
       } else {
-        toast.error("Permission denied. Please enable notifications in your browser settings.");
+        await subscribeToPush();
+        setPushEnabled(true);
+        toast.success("Push notifications enabled");
+        // Fire a server-side test push to confirm end-to-end delivery
+        try { await api.post("/push/test"); } catch {/* ignore */}
       }
     } catch (e) {
-      toast.error("Could not enable notifications");
+      toast.error(e?.message || e?.response?.data?.detail || "Could not toggle notifications");
+    } finally {
+      setPushBusy(false);
     }
   };
 
@@ -217,12 +180,13 @@ export default function NotificationBell() {
               <p className="text-[11px] text-[#5C5C5C]">{unread} unread</p>
             </div>
             <div className="flex items-center gap-1">
-              {supportsNotifications && (
+              {pushSupported && (
                 <button
                   onClick={togglePush}
+                  disabled={pushBusy}
                   data-testid="notification-push-toggle"
                   title={pushEnabled ? "Disable browser notifications" : "Enable browser notifications"}
-                  className={`p-1.5 rounded-full transition ${pushEnabled ? "text-[#2A9D8F] hover:bg-[#2A9D8F]/10" : "text-[#5C5C5C] hover:bg-black/5"}`}
+                  className={`p-1.5 rounded-full transition disabled:opacity-50 ${pushEnabled ? "text-[#2A9D8F] hover:bg-[#2A9D8F]/10" : "text-[#5C5C5C] hover:bg-black/5"}`}
                 >
                   {pushEnabled ? <BellRing className="w-4 h-4" /> : <BellOff className="w-4 h-4" />}
                 </button>

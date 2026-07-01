@@ -10,13 +10,15 @@ import AreaSelectField from "@/components/AreaSelectField";
 import OrderChatButton from "@/components/OrderChatButton";
 import SellerWalletTab from "@/components/SellerWalletTab";
 import BulkImportModal from "@/components/BulkImportModal";
-import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle, ExternalLink, MessageCircle, Mail, Phone, ChefHat, Wallet, MapPin, Upload } from "lucide-react";
+import SellerAnalyticsTab from "@/components/SellerAnalyticsTab";
+import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle, ExternalLink, MessageCircle, Mail, Phone, ChefHat, Wallet, MapPin, Upload, TrendingUp, PackageCheck } from "lucide-react";
 import { useSearchParams, Link } from "react-router-dom";
 import { toast } from "sonner";
 
 const TABS = [
   { id: "shops", label: "My Shops", icon: Store },
   { id: "products", label: "Products", icon: Package },
+  { id: "analytics", label: "Analytics", icon: TrendingUp },
   { id: "wallet", label: "Wallet & Active Orders", icon: Wallet },
   { id: "messages", label: "Messages", icon: MessageCircle },
   { id: "notifications", label: "Notifications", icon: Bell },
@@ -151,6 +153,7 @@ export default function SellerDashboard() {
         <div className="mt-8">
           {tab === "shops" && <ShopsTab currency={currency} exchangeRate={exchangeRate} />}
           {tab === "products" && <ProductsTab currency={currency} exchangeRate={exchangeRate} />}
+          {tab === "analytics" && <SellerAnalyticsTab />}
           {tab === "wallet" && <SellerWalletTab />}
           {tab === "messages" && <MessagesTab onChange={(n) => setUnreadMessages(n)} />}
           {tab === "notifications" && <NotificationsTab />}
@@ -640,6 +643,7 @@ function ProductsTab({ currency, exchangeRate }) {
   const [mode, setMode] = useState("marketplace");
   const [form, setForm] = useState(defaultForm());
   const [showBulkImport, setShowBulkImport] = useState(false);
+  const [showBulkStock, setShowBulkStock] = useState(false);
   const [restaurantCategoriesMap, setRestaurantCategoriesMap] = useState({});
   const [retailCategoriesMap, setRetailCategoriesMap] = useState({});
   const [wholesaleCategoriesMap, setWholesaleCategoriesMap] = useState({});
@@ -935,6 +939,15 @@ function ProductsTab({ currency, exchangeRate }) {
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <p className="text-sm text-[var(--js-text-secondary)]">{totalItems} item{totalItems !== 1 && "s"} · Exchange rate <span className="font-bold text-[var(--js-text)]">1 USD = {rate} SSP</span></p>
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setShowBulkStock(true)}
+            disabled={shops.length === 0}
+            data-testid="bulk-stock-btn"
+            className="inline-flex items-center gap-2 bg-[#2A9D8F] hover:bg-[#218075] disabled:bg-[#A3A39E] disabled:cursor-not-allowed text-white text-sm font-semibold px-4 py-2.5 rounded-full"
+            title="Bulk update stock and prices"
+          >
+            <PackageCheck className="w-4 h-4" /> Bulk Stock Update
+          </button>
           <button
             onClick={() => setShowBulkImport(true)}
             disabled={shops.length === 0}
@@ -1394,9 +1407,18 @@ function ProductsTab({ currency, exchangeRate }) {
       </div>
       {showBulkImport && (
         <BulkImportModal
+          mode="import"
           shops={shops}
           onClose={() => setShowBulkImport(false)}
           onSuccess={() => { setShowBulkImport(false); loadAll(); }}
+        />
+      )}
+      {showBulkStock && (
+        <BulkImportModal
+          mode="stock-update"
+          shops={shops}
+          onClose={() => setShowBulkStock(false)}
+          onSuccess={() => { setShowBulkStock(false); loadAll(); }}
         />
       )}
     </div>

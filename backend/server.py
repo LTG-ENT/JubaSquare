@@ -7,8 +7,9 @@ load_dotenv(ROOT_DIR / ".env")
 import os
 import uuid
 import logging
+import json
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Dict
 
 import bcrypt
 import jwt
@@ -237,8 +238,14 @@ async def enrich_restaurant_orders(orders: list[dict]) -> list[dict]:
     return orders
 
 
-async def create_notification(user_id: str, message: str, ntype: str = "alert", meta: Optional[dict] = None) -> dict:
-    """Insert a notification for a single user. Safe to call multiple times."""
+async def create_notification(user_id: str, message: str, ntype: str = "alert", meta: Optional[dict] = None, push_category: Optional[str] = None, push_url: Optional[str] = None, push_title: Optional[str] = None) -> dict:
+    """Insert an in-app notification for a single user and (best-effort) fire a Web Push.
+
+    push_category: one of "orders" | "low_stock" | "promo" | "delivery" | "admin".
+        If provided, we attempt to send a Web Push with the same message. If None, no push is sent.
+    push_url: deep-link URL to open when the user clicks the push (defaults to "/" or the meta.link).
+    push_title: title on the push. Defaults to "JubaSquare".
+    """
     notif = {
         "id": str(uuid.uuid4()),
         "user_id": user_id,
@@ -250,6 +257,32 @@ async def create_notification(user_id: str, message: str, ntype: str = "alert", 
     }
     await db.notifications.insert_one(notif)
     notif.pop("_id", None)
+
+    # Best-effort Web Push (fire-and-forget; failures are logged inside the helper).
+    # If push_category isn't explicitly provided, infer from ntype so existing call
+    # sites automatically get web-push behaviour on top of in-app.
+    if push_category is None:
+        push_category = {
+            "order": "orders",
+            "delivery": "delivery",
+            "commission": "orders",
+            "low_stock": "low_stock",
+            "promo": "promo",
+        }.get(ntype, "admin")
+    try:
+        await send_web_push_to_user(
+            user_id,
+            {
+                "title": push_title or "JubaSquare",
+                "body": message[:180],
+                "url": push_url or (meta or {}).get("link") or "/",
+                "tag": notif["id"],
+            },
+            category=push_category,
+        )
+    except Exception as e:
+        log.warning(f"push notif failed: {e}")
+
     return notif
 
 
@@ -2164,18 +2197,179 @@ async def list_products(category_id: Optional[str] = None, category: Optional[st
 
 
 @api.get("/products/bulk-template")
-async def products_bulk_template(user: dict = Depends(require_role("seller", "admin"))):
-    """Return a CSV template for bulk product upload.
+async def products_bulk_template(fmt: str = "csv", user: dict = Depends(require_role("seller", "admin"))):
+    """Return a CSV or XLSX template for bulk product upload.
+    Query param `fmt`: 'csv' (default) or 'xlsx'.
     NOTE: This route MUST be declared before `/products/{product_id}` to avoid
     FastAPI matching 'bulk-template' as a product_id parameter.
     """
-    from fastapi.responses import PlainTextResponse
-    csv_content = (
-        "name,category_name,price_usd,description,stock,image_url,is_wholesale,min_order_qty,bulk_price_usd\n"
-        "Sample Product,Groceries,10.50,A short description,100,,false,1,\n"
-        "Bulk Rice 50kg,Groceries,45.00,Wholesale rice bag,50,,true,10,42.00\n"
-    )
-    return PlainTextResponse(csv_content, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=products_template.csv"})
+    from fastapi.responses import PlainTextResponse, Response
+    headers = ["name", "category_name", "price_usd", "description", "stock", "image_url", "is_wholesale", "min_order_qty", "bulk_price_usd"]
+    sample_rows = [
+        ["Sample Product", "Groceries", 10.50, "A short description", 100, "", "false", 1, ""],
+        ["Bulk Rice 50kg", "Groceries", 45.00, "Wholesale rice bag", 50, "", "true", 10, 42.00],
+    ]
+    if fmt.lower() == "xlsx":
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from io import BytesIO
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Products"
+        ws.append(headers)
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill("solid", fgColor="0E1A2B")
+        for col in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center")
+        for r in sample_rows:
+            ws.append(r)
+        # Column widths for readability
+        widths = [22, 18, 12, 32, 8, 30, 12, 14, 16]
+        for i, w in enumerate(widths, start=1):
+            ws.column_dimensions[chr(64 + i)].width = w
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return Response(
+            content=buf.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=products_template.xlsx"},
+        )
+    # Default CSV
+    import csv as _csv
+    from io import StringIO
+    buf = StringIO()
+    w = _csv.writer(buf)
+    w.writerow(headers)
+    for r in sample_rows:
+        w.writerow(r)
+    return PlainTextResponse(buf.getvalue(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=products_template.csv"})
+
+
+@api.get("/products/stock-update-template")
+async def products_stock_update_template(fmt: str = "csv", user: dict = Depends(require_role("seller", "admin"))):
+    """Return a CSV or XLSX template for bulk STOCK/PRICE update.
+    Columns: product_id, stock, price_usd, bulk_price_usd
+    - product_id is required; stock/price columns are optional (leave blank to skip that field).
+    """
+    from fastapi.responses import PlainTextResponse, Response
+    headers = ["product_id", "stock", "price_usd", "bulk_price_usd"]
+    sample_rows = [
+        ["<paste product id here>", 100, 12.50, ""],
+        ["<paste product id here>", 20, "", 8.75],
+    ]
+    if fmt.lower() == "xlsx":
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from io import BytesIO
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Stock Update"
+        ws.append(headers)
+        for col in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col)
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor="0E1A2B")
+            cell.alignment = Alignment(horizontal="center")
+        for r in sample_rows:
+            ws.append(r)
+        for i, w in enumerate([40, 10, 12, 16], start=1):
+            ws.column_dimensions[chr(64 + i)].width = w
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return Response(
+            content=buf.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=stock_update_template.xlsx"},
+        )
+    import csv as _csv
+    from io import StringIO
+    buf = StringIO()
+    w = _csv.writer(buf)
+    w.writerow(headers)
+    for r in sample_rows:
+        w.writerow(r)
+    return PlainTextResponse(buf.getvalue(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=stock_update_template.csv"})
+
+
+@api.post("/products/bulk-stock-update")
+async def bulk_stock_update(
+    file: UploadFile = File(...),
+    shop_id: str = Query(...),
+    user: dict = Depends(require_role("seller", "admin")),
+):
+    """Bulk update stock/price for products in a shop from CSV or XLSX.
+    Columns: product_id (required), stock, price_usd, bulk_price_usd (any of stock/price_usd/bulk_price_usd optional).
+    """
+    shop = await db.shops.find_one({"id": shop_id})
+    if not shop:
+        raise HTTPException(404, "Shop not found")
+    if user["role"] != "admin" and shop["seller_id"] != user["id"]:
+        raise HTTPException(403, "Forbidden")
+
+    try:
+        raw = await file.read()
+        if len(raw) > 5 * 1024 * 1024:
+            raise HTTPException(413, "File too large (max 5 MB)")
+        _, rows_data = _rows_from_upload(raw, file.filename or "")
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    results = {"total": 0, "updated": 0, "errors": [], "updated_ids": []}
+    for idx, row in enumerate(rows_data, start=2):
+        results["total"] += 1
+        try:
+            pid = (row.get("product_id") or "").strip()
+            if not pid:
+                raise ValueError("product_id is required")
+            prod = await db.products.find_one({"id": pid, "shop_id": shop_id})
+            if not prod:
+                raise ValueError(f"product not found or not in this shop: {pid[:40]}")
+
+            updates = {}
+            stock_raw = (row.get("stock") or "").strip()
+            if stock_raw != "":
+                try:
+                    updates["stock"] = max(0, int(float(stock_raw)))
+                except Exception:
+                    raise ValueError(f"invalid stock: '{stock_raw}'")
+
+            price_raw = (row.get("price_usd") or "").strip()
+            if price_raw != "":
+                try:
+                    v = float(price_raw)
+                    if v < 0:
+                        raise ValueError("negative price")
+                    updates["price_usd"] = v
+                except Exception:
+                    raise ValueError(f"invalid price_usd: '{price_raw}'")
+
+            bp_raw = (row.get("bulk_price_usd") or "").strip()
+            if bp_raw != "":
+                try:
+                    v = float(bp_raw)
+                    if v < 0:
+                        raise ValueError("negative bulk price")
+                    updates["bulk_price_usd"] = v
+                except Exception:
+                    raise ValueError(f"invalid bulk_price_usd: '{bp_raw}'")
+
+            if not updates:
+                raise ValueError("no fields to update (leave nothing blank on all columns)")
+
+            await db.products.update_one({"id": pid}, {"$set": updates})
+            results["updated"] += 1
+            results["updated_ids"].append(pid)
+        except Exception as e:
+            results["errors"].append({"row": idx, "product_id": (row.get("product_id") or "").strip()[:40], "error": str(e)})
+
+    return results
 
 
 @api.get("/products/{product_id}")
@@ -2218,6 +2412,53 @@ async def create_product(body: ProductIn, user: dict = Depends(require_role("sel
     return product
 
 
+def _rows_from_upload(raw: bytes, filename: str):
+    """Parse CSV or XLSX bytes into a list of dict rows. Raises ValueError on failure."""
+    lower = (filename or "").lower()
+    # XLSX (or XLSM)
+    if lower.endswith(".xlsx") or lower.endswith(".xlsm"):
+        from openpyxl import load_workbook
+        from io import BytesIO
+        try:
+            wb = load_workbook(BytesIO(raw), read_only=True, data_only=True)
+            ws = wb.active
+            it = ws.iter_rows(values_only=True)
+            headers = None
+            for row in it:
+                if row and any(c is not None and str(c).strip() != "" for c in row):
+                    headers = [str(c or "").strip() for c in row]
+                    break
+            if not headers:
+                raise ValueError("Empty workbook")
+            rows = []
+            for row in it:
+                if row is None or all(c is None or str(c).strip() == "" for c in row):
+                    continue
+                d = {}
+                for i, h in enumerate(headers):
+                    if not h:
+                        continue
+                    v = row[i] if i < len(row) else None
+                    d[h] = "" if v is None else str(v)
+                rows.append(d)
+            return headers, rows
+        except Exception as e:
+            raise ValueError(f"Failed to parse XLSX: {e}")
+    # CSV (default)
+    import csv as _csv
+    from io import StringIO
+    try:
+        text = raw.decode("utf-8-sig", errors="replace")
+    except Exception as e:
+        raise ValueError(f"Failed to decode file: {e}")
+    reader = _csv.DictReader(StringIO(text))
+    if not reader.fieldnames:
+        raise ValueError("CSV appears empty or malformed")
+    headers = list(reader.fieldnames)
+    rows = list(reader)
+    return headers, rows
+
+
 @api.post("/products/bulk-import")
 async def bulk_import_products(
     request: Request,
@@ -2226,9 +2467,8 @@ async def bulk_import_products(
     user: dict = Depends(require_role("seller", "admin")),
 ):
     """
-    Bulk import products from CSV.
-    CSV columns: name, category_id (or category_name), price_usd, description, stock, image_url, is_wholesale, min_order_qty, bulk_price_usd
-    Returns per-row results with success/error breakdown.
+    Bulk import products from CSV or XLSX.
+    Columns: name, category_id (or category_name), price_usd, description, stock, image_url, is_wholesale, min_order_qty, bulk_price_usd
     """
     shop = await db.shops.find_one({"id": shop_id})
     if not shop:
@@ -2236,20 +2476,15 @@ async def bulk_import_products(
     if user["role"] != "admin" and shop["seller_id"] != user["id"]:
         raise HTTPException(403, "Forbidden")
 
-    # Read CSV
     try:
         raw = await file.read()
         if len(raw) > 5 * 1024 * 1024:
             raise HTTPException(413, "File too large (max 5 MB)")
-        text = raw.decode("utf-8-sig", errors="replace")
-    except Exception as e:
-        raise HTTPException(400, f"Failed to read file: {e}")
-
-    import csv as _csv
-    from io import StringIO
-    reader = _csv.DictReader(StringIO(text))
-    if not reader.fieldnames:
-        raise HTTPException(400, "CSV appears empty or malformed")
+        _, rows_data = _rows_from_upload(raw, file.filename or "")
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
     # Preload categories for name→id lookup (retail group by default for products)
     all_cats = await db.categories.find({}, {"_id": 0}).to_list(1000)
@@ -2258,7 +2493,7 @@ async def bulk_import_products(
 
     results = {"total": 0, "created": 0, "errors": [], "created_ids": []}
 
-    for idx, row in enumerate(reader, start=2):  # start=2 (row 1 = header)
+    for idx, row in enumerate(rows_data, start=2):  # start=2 (row 1 = header)
         results["total"] += 1
         try:
             name = (row.get("name") or "").strip()
@@ -3642,6 +3877,139 @@ async def seller_orders(
     return rows
 
 
+@api.get("/seller/analytics")
+async def seller_analytics(user: dict = Depends(require_role("seller", "admin"))):
+    """Sales analytics for a seller.
+    Returns:
+      - totals: {today, week, month, all_time} for revenue (USD) + order count
+      - revenue_series: last 30 days [{date:'YYYY-MM-DD', revenue, orders}]
+      - top_products: [{id, name, image_url, quantity, revenue}] top 5
+      - low_performers: 5 products with <=2 orders in last 30 days
+      - low_stock: [{id, name, stock}] up to 10 with stock<5
+    Money reported in USD (based on price_usd × quantity when available).
+    """
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    today_iso = now.date().isoformat()
+    week_start = (now - timedelta(days=7)).isoformat()
+    month_start = (now - timedelta(days=30)).isoformat()
+
+    seller_products = await db.products.find({"seller_id": user["id"]}, {"_id": 0}).to_list(2000)
+    seller_menu = await db.menu_items.find({"seller_id": user["id"]}, {"_id": 0}).to_list(2000)
+    pid_index = {p["id"]: p for p in seller_products}
+    for m in seller_menu:
+        pid_index[m["id"]] = m
+    ids = list(pid_index.keys())
+    if not ids:
+        return {
+            "totals": {"today": {"revenue": 0, "orders": 0}, "week": {"revenue": 0, "orders": 0}, "month": {"revenue": 0, "orders": 0}, "all_time": {"revenue": 0, "orders": 0}},
+            "revenue_series": [],
+            "top_products": [],
+            "low_performers": [],
+            "low_stock": [],
+        }
+
+    orders = await db.orders.find({"items.item_id": {"$in": ids}}, {"_id": 0}).sort("created_at", -1).to_list(5000)
+
+    def item_revenue_usd(item):
+        # Prefer price_usd on item, else fall back to product price
+        p = pid_index.get(item.get("item_id"))
+        qty = int(item.get("quantity") or 1)
+        unit = item.get("price_usd")
+        if unit is None and p is not None:
+            unit = p.get("price_usd") or 0
+        try:
+            return float(unit or 0) * qty, qty
+        except Exception:
+            return 0.0, qty
+
+    totals = {"today": {"revenue": 0.0, "orders": 0}, "week": {"revenue": 0.0, "orders": 0}, "month": {"revenue": 0.0, "orders": 0}, "all_time": {"revenue": 0.0, "orders": 0}}
+    per_product = {}  # id -> {qty, revenue}
+    days_bucket = {}  # 'YYYY-MM-DD' -> {revenue, orders}
+    for d in range(30):
+        key = (now - timedelta(days=d)).date().isoformat()
+        days_bucket[key] = {"revenue": 0.0, "orders": 0}
+
+    for o in orders:
+        created = o.get("created_at") or ""
+        rev = 0.0
+        counted_products = set()
+        for it in (o.get("items") or []):
+            if it.get("item_id") in pid_index:
+                r, q = item_revenue_usd(it)
+                rev += r
+                pp = per_product.setdefault(it["item_id"], {"qty": 0, "revenue": 0.0})
+                pp["qty"] += q
+                pp["revenue"] += r
+                counted_products.add(it["item_id"])
+        if rev == 0 and not counted_products:
+            continue
+        totals["all_time"]["revenue"] += rev
+        totals["all_time"]["orders"] += 1
+        if created >= today_iso:
+            totals["today"]["revenue"] += rev
+            totals["today"]["orders"] += 1
+        if created >= week_start:
+            totals["week"]["revenue"] += rev
+            totals["week"]["orders"] += 1
+        if created >= month_start:
+            totals["month"]["revenue"] += rev
+            totals["month"]["orders"] += 1
+            day_key = created[:10]
+            if day_key in days_bucket:
+                days_bucket[day_key]["revenue"] += rev
+                days_bucket[day_key]["orders"] += 1
+
+    # Round money for cleanliness
+    for k in totals:
+        totals[k]["revenue"] = round(totals[k]["revenue"], 2)
+
+    revenue_series = [{"date": d, "revenue": round(v["revenue"], 2), "orders": v["orders"]} for d, v in sorted(days_bucket.items())]
+
+    # Top products
+    top_sorted = sorted(per_product.items(), key=lambda kv: kv[1]["revenue"], reverse=True)[:5]
+    top_products = []
+    for pid, stats in top_sorted:
+        p = pid_index.get(pid, {})
+        top_products.append({
+            "id": pid,
+            "name": p.get("name", "Unknown"),
+            "image_url": p.get("image_url", ""),
+            "quantity": stats["qty"],
+            "revenue": round(stats["revenue"], 2),
+        })
+
+    # Low performers: seller's active products with <=2 orders in last 30 days
+    low_performers = []
+    for p in seller_products:
+        pid = p["id"]
+        qty = per_product.get(pid, {}).get("qty", 0)
+        if qty <= 2:
+            low_performers.append({
+                "id": pid,
+                "name": p.get("name", "Unknown"),
+                "image_url": p.get("image_url", ""),
+                "quantity": qty,
+            })
+    low_performers = sorted(low_performers, key=lambda x: x["quantity"])[:5]
+
+    # Low stock
+    low_stock = []
+    for p in seller_products:
+        s = int(p.get("stock") or 0)
+        if s < 5:
+            low_stock.append({"id": p["id"], "name": p.get("name", "Unknown"), "stock": s})
+    low_stock = sorted(low_stock, key=lambda x: x["stock"])[:10]
+
+    return {
+        "totals": totals,
+        "revenue_series": revenue_series,
+        "top_products": top_products,
+        "low_performers": low_performers,
+        "low_stock": low_stock,
+    }
+
+
 @api.get("/orders")
 async def all_orders(
     _: dict = Depends(require_role("admin")),
@@ -4051,6 +4419,152 @@ async def delete_notification(notif_id: str, user: dict = Depends(get_current_us
     return {"ok": True}
 
 
+# ============================================================
+#  Web Push (VAPID) endpoints
+# ============================================================
+
+VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "")
+VAPID_PRIVATE_KEY_PEM = os.environ.get("VAPID_PRIVATE_KEY_PEM", "").replace("\\n", "\n")
+VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", "mailto:admin@example.com")
+
+try:
+    from pywebpush import webpush as _webpush, WebPushException as _WebPushException
+except Exception as _e:  # pragma: no cover
+    _webpush = None
+    _WebPushException = Exception
+
+
+@api.get("/push/public-key")
+async def get_push_public_key():
+    """Return the VAPID public key (base64url) for the browser to subscribe."""
+    return {"public_key": VAPID_PUBLIC_KEY}
+
+
+class PushSubscribeIn(BaseModel):
+    subscription: dict  # {endpoint, keys:{p256dh,auth}}
+    # Per-category user preferences (all default True on first subscribe)
+    prefs: Optional[Dict[str, bool]] = None
+
+
+@api.post("/push/subscribe")
+async def push_subscribe(payload: PushSubscribeIn, user: dict = Depends(get_current_user)):
+    """Store the browser push subscription and (optionally) user preferences."""
+    sub = payload.subscription or {}
+    endpoint = (sub.get("endpoint") or "").strip()
+    if not endpoint or not sub.get("keys", {}).get("p256dh") or not sub.get("keys", {}).get("auth"):
+        raise HTTPException(400, "Invalid push subscription")
+    prefs = payload.prefs or {}
+    # Default: all-on
+    all_prefs = {
+        "orders": bool(prefs.get("orders", True)),
+        "low_stock": bool(prefs.get("low_stock", True)),
+        "promo": bool(prefs.get("promo", True)),
+        "delivery": bool(prefs.get("delivery", True)),
+        "admin": bool(prefs.get("admin", True)),
+    }
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "role": user.get("role"),
+        "endpoint": endpoint,
+        "keys": sub.get("keys"),
+        "user_agent": sub.get("userAgent", ""),
+        "prefs": all_prefs,
+        "created_at": now_iso(),
+        "last_used_at": None,
+    }
+    # Upsert by (user_id, endpoint) to avoid duplicates on repeated subscribes
+    await db.push_subscriptions.update_one(
+        {"user_id": user["id"], "endpoint": endpoint},
+        {"$set": {k: v for k, v in doc.items() if k not in ("id", "created_at")}, "$setOnInsert": {"id": doc["id"], "created_at": doc["created_at"]}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+class PushUnsubscribeIn(BaseModel):
+    endpoint: str
+
+
+@api.post("/push/unsubscribe")
+async def push_unsubscribe(payload: PushUnsubscribeIn, user: dict = Depends(get_current_user)):
+    res = await db.push_subscriptions.delete_one({"user_id": user["id"], "endpoint": payload.endpoint})
+    return {"ok": True, "removed": res.deleted_count}
+
+
+class PushPrefsIn(BaseModel):
+    prefs: Dict[str, bool]
+
+
+@api.put("/push/prefs")
+async def push_prefs_update(payload: PushPrefsIn, user: dict = Depends(get_current_user)):
+    """Update push category preferences for all this user's subscriptions."""
+    valid_keys = {"orders", "low_stock", "promo", "delivery", "admin"}
+    updates = {f"prefs.{k}": bool(v) for k, v in payload.prefs.items() if k in valid_keys}
+    if not updates:
+        return {"ok": True, "modified": 0}
+    res = await db.push_subscriptions.update_many({"user_id": user["id"]}, {"$set": updates})
+    return {"ok": True, "modified": res.modified_count}
+
+
+@api.get("/push/prefs")
+async def push_prefs_get(user: dict = Depends(get_current_user)):
+    """Return the current user's push subscription status + preferences."""
+    sub = await db.push_subscriptions.find_one({"user_id": user["id"]}, {"_id": 0})
+    if not sub:
+        return {"subscribed": False, "prefs": {"orders": True, "low_stock": True, "promo": True, "delivery": True, "admin": True}}
+    return {"subscribed": True, "prefs": sub.get("prefs") or {}, "endpoint": sub.get("endpoint")}
+
+
+@api.post("/push/test")
+async def push_test(user: dict = Depends(get_current_user)):
+    """Send a test push notification to all this user's subscriptions."""
+    sent = await send_web_push_to_user(user["id"], {
+        "title": "JubaSquare",
+        "body": "Test notification 🎉 — push is working!",
+        "url": "/",
+    })
+    return {"ok": True, "sent": sent}
+
+
+async def send_web_push_to_user(user_id: str, payload: dict, category: str = "admin") -> int:
+    """Send a Web Push notification to every subscription of the given user.
+
+    - `payload` is a dict with keys {title, body, url, tag?, requireInteraction?, icon?}.
+    - `category` gates delivery based on the subscription's prefs (orders/low_stock/promo/delivery/admin).
+    - Returns the number of endpoints successfully sent to.
+
+    Silently drops subscriptions that return 404/410 (gone) so we don't retry forever.
+    """
+    if not _webpush or not VAPID_PRIVATE_KEY_PEM:
+        return 0
+    subs = await db.push_subscriptions.find({"user_id": user_id}, {"_id": 0}).to_list(50)
+    sent = 0
+    for sub in subs:
+        prefs = sub.get("prefs") or {}
+        if category and prefs.get(category, True) is False:
+            continue
+        try:
+            _webpush(
+                subscription_info={"endpoint": sub["endpoint"], "keys": sub["keys"]},
+                data=json.dumps(payload),
+                vapid_private_key=VAPID_PRIVATE_KEY_PEM,
+                vapid_claims={"sub": VAPID_SUBJECT},
+                ttl=60,
+            )
+            sent += 1
+            await db.push_subscriptions.update_one({"endpoint": sub["endpoint"]}, {"$set": {"last_used_at": now_iso()}})
+        except _WebPushException as e:
+            code = getattr(getattr(e, "response", None), "status_code", None)
+            if code in (404, 410):
+                # Endpoint is gone — remove it
+                await db.push_subscriptions.delete_one({"endpoint": sub["endpoint"]})
+            log.warning(f"webpush send failed ({code}): {e}")
+        except Exception as e:
+            log.warning(f"webpush unexpected error: {e}")
+    return sent
+
+
 @api.post("/admin/notifications/run-reminders")
 async def admin_run_reminders(user: dict = Depends(require_role("admin"))):
     """Force-generate weekly unpaid-commission reminders for ALL sellers + the admin
@@ -4224,6 +4738,155 @@ async def admin_test_email(body: TestEmailIn, user: dict = Depends(require_role(
         html=html,
     )
     return result
+
+
+@api.get("/admin/health")
+async def admin_health(_: dict = Depends(require_role("admin"))):
+    """System health / performance snapshot for the admin dashboard.
+
+    Returns:
+      - mongo ping (ms) + estimated collection counts
+      - integration fingerprints (which are configured)
+      - Odoo webhook activity (last event, count in last 24h)
+      - Web Push subscription count
+    """
+    import time as _t
+    result = {
+        "checked_at": now_iso(),
+        "backend": {"status": "ok"},
+        "mongo": {"status": "unknown", "ping_ms": None, "collections": {}},
+        "integrations": {
+            "resend_email": bool(os.environ.get("RESEND_API_KEY")),
+            "odoo_webhook": bool(os.environ.get("ODOO_WEBHOOK_TOKEN")),
+            "web_push": bool(os.environ.get("VAPID_PUBLIC_KEY") and os.environ.get("VAPID_PRIVATE_KEY_PEM")),
+        },
+        "odoo": {"last_event_at": None, "recent_events": 0},
+    }
+    try:
+        t0 = _t.perf_counter()
+        await db.command("ping")
+        result["mongo"]["ping_ms"] = round((_t.perf_counter() - t0) * 1000, 2)
+        result["mongo"]["status"] = "ok"
+    except Exception as e:
+        result["mongo"]["status"] = "error"
+        result["mongo"]["error"] = str(e)[:200]
+    for coll in ("users", "shops", "products", "orders", "categories", "notifications", "push_subscriptions"):
+        try:
+            result["mongo"]["collections"][coll] = await db[coll].estimated_document_count()
+        except Exception:
+            result["mongo"]["collections"][coll] = None
+    try:
+        last = await db.odoo_events.find_one({}, {"_id": 0}, sort=[("created_at", -1)])
+        if last:
+            result["odoo"]["last_event_at"] = last.get("created_at")
+        since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        result["odoo"]["recent_events"] = await db.odoo_events.count_documents({"created_at": {"$gte": since}})
+    except Exception:
+        pass
+    return result
+
+
+# ============================================================
+#  Reports (Report Shop / Report Review)
+# ============================================================
+
+class ReportIn(BaseModel):
+    target_type: Literal["shop", "review", "product"]
+    target_id: str
+    reason: str
+    details: Optional[str] = None
+
+
+@api.post("/reports")
+async def create_report(payload: ReportIn, user: dict = Depends(get_current_user)):
+    """Any authenticated user can file a report against a shop / review / product."""
+    reason = (payload.reason or "").strip()
+    if not reason or len(reason) > 200:
+        raise HTTPException(400, "Reason is required (max 200 chars)")
+
+    # Validate target exists
+    target_id = payload.target_id.strip()
+    if payload.target_type == "shop":
+        exists = await db.shops.find_one({"id": target_id}, {"_id": 0, "id": 1, "name": 1})
+    elif payload.target_type == "product":
+        exists = await db.products.find_one({"id": target_id}, {"_id": 0, "id": 1, "name": 1})
+    else:  # review
+        exists = await db.reviews.find_one({"id": target_id}, {"_id": 0, "id": 1})
+    if not exists:
+        raise HTTPException(404, f"{payload.target_type} not found")
+
+    # De-duplicate: same user + same target + open status = block
+    dup = await db.reports.find_one({
+        "reporter_id": user["id"],
+        "target_type": payload.target_type,
+        "target_id": target_id,
+        "status": "open",
+    })
+    if dup:
+        raise HTTPException(409, "You already reported this. Our team will review it soon.")
+
+    doc = {
+        "id": str(uuid.uuid4()),
+        "target_type": payload.target_type,
+        "target_id": target_id,
+        "target_snapshot": {"name": exists.get("name")} if exists else {},
+        "reporter_id": user["id"],
+        "reporter_role": user.get("role"),
+        "reason": reason,
+        "details": (payload.details or "")[:2000],
+        "status": "open",  # open | reviewed | dismissed | actioned
+        "admin_notes": "",
+        "created_at": now_iso(),
+        "resolved_at": None,
+    }
+    await db.reports.insert_one(doc)
+    doc.pop("_id", None)
+
+    # Notify all admins
+    admins = await db.users.find({"role": "admin"}, {"_id": 0, "id": 1}).to_list(100)
+    for a in admins:
+        await create_notification(
+            a["id"],
+            f"New {payload.target_type} report: {reason}",
+            ntype="alert",
+            meta={"link": "/admin?tab=reports", "report_id": doc["id"]},
+            push_category="admin",
+            push_url="/admin?tab=reports",
+        )
+    return doc
+
+
+@api.get("/admin/reports")
+async def admin_list_reports(status: Optional[str] = None, _: dict = Depends(require_role("admin"))):
+    q = {}
+    if status:
+        q["status"] = status
+    rows = await db.reports.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return rows
+
+
+class ReportUpdateIn(BaseModel):
+    status: Literal["open", "reviewed", "dismissed", "actioned"]
+    admin_notes: Optional[str] = None
+
+
+@api.put("/admin/reports/{report_id}")
+async def admin_update_report(report_id: str, payload: ReportUpdateIn, _: dict = Depends(require_role("admin"))):
+    r = await db.reports.find_one({"id": report_id})
+    if not r:
+        raise HTTPException(404, "Report not found")
+    updates = {"status": payload.status}
+    if payload.admin_notes is not None:
+        updates["admin_notes"] = payload.admin_notes[:2000]
+    if payload.status in ("dismissed", "actioned", "reviewed"):
+        updates["resolved_at"] = now_iso()
+    await db.reports.update_one({"id": report_id}, {"$set": updates})
+    return {"ok": True, "status": payload.status}
+
+
+
+
+
 
 
 @api.get("/admin/analytics")
@@ -5515,6 +6178,67 @@ async def on_startup():
 @app.on_event("shutdown")
 async def on_shutdown():
     client.close()
+
+
+# --- SEO: sitemap.xml + robots.txt served under /api so Kubernetes ingress routes them here ---
+
+@api.get("/sitemap.xml", include_in_schema=False)
+async def sitemap_xml(request: Request):
+    """Dynamic sitemap of shops, restaurants, and products.
+    Google can crawl a non-root sitemap as long as robots.txt points to it.
+    """
+    from fastapi.responses import Response as _Resp
+    base = os.environ.get("FRONTEND_URL") or f"{request.url.scheme}://{request.headers.get('host','')}"
+    base = base.rstrip("/")
+    now = now_iso()
+    static_paths = ["/", "/marketplace", "/shops", "/restaurants", "/about", "/contact", "/terms", "/privacy", "/returns"]
+    urls = []
+    for p in static_paths:
+        urls.append(f"<url><loc>{base}{p}</loc><lastmod>{now[:10]}</lastmod><changefreq>daily</changefreq><priority>{'1.0' if p=='/' else '0.7'}</priority></url>")
+    # Shops
+    try:
+        shops = await db.shops.find({"is_active": {"$ne": False}}, {"_id": 0, "id": 1, "updated_at": 1, "created_at": 1}).to_list(1000)
+        for s in shops:
+            lastmod = (s.get("updated_at") or s.get("created_at") or now)[:10]
+            urls.append(f"<url><loc>{base}/shop/{s['id']}</loc><lastmod>{lastmod}</lastmod><changefreq>daily</changefreq><priority>0.8</priority></url>")
+    except Exception:
+        pass
+    # Products
+    try:
+        products = await db.products.find({}, {"_id": 0, "id": 1, "updated_at": 1, "created_at": 1}).limit(5000).to_list(5000)
+        for p in products:
+            lastmod = (p.get("updated_at") or p.get("created_at") or now)[:10]
+            urls.append(f"<url><loc>{base}/product/{p['id']}</loc><lastmod>{lastmod}</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>")
+    except Exception:
+        pass
+
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        + "\n".join(urls) +
+        "\n</urlset>"
+    )
+    return _Resp(content=xml, media_type="application/xml")
+
+
+@api.get("/robots.txt", include_in_schema=False)
+async def robots_txt(request: Request):
+    from fastapi.responses import PlainTextResponse
+    base = os.environ.get("FRONTEND_URL") or f"{request.url.scheme}://{request.headers.get('host','')}"
+    base = base.rstrip("/")
+    txt = (
+        "User-agent: *\n"
+        "Allow: /\n"
+        "Disallow: /admin\n"
+        "Disallow: /seller\n"
+        "Disallow: /driver\n"
+        "Disallow: /cart\n"
+        "Disallow: /orders\n"
+        "Disallow: /settings\n"
+        "Disallow: /api/\n\n"
+        f"Sitemap: {base}/api/sitemap.xml\n"
+    )
+    return PlainTextResponse(txt, media_type="text/plain")
 
 
 # Serve uploaded images under /api/uploads so they go through the Kubernetes
