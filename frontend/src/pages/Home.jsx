@@ -53,6 +53,7 @@ export default function Home() {
   const [allProducts, setAllProducts] = useState([]);
   const [retailCats, setRetailCats] = useState([]); // [{id,name,image_url,children:[]}]
   const [slideIdx, setSlideIdx] = useState(0);
+  const [heroConfig, setHeroConfig] = useState(null);
   const { area, setArea } = useCart();
 
   useEffect(() => {
@@ -64,15 +65,22 @@ export default function Home() {
       .get("/categories/tree?group=retail")
       .then((r) => setRetailCats(Array.isArray(r.data) ? r.data : []))
       .catch(() => setRetailCats([]));
+    api.get("/homepage").then((r) => setHeroConfig(r.data)).catch(() => setHeroConfig(null));
   }, []);
+
+  // Effective slides: admin-managed first, fall back to defaults
+  const adminSlides = (heroConfig?.hero_slides || []).filter((s) => s?.image_url);
+  const slides = adminSlides.length > 0
+    ? adminSlides.map((s) => ({ label: s.label || "Slide", key: s.key || "slideRetail", img: s.image_url }))
+    : HERO_SLIDES;
 
   // Cycle hero background every 3.5s
   useEffect(() => {
     const id = setInterval(() => {
-      setSlideIdx((i) => (i + 1) % HERO_SLIDES.length);
+      setSlideIdx((i) => (i + 1) % slides.length);
     }, 3500);
     return () => clearInterval(id);
-  }, []);
+  }, [slides.length]);
 
   // Prefer admin-managed retail categories. Fall back to shop-derived list if
   // the DB happens to be empty.
@@ -90,9 +98,9 @@ export default function Home() {
       {/* HERO */}
       <section className="relative">
         <div className="absolute inset-0 overflow-hidden">
-          {HERO_SLIDES.map((s, i) => (
+          {slides.map((s, i) => (
             <img
-              key={s.label}
+              key={s.label + i}
               src={s.img}
               alt=""
               className={`absolute inset-0 w-full h-full object-cover transition-all duration-[1400ms] ease-in-out ${
@@ -108,15 +116,15 @@ export default function Home() {
             <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur border border-white/20 rounded-full px-3 py-1.5 mb-6">
               <Sparkles className="w-3.5 h-3.5 text-[#E9C46A]" />
               <span className="text-[11px] uppercase tracking-[0.18em] text-white font-bold">
-                {t("heroTagline")}
+                {heroConfig?.hero_tagline || t("heroTagline")}
               </span>
             </div>
             <h1 className="font-display font-bold text-4xl sm:text-5xl lg:text-6xl text-white tracking-tight">
-              {t("heroTitle")}{" "}
+              {heroConfig?.hero_title || t("heroTitle")}{" "}
               <span className="relative inline-block align-baseline" style={{ minWidth: "4ch" }}>
-                {HERO_SLIDES.map((s, i) => (
+                {slides.map((s, i) => (
                   <span
-                    key={s.label}
+                    key={s.label + i}
                     aria-hidden={i !== slideIdx}
                     className={`text-[#E9C46A] transition-all duration-700 ease-out ${
                       i === slideIdx
@@ -124,13 +132,13 @@ export default function Home() {
                         : "opacity-0 translate-y-3 absolute left-0 top-0"
                     }`}
                   >
-                    {t(s.key)}
+                    {s.key ? t(s.key) : s.label}
                   </span>
                 ))}
               </span>
             </h1>
             <p className="text-white/90 text-base sm:text-lg mt-5 max-w-xl">
-              {t("heroSubtitle")}
+              {heroConfig?.hero_subtitle || t("heroSubtitle")}
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link
@@ -155,11 +163,11 @@ export default function Home() {
 
             {/* Slide indicators */}
             <div className="mt-6 flex items-center gap-2" data-testid="hero-slide-indicators">
-              {HERO_SLIDES.map((s, i) => (
+              {slides.map((s, i) => (
                 <button
-                  key={s.label}
+                  key={s.label + i}
                   onClick={() => setSlideIdx(i)}
-                  data-testid={`hero-slide-dot-${s.label.toLowerCase()}`}
+                  data-testid={`hero-slide-dot-${(s.label || 'slide').toLowerCase()}`}
                   aria-label={`Show ${s.label} slide`}
                   className={`h-1.5 rounded-full transition-all duration-500 ${
                     i === slideIdx ? "w-10 bg-[#E9C46A]" : "w-4 bg-white/30 hover:bg-white/50"

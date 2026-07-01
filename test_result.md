@@ -103,19 +103,42 @@
 #====================================================================================================
 
 user_problem_statement: |
-  Continuation enhancements for JubaSquare:
-  1. Hero section upgrade (new copy, bg image, dark overlay, two CTAs)
-  2. Header cleanup (Home / Categories / Shops / Wholesale / Cart / Profile + dark navy bg)
-  3. Product card cleanup with badges (Wholesale / Low Stock) + hover lift
-  4. New "Bulk Deals (Wholesale)" home section
-  5. Bigger shop cards with "View Shop" + product preview
-  6. Rename "Restaurants near you" → "Food & Restaurants"
-  7. Sticky search bar (marketplace + shops)
-  8. Currency toggle in header (SSP default, switchable to USD)
-  9. Product detail page (/product/:id) with description, specs, reviews
-  10. Per-shop delivery pricing in seller dashboard (Free / Fixed / Per area)
-  11. Seller orders search (by customer name or Order ID)
-  12. New /shops page
+  Continuation enhancements for JubaSquare (July 2025):
+  
+  BUGS to fix:
+  - Mobile menu button crashes (ReferenceError: GlobalSearch is not defined)
+  - Language switcher panel goes out of the display frame to the left when switched to Arabic (RTL)
+  - Network Error on every page reload (frontend was pointing to wrong preview URL)
+  
+  NEW FEATURES:
+  - Homepage customization pack: Admin can manage hero background images (up to 6 slides), hero tagline / title / subtitle, and site-wide announcement bar. Public homepage reads from admin config with sensible defaults.
+  - Bulk product import: Sellers can download a CSV template, upload a CSV to their shop, and get row-by-row success/error breakdown. Backend endpoint POST /api/products/bulk-import + GET /api/products/bulk-template.
+  - Push notifications: Enhanced in-app NotificationBell with browser Notification API integration (BellRing/BellOff toggle). Users can enable/disable, permission is requested on toggle, and new unread notifications fire native OS notifications while the app is polling.
+
+backend:
+  - task: "Homepage customization API (hero slides / tagline / title / subtitle / announcement bar)"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Added DEFAULT_HERO_SLIDES + DEFAULT_HOMEPAGE structure. New endpoints: GET /api/homepage (public), PUT /api/admin/homepage (admin only). Also embedded settings.homepage into GET /api/settings/public so the announcement bar reflects in the header. Sanitizes hero_slides (max 6), limits text lengths, and validates announcement_bar object. Cache-invalidates homepage: and settings: prefixes on write."
+
+  - task: "Bulk product import via CSV"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "New endpoints: POST /api/products/bulk-import?shop_id=... (multipart CSV upload) and GET /api/products/bulk-template (download starter CSV). CSV columns: name, category_name (or category_id), price_usd, description, stock, image_url, is_wholesale, min_order_qty, bulk_price_usd. Requires seller/admin role and ownership of the shop. Returns { total, created, errors:[{row,name,error}], created_ids }."
 
 backend:
   - task: "Shop delivery pricing fields (free/fixed/per_area)"
@@ -454,9 +477,8 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Kitchen History Endpoint - GET /api/restaurant-orders/restaurant/{restaurant_id}?include_history=true"
-    - "Admin Shops & Restaurants Combined Endpoint - GET /api/admin/shops-and-restaurants"
-    - "OTP Endpoints - POST /api/admin/payouts/{id}/generate-otp & confirm-otp (Smoke Test)"
+    - "Homepage customization API (hero slides / tagline / title / subtitle / announcement bar)"
+    - "Bulk product import via CSV"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -772,6 +794,32 @@ frontend_cod:
           4. Test all seller/driver/admin interactions in the COD flow
 
 agent_communication:
+
+    - agent: "main"
+      message: |
+        (July 2025 continuation) Applied fixes and features:
+        
+        BUG FIXES:
+        1. Mobile menu crash: Header.jsx was using <GlobalSearch /> in the mobile drawer but never importing it — added `import GlobalSearch from "@/components/GlobalSearch"`.
+        2. Language switcher off-screen on Arabic: The dropdown had `absolute left-0 rtl:left-auto rtl:right-0` while the header itself is `dir="ltr"`. Because <html> is set to dir="rtl" when Arabic is selected, Tailwind's `rtl:` variant flipped the dropdown off the left edge. Fix: force the dropdown to `dir="ltr"` and remove all `rtl:` classes inside it. Verified visually on desktop (1200px) and mobile (375px) in Arabic mode.
+        3. Network Error on reload: `/app/frontend/.env` was pointing to a stale preview URL. Set REACT_APP_BACKEND_URL to https://jubasquare-odoo-v2.preview.emergentagent.com (the current preview host). Also recreated the missing `/app/backend/.env` (MONGO_URL / DB_NAME / JWT_SECRET / ADMIN_EMAIL / ADMIN_PASSWORD).
+        
+        NEW BACKEND ENDPOINTS (need testing):
+        - GET /api/homepage → public homepage config (hero_slides[], hero_tagline, hero_title, hero_subtitle, announcement_bar).
+        - PUT /api/admin/homepage → admin-only writer with input sanitization.
+        - POST /api/products/bulk-import?shop_id=... → CSV upload for sellers/admin, returns row-level errors.
+        - GET /api/products/bulk-template → CSV template download.
+        - GET /api/settings/public → now also includes `homepage` object for header/announcement bar.
+        
+        FRONTEND (already visually verified for bug fixes; needs regression testing for new features):
+        - Home.jsx now reads slides + text from /api/homepage (falls back to hardcoded defaults if none configured).
+        - New Admin tab "Homepage" (component: AdminHomepageTab.jsx) with slide editor (ImageUpload), text fields, and announcement bar editor.
+        - New Seller "Bulk Import" button in SellerDashboard ProductsTab → opens BulkImportModal.jsx (template download, shop select, file upload, results view).
+        - NotificationBell.jsx enhanced with browser push notifications (Notification API): BellRing/BellOff toggle in dropdown header, permission flow, dedup via localStorage of seen ids.
+        - Header.jsx now renders the announcement bar above maintenance banner.
+        
+        Admin credentials for testing: admin@jubasquare.com / 1234 (stored in /app/memory/test_credentials.md).
+
     - agent: "testing"
       message: |
         ⚠️ COD/DRIVER/PAYOUT UI TESTING PARTIALLY COMPLETE
@@ -3377,3 +3425,173 @@ agent_communication:
         
         **RECOMMENDATION:**
         Main agent should summarize and finish. All continuation bug fixes are working correctly.
+
+#====================================================================================================
+# Iter July 2025 - Homepage Customization & Bulk Product Import Testing
+#====================================================================================================
+
+backend_july_2025:
+  - task: "Homepage customization API (hero slides / tagline / title / subtitle / announcement bar)"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Added DEFAULT_HERO_SLIDES + DEFAULT_HOMEPAGE structure. New endpoints: GET /api/homepage (public), PUT /api/admin/homepage (admin only). Also embedded settings.homepage into GET /api/settings/public so the announcement bar reflects in the header. Sanitizes hero_slides (max 6), limits text lengths, and validates announcement_bar object. Cache-invalidates homepage: and settings: prefixes on write."
+        - working: true
+          agent: "testing"
+          comment: |
+            ✅ PASSED all 9 homepage customization tests (9/9):
+            
+            **1. GET /api/homepage (public, no auth) - PASSED:**
+            - Returns 200 with correct structure
+            - Contains all required keys: hero_slides, hero_tagline, hero_title, hero_subtitle, announcement_bar
+            - Default 3 slides present: Retail, Wholesale, Food
+            - All slides have correct structure (label, key, image_url)
+            
+            **2. PUT /api/admin/homepage (admin only) - PASSED:**
+            - Admin can update all fields successfully
+            - Response includes ok:true and updated homepage object
+            - Test payload with custom slides, tagline, title, subtitle, and announcement bar all saved correctly
+            
+            **3. Persistence verification - PASSED:**
+            - GET /api/homepage after PUT reflects all changes
+            - Changes persist across requests
+            - Cache invalidation working correctly
+            
+            **4. GET /api/settings/public integration - PASSED:**
+            - settings/public endpoint includes homepage object
+            - Homepage data matches what was PUT
+            - Announcement bar accessible for header display
+            
+            **5. Auth gating - PASSED (2 tests):**
+            - PUT without auth returns 401 ✓
+            - PUT as customer (non-admin) returns 403 ✓
+            
+            **6. Sanitization - PASSED (2 tests):**
+            - PUT with >6 slides correctly caps to 6 slides ✓
+            - PUT with invalid hero_slides type (string instead of list) returns 400 ✓
+            
+            **7. Defaults restored - PASSED:**
+            - Successfully restored original default configuration after tests
+            
+            **NO CRITICAL ISSUES FOUND.**
+            All homepage customization endpoints working correctly with proper auth, sanitization, and cache invalidation.
+
+  - task: "Bulk product import via CSV"
+    implemented: true
+    working: false
+    file: "/app/backend/server.py"
+    stuck_count: 1
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "New endpoints: POST /api/products/bulk-import?shop_id=... (multipart CSV upload) and GET /api/products/bulk-template (download starter CSV). CSV columns: name, category_name (or category_id), price_usd, description, stock, image_url, is_wholesale, min_order_qty, bulk_price_usd. Requires seller/admin role and ownership of the shop. Returns { total, created, errors:[{row,name,error}], created_ids }."
+        - working: false
+          agent: "testing"
+          comment: |
+            ❌ CRITICAL BUG FOUND: Route ordering issue prevents bulk-template endpoint from working
+            
+            **TEST RESULTS: 6/7 tests passed**
+            
+            **CRITICAL BUG - GET /api/products/bulk-template:**
+            ❌ Returns 404 "Product not found" instead of CSV template
+            
+            **ROOT CAUSE:**
+            - Route `/products/{product_id}` is defined at line 2150
+            - Route `/products/bulk-template` is defined at line 2306
+            - FastAPI matches routes in order of definition
+            - When requesting `/products/bulk-template`, FastAPI matches it to `/products/{product_id}` with product_id="bulk-template"
+            - The get_product handler then looks for a product with id="bulk-template" and returns 404
+            
+            **FIX REQUIRED:**
+            Move the `/products/bulk-template` route definition BEFORE the `/products/{product_id}` route in server.py.
+            Specific routes must be defined before parameterized routes in FastAPI.
+            
+            **WORKING FEATURES (6/6 tests passed):**
+            
+            **1. POST /api/products/bulk-import - PASSED:**
+            - Successfully processes mixed valid/invalid rows
+            - Test with 6 rows: 3 created, 3 errors (as expected)
+            - Created products:
+              * Valid Product 1 (using category_name: "Groceries")
+              * Valid Product 2 (using category_id: UUID)
+              * Wholesale Product (with min_order_qty=10, bulk_price_usd=42.00)
+            - Error rows correctly rejected:
+              * Missing name → "name is required"
+              * Invalid category → "category not found: 'NonExistentCategory'"
+              * Invalid price → "invalid price_usd: 'not_a_number'"
+            
+            **2. Error messages - PASSED:**
+            - All error messages are descriptive and helpful
+            - Include row number, product name, and specific error
+            - Helps users fix CSV issues quickly
+            
+            **3. Wholesale products - PASSED:**
+            - Wholesale product created with correct fields:
+              * is_wholesale: true
+              * min_order_qty: 10
+              * bulk_price_usd: 42.00
+            - Verified via GET /api/products?shop_id={shop_id}
+            
+            **4. Auth & permissions - PASSED (2 tests):**
+            - POST for non-owned shop returns 403 ✓
+            - POST without auth returns 401 ✓
+            
+            **5. Error handling - PASSED:**
+            - Corrupt/binary file handled gracefully
+            - Returns 200 with empty results (total:0, created:0, errors:[])
+            - No server crash or 500 error
+            
+            **SUMMARY:**
+            The bulk import functionality works perfectly EXCEPT for the template download endpoint which is blocked by a route ordering bug. This is a critical production issue that must be fixed before the feature can be used (users need the template to know the CSV format).
+
+agent_communication:
+    - agent: "testing"
+      message: |
+        ✅ JULY 2025 BACKEND TESTING COMPLETE (19/20 tests passed, 1 critical bug)
+        
+        **HOMEPAGE CUSTOMIZATION API: ✅ ALL WORKING (9/9 tests passed)**
+        - GET /api/homepage (public) ✓
+        - PUT /api/admin/homepage (admin only) ✓
+        - GET /api/settings/public includes homepage ✓
+        - Auth gating correct (401 without token, 403 for non-admin) ✓
+        - Sanitization working (max 6 slides, type validation) ✓
+        - Cache invalidation working ✓
+        
+        **BULK PRODUCT IMPORT: ❌ CRITICAL BUG (6/7 tests passed)**
+        
+        **CRITICAL BUG:**
+        GET /api/products/bulk-template returns 404 due to route ordering issue.
+        
+        **ROOT CAUSE:**
+        `/products/{product_id}` route (line 2150) is defined BEFORE `/products/bulk-template` route (line 2306).
+        FastAPI matches "bulk-template" as a product_id parameter, causing 404 "Product not found".
+        
+        **FIX:**
+        Move `@api.get("/products/bulk-template")` (lines 2306-2315) to BEFORE `@api.get("/products/{product_id}")` (line 2150).
+        In FastAPI, specific routes must be defined before parameterized routes.
+        
+        **WORKING FEATURES:**
+        - POST /api/products/bulk-import works perfectly ✓
+        - Handles category_name and category_id correctly ✓
+        - Descriptive error messages for invalid rows ✓
+        - Wholesale products with min_order_qty and bulk_price_usd ✓
+        - Auth gating (403 for non-owned shop, 401 without auth) ✓
+        - Graceful handling of corrupt files ✓
+        
+        **REGRESSION TESTS: ✅ ALL PASSED (4/4)**
+        - Admin login ✓
+        - GET /api/settings/public ✓
+        - GET /api/products ✓
+        - GET /api/shops ✓
+        
+        **IMPACT:**
+        The bulk import feature is 95% working but CANNOT be used in production until the template endpoint is fixed. Users need the template to understand the CSV format. This is a 2-line fix (move route definition).
+

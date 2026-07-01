@@ -15,7 +15,7 @@ import jwt
 import secrets
 import re
 from pathlib import Path as _FsPath
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Query
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -48,6 +48,32 @@ log = logging.getLogger("jubasquare")
 
 DEFAULT_AREAS = ["Munuki", "Jebel", "Gudele", "Konyo Konyo", "Hai Cinema", "Nyakuron", "Atlabara"]
 
+DEFAULT_HERO_SLIDES = [
+    {
+        "label": "Retail",
+        "key": "slideRetail",
+        "image_url": "https://images.unsplash.com/photo-1604719312566-8912e9227c6a?w=1600&q=80&auto=format&fit=crop",
+    },
+    {
+        "label": "Wholesale",
+        "key": "slideWholesale",
+        "image_url": "https://images.unsplash.com/photo-1553413077-190dd305871c?w=1600&q=80&auto=format&fit=crop",
+    },
+    {
+        "label": "Food",
+        "key": "slideFood",
+        "image_url": "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=1600&q=80&auto=format&fit=crop",
+    },
+]
+
+DEFAULT_HOMEPAGE = {
+    "hero_slides": DEFAULT_HERO_SLIDES,
+    "hero_tagline": "",   # empty => use i18n default
+    "hero_title": "",
+    "hero_subtitle": "",
+    "announcement_bar": {"enabled": False, "text": "", "link": ""},
+}
+
 DEFAULT_SETTINGS = {
     "id": "system",
     "global_rate": 600.0,
@@ -65,6 +91,7 @@ DEFAULT_SETTINGS = {
     "commission_rate": 0.10,
     "areas": DEFAULT_AREAS,
     "token_version": 1,
+    "homepage": DEFAULT_HOMEPAGE,
     "message_filter": {
         "enabled": True,
         "blocked_words": ["spam", "scam", "fake"],  # Words to block
@@ -1094,8 +1121,58 @@ async def public_settings():
             "module_wholesale": s.get("module_wholesale", True),
             "maintenance_mode": s.get("maintenance_mode", False),
             "areas": s.get("areas", DEFAULT_AREAS),
+            "homepage": s.get("homepage", DEFAULT_HOMEPAGE),
         }
     return await cached("settings:public", _build)
+
+
+@api.get("/homepage")
+async def get_homepage_config():
+    async def _build():
+        s = await get_settings()
+        return s.get("homepage", DEFAULT_HOMEPAGE)
+    return await cached("homepage:config", _build)
+
+
+@api.put("/admin/homepage")
+async def update_homepage_config(payload: dict, user: dict = Depends(require_role("admin"))):
+    # Sanitize hero_slides
+    slides = payload.get("hero_slides")
+    if slides is not None:
+        if not isinstance(slides, list):
+            raise HTTPException(400, "hero_slides must be a list")
+        cleaned = []
+        for i, s in enumerate(slides[:6]):  # max 6 slides
+            if not isinstance(s, dict):
+                continue
+            cleaned.append({
+                "label": str(s.get("label") or f"Slide {i+1}")[:40],
+                "key": str(s.get("key") or "")[:40],
+                "image_url": str(s.get("image_url") or "")[:1000],
+            })
+        payload["hero_slides"] = cleaned
+    # Sanitize simple text fields
+    for k in ("hero_tagline", "hero_title", "hero_subtitle"):
+        if k in payload and payload[k] is not None:
+            payload[k] = str(payload[k])[:500]
+    # Sanitize announcement bar
+    ab = payload.get("announcement_bar")
+    if ab is not None:
+        if not isinstance(ab, dict):
+            raise HTTPException(400, "announcement_bar must be an object")
+        payload["announcement_bar"] = {
+            "enabled": bool(ab.get("enabled", False)),
+            "text": str(ab.get("text") or "")[:500],
+            "link": str(ab.get("link") or "")[:500],
+        }
+    current = await get_settings()
+    hp = dict(current.get("homepage") or DEFAULT_HOMEPAGE)
+    hp.update({k: v for k, v in payload.items() if k in ("hero_slides", "hero_tagline", "hero_title", "hero_subtitle", "announcement_bar")})
+    await db.settings.update_one({"id": "system"}, {"$set": {"homepage": hp}}, upsert=True)
+    # Invalidate caches
+    cache_invalidate("homepage:", "settings:")
+    return {"ok": True, "homepage": hp}
+
 
 
 @api.get("/meta/areas")
@@ -2108,6 +2185,134 @@ async def create_product(body: ProductIn, user: dict = Depends(require_role("sel
     await db.products.insert_one(product)
     product.pop("_id", None)
     return product
+
+
+@api.post("/products/bulk-import")
+async def bulk_import_products(
+    request: Request,
+    file: UploadFile = File(...),
+    shop_id: str = Query(...),
+    user: dict = Depends(require_role("seller", "admin")),
+):
+    """
+    Bulk import products from CSV.
+    CSV columns: name, category_id (or category_name), price_usd, description, stock, image_url, is_wholesale, min_order_qty, bulk_price_usd
+    Returns per-row results with success/error breakdown.
+    """
+    shop = await db.shops.find_one({"id": shop_id})
+    if not shop:
+        raise HTTPException(404, "Shop not found")
+    if user["role"] != "admin" and shop["seller_id"] != user["id"]:
+        raise HTTPException(403, "Forbidden")
+
+    # Read CSV
+    try:
+        raw = await file.read()
+        if len(raw) > 5 * 1024 * 1024:
+            raise HTTPException(413, "File too large (max 5 MB)")
+        text = raw.decode("utf-8-sig", errors="replace")
+    except Exception as e:
+        raise HTTPException(400, f"Failed to read file: {e}")
+
+    import csv as _csv
+    from io import StringIO
+    reader = _csv.DictReader(StringIO(text))
+    if not reader.fieldnames:
+        raise HTTPException(400, "CSV appears empty or malformed")
+
+    # Preload categories for name→id lookup (retail group by default for products)
+    all_cats = await db.categories.find({}, {"_id": 0}).to_list(1000)
+    cat_by_id = {c["id"]: c for c in all_cats}
+    cat_by_name = {(c.get("name") or "").strip().lower(): c for c in all_cats}
+
+    results = {"total": 0, "created": 0, "errors": [], "created_ids": []}
+
+    for idx, row in enumerate(reader, start=2):  # start=2 (row 1 = header)
+        results["total"] += 1
+        try:
+            name = (row.get("name") or "").strip()
+            if not name:
+                raise ValueError("name is required")
+
+            # Category resolution: try category_id first, then category_name
+            cat_id = (row.get("category_id") or "").strip()
+            if not cat_id:
+                cat_name = (row.get("category_name") or row.get("category") or "").strip().lower()
+                cat = cat_by_name.get(cat_name)
+                if not cat:
+                    raise ValueError(f"category not found: '{cat_name}' (provide category_id or valid category_name)")
+                cat_id = cat["id"]
+            elif cat_id not in cat_by_id:
+                raise ValueError(f"category_id not found: {cat_id}")
+
+            # Price
+            price_raw = (row.get("price_usd") or row.get("price") or "").strip()
+            try:
+                price_usd = float(price_raw)
+            except Exception:
+                raise ValueError(f"invalid price_usd: '{price_raw}'")
+            if price_usd < 0:
+                raise ValueError("price_usd cannot be negative")
+
+            stock_raw = (row.get("stock") or "100").strip()
+            try:
+                stock = int(float(stock_raw))
+            except Exception:
+                stock = 100
+
+            is_wholesale = str(row.get("is_wholesale") or "").strip().lower() in ("1", "true", "yes", "y")
+            min_qty_raw = (row.get("min_order_qty") or "1").strip()
+            try:
+                min_order_qty = max(1, int(float(min_qty_raw)))
+            except Exception:
+                min_order_qty = 1
+
+            bulk_price = None
+            bp_raw = (row.get("bulk_price_usd") or "").strip()
+            if bp_raw:
+                try:
+                    bulk_price = float(bp_raw)
+                except Exception:
+                    bulk_price = None
+
+            product = {
+                "id": str(uuid.uuid4()),
+                "seller_id": shop["seller_id"],
+                "shop_id": shop_id,
+                "shop_kind": shop.get("kind", "retail"),
+                "name": name[:200],
+                "category_id": cat_id,
+                "category": cat_by_id[cat_id].get("name", ""),
+                "price_usd": price_usd,
+                "image_url": (row.get("image_url") or "").strip()[:1000],
+                "description": (row.get("description") or "").strip()[:2000],
+                "stock": stock,
+                "is_wholesale": is_wholesale,
+                "min_order_qty": min_order_qty,
+                "bulk_price_usd": bulk_price,
+                "mode": "wholesale" if is_wholesale else "marketplace",
+                "pricing_tiers": [],
+                "created_at": now_iso(),
+            }
+            await db.products.insert_one(product)
+            results["created"] += 1
+            results["created_ids"].append(product["id"])
+        except Exception as e:
+            results["errors"].append({"row": idx, "name": (row.get("name") or "").strip()[:80], "error": str(e)})
+
+    return results
+
+
+@api.get("/products/bulk-template")
+async def products_bulk_template(user: dict = Depends(require_role("seller", "admin"))):
+    """Return a CSV template for bulk product upload."""
+    from fastapi.responses import PlainTextResponse
+    csv_content = (
+        "name,category_name,price_usd,description,stock,image_url,is_wholesale,min_order_qty,bulk_price_usd\n"
+        "Sample Product,Groceries,10.50,A short description,100,,false,1,\n"
+        "Bulk Rice 50kg,Groceries,45.00,Wholesale rice bag,50,,true,10,42.00\n"
+    )
+    return PlainTextResponse(csv_content, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=products_template.csv"})
 
 
 @api.put("/products/{product_id}")

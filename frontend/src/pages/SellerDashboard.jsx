@@ -9,7 +9,8 @@ import ImageUpload from "@/components/ImageUpload";
 import AreaSelectField from "@/components/AreaSelectField";
 import OrderChatButton from "@/components/OrderChatButton";
 import SellerWalletTab from "@/components/SellerWalletTab";
-import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle, ExternalLink, MessageCircle, Mail, Phone, ChefHat, Wallet, MapPin } from "lucide-react";
+import BulkImportModal from "@/components/BulkImportModal";
+import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle, ExternalLink, MessageCircle, Mail, Phone, ChefHat, Wallet, MapPin, Upload } from "lucide-react";
 import { useSearchParams, Link } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -638,6 +639,7 @@ function ProductsTab({ currency, exchangeRate }) {
   const [rate, setRate] = useState(600);
   const [mode, setMode] = useState("marketplace");
   const [form, setForm] = useState(defaultForm());
+  const [showBulkImport, setShowBulkImport] = useState(false);
   const [restaurantCategoriesMap, setRestaurantCategoriesMap] = useState({});
   const [retailCategoriesMap, setRetailCategoriesMap] = useState({});
   const [wholesaleCategoriesMap, setWholesaleCategoriesMap] = useState({});
@@ -932,14 +934,24 @@ function ProductsTab({ currency, exchangeRate }) {
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <p className="text-sm text-[var(--js-text-secondary)]">{totalItems} item{totalItems !== 1 && "s"} · Exchange rate <span className="font-bold text-[var(--js-text)]">1 USD = {rate} SSP</span></p>
-        <button
-          onClick={openNew}
-          disabled={shops.length === 0 && restaurants.length === 0}
-          data-testid="add-item-btn"
-          className="inline-flex items-center gap-2 bg-[#C84B31] hover:bg-[#A83A23] disabled:bg-[#A3A39E] disabled:cursor-not-allowed text-white text-sm font-semibold px-4 py-2.5 rounded-full"
-        >
-          <Plus className="w-4 h-4" /> Add Item
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setShowBulkImport(true)}
+            disabled={shops.length === 0}
+            data-testid="bulk-import-btn"
+            className="inline-flex items-center gap-2 bg-[#0E1A2B] hover:bg-[#1E3A5F] disabled:bg-[#A3A39E] disabled:cursor-not-allowed text-white text-sm font-semibold px-4 py-2.5 rounded-full"
+          >
+            <Upload className="w-4 h-4" /> Bulk Import
+          </button>
+          <button
+            onClick={openNew}
+            disabled={shops.length === 0 && restaurants.length === 0}
+            data-testid="add-item-btn"
+            className="inline-flex items-center gap-2 bg-[#C84B31] hover:bg-[#A83A23] disabled:bg-[#A3A39E] disabled:cursor-not-allowed text-white text-sm font-semibold px-4 py-2.5 rounded-full"
+          >
+            <Plus className="w-4 h-4" /> Add Item
+          </button>
+        </div>
       </div>
 
       {/* Filter / search bar */}
@@ -1380,6 +1392,13 @@ function ProductsTab({ currency, exchangeRate }) {
           </table>
         </div>
       </div>
+      {showBulkImport && (
+        <BulkImportModal
+          shops={shops}
+          onClose={() => setShowBulkImport(false)}
+          onSuccess={() => { setShowBulkImport(false); loadAll(); }}
+        />
+      )}
     </div>
   );
 }

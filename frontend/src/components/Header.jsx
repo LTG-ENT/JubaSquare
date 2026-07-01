@@ -176,6 +176,17 @@ export default function Header() {
 
   return (
     <header className="sticky top-0 z-50 bg-[#0E1A2B] border-b border-white/10 shadow-md">
+      {settings.homepage?.announcement_bar?.enabled && settings.homepage?.announcement_bar?.text && (
+        <div className="bg-[#C84B31] text-white text-center text-xs font-medium py-1.5 px-4" data-testid="announcement-bar">
+          {settings.homepage.announcement_bar.link ? (
+            <Link to={settings.homepage.announcement_bar.link} className="hover:underline">
+              {settings.homepage.announcement_bar.text}
+            </Link>
+          ) : (
+            settings.homepage.announcement_bar.text
+          )}
+        </div>
+      )}
       {settings.maintenance_mode && (
         <div className="bg-[#E9C46A] text-[#1A1A1A] text-center text-xs font-bold py-1.5" data-testid="maintenance-banner">
           ⚠ Maintenance mode is active — orders are paused.
