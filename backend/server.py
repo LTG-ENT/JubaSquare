@@ -459,7 +459,10 @@ def cache_invalidate(*prefixes: str) -> int:
 # Models
 # ----------------------------------------------------------------------------
 class LoginIn(BaseModel):
-    email: EmailStr
+    # Accept either an email OR a username. Renamed field remains "email" for
+    # backward compatibility with existing frontend/tests; validation happens in
+    # the /auth/login endpoint (usernames are only valid for admin accounts).
+    email: str
     password: str
 
 
@@ -812,15 +815,21 @@ class AdminBulkDeleteUsersIn(BaseModel):
 # ----------------------------------------------------------------------------
 @api.post("/auth/login")
 async def login(payload: LoginIn, request: Request, response: Response):
-    email = payload.email.lower()
-    blocked = await db.blocked_emails.find_one({"email": email})
-    if blocked:
-        raise HTTPException(status_code=403, detail="This email has been blocked by admin")
+    raw_identifier = (payload.email or "").strip()
+    is_email = "@" in raw_identifier
+    email = raw_identifier.lower() if is_email else ""
+    username = raw_identifier.lower() if not is_email else ""
+
+    # Email-based blocked check (only meaningful for email login)
+    if email:
+        blocked = await db.blocked_emails.find_one({"email": email})
+        if blocked:
+            raise HTTPException(status_code=403, detail="This email has been blocked by admin")
 
     settings = await get_settings()
     limit = max(1, int(settings.get("login_attempt_limit", 5)))
     ip = request.client.host if request.client else "unknown"
-    key = f"{ip}:{email}"
+    key = f"{ip}:{email or username}"
     rec = await db.login_attempts.find_one({"key": key})
     if rec and rec.get("count", 0) >= limit:
         last = rec.get("last_at")
@@ -832,14 +841,21 @@ async def login(payload: LoginIn, request: Request, response: Response):
             raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 15 minutes.")
         await db.login_attempts.delete_one({"key": key})
 
-    user = await db.users.find_one({"email": email})
+    # Look up user by email OR by username (admin-only)
+    if is_email:
+        user = await db.users.find_one({"email": email})
+    else:
+        # Username login is admin-only. Look up by username field AND require admin role.
+        user = await db.users.find_one({"username": username, "role": "admin"})
+
     if not user or not verify_password(payload.password, user["password_hash"]):
         await db.login_attempts.update_one(
             {"key": key},
             {"$inc": {"count": 1}, "$set": {"last_at": now_iso()}},
             upsert=True,
         )
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+        # Keep the error message intentionally generic
+        raise HTTPException(status_code=401, detail="Invalid credentials")
 
     # Require verified email for non-admin roles
     if user.get("role") != "admin" and not user.get("email_verified", False):
@@ -5285,6 +5301,9 @@ async def seed_production():
     Idempotent: safe to call on every startup."""
     # Indexes
     await db.users.create_index("email", unique=True)
+    # username is optional; used for admin username-login. Sparse+unique so
+    # only records with a username value are enforced unique.
+    await db.users.create_index("username", unique=True, sparse=True)
     await db.shops.create_index("id", unique=True)
     await db.products.create_index("id", unique=True)
     await db.restaurants.create_index("id", unique=True)
@@ -5375,6 +5394,7 @@ async def seed_production():
     # Admin account (from env)
     admin_email = (os.environ.get("ADMIN_EMAIL") or "").strip().lower()
     admin_password = os.environ.get("ADMIN_PASSWORD") or ""
+    admin_username = (os.environ.get("ADMIN_USERNAME") or "admin").strip().lower()
     if not admin_email or not admin_password:
         log.warning("ADMIN_EMAIL / ADMIN_PASSWORD not set — no admin account will be seeded.")
         return
@@ -5382,15 +5402,20 @@ async def seed_production():
     existing = await db.users.find_one({"email": admin_email})
     if existing:
         # Make sure existing admin account stays an admin + is flagged verified + active,
-        # but never overwrite the password after first seed.
+        # but never overwrite the password after first seed. Also ensure username is set
+        # so username-login works.
+        set_fields = {"role": "admin", "email_verified": True, "is_active": True}
+        if not existing.get("username"):
+            set_fields["username"] = admin_username
         await db.users.update_one(
             {"email": admin_email},
-            {"$set": {"role": "admin", "email_verified": True, "is_active": True}},
+            {"$set": set_fields},
         )
     else:
         await db.users.insert_one({
             "id": str(uuid.uuid4()),
             "email": admin_email,
+            "username": admin_username,
             "name": "Admin",
             "role": "admin",
             "phone": "",
@@ -5401,7 +5426,7 @@ async def seed_production():
             "password_hash": hash_password(admin_password),
             "created_at": now_iso(),
         })
-        log.info(f"✅ Seeded admin account: {admin_email}")
+        log.info(f"✅ Seeded admin account: {admin_email} (username: {admin_username})")
 
 
 @app.on_event("startup")

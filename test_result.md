@@ -146,6 +146,21 @@ backend:
           agent: "testing"
           comment: "✅ PASSED all 3 tests for bulk-template endpoint fix: (1) GET /api/products/bulk-template as admin returns HTTP 200 with Content-Type text/csv, header line starting with 'name,category_name,price_usd', and 2 sample rows (232 bytes total). (2) GET /api/products/{product_id} still works correctly (no regression) - verified with real product ID, returns 200 with correct product data. (3) GET /api/products/nonexistent-id-xyz correctly returns 404. Route order fix confirmed: /api/products/bulk-template (line 2150) is declared BEFORE /api/products/{product_id} (line 2165) in server.py, preventing FastAPI from matching 'bulk-template' as a product_id parameter."
 
+  - task: "Admin username-based login + password reset"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "User reported inability to log in (password was seeded from a fresh .env which happened after MongoDB already had an admin user with an unknown pre-existing password). Ran /app/backend/reset_admin.py to force-reset admin@jubasquare.com password to '1234' and set username='admin'. Also added username-based login (admin only): LoginIn.email is now `str` (not EmailStr); /auth/login checks for '@' in identifier — if present, does email lookup; else does `{username, role:'admin'}` lookup. Non-admin usernames are rejected. Added sparse unique index on users.username. Seed logic backfills username for existing admin. Frontend Login.jsx label changed to 'Email / Username' with type='text' and autocomplete='username'."
+        - working: true
+          agent: "testing"
+          comment: "✅ PASSED all 10 authentication tests (10/10): (1) Admin login with email (admin@jubasquare.com / 1234) returns 200 with token and user.role=admin ✓ (2) Admin login with username (admin / 1234) returns 200 with token, user.role=admin, and user.email=admin@jubasquare.com in response ✓ (3) Wrong password with email returns 401 ✓ (4) Wrong password with username returns 401 ✓ (5) Non-admin username login (driver) correctly rejected with 401, but driver login with full email (driver@demo.com) succeeds with role=driver ✓ (6) Non-existent username (nobody) returns 401 (not 500 or 422) ✓ (7) Case insensitivity verified: uppercase username (ADMIN) successfully logs in ✓ (8) Regression tests: GET /api/homepage returns 200 ✓ GET /api/settings/public returns 200 ✓ All authentication endpoints working correctly. Username login is admin-only as designed. Case-insensitive username matching works. No critical issues found."
+
 backend:
   - task: "Shop delivery pricing fields (free/fixed/per_area)"
     implemented: true
@@ -478,13 +493,11 @@ frontend:
 metadata:
   created_by: "main_agent"
   version: "1.4"
-  test_sequence: 4
+  test_sequence: 5
   run_ui: false
 
 test_plan:
-  current_focus:
-    - "Homepage customization API (hero slides / tagline / title / subtitle / announcement bar)"
-    - "Bulk product import via CSV"
+  current_focus: []
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -3601,3 +3614,38 @@ agent_communication:
         **IMPACT:**
         The bulk import feature is 95% working but CANNOT be used in production until the template endpoint is fixed. Users need the template to understand the CSV format. This is a 2-line fix (move route definition).
 
+
+
+    - agent: "testing"
+      message: |
+        ✅ AUTHENTICATION TESTING COMPLETE (10/10 tests PASSED)
+        
+        **TEST RESULTS:**
+        All authentication endpoints tested and working correctly:
+        
+        1. ✅ Admin login with email (admin@jubasquare.com / 1234) → 200 with token, role=admin
+        2. ✅ Admin login with username (admin / 1234) → 200 with token, role=admin, email=admin@jubasquare.com
+        3. ✅ Wrong password (email path) → 401
+        4. ✅ Wrong password (username path) → 401
+        5. ✅ Non-admin username login rejected (driver username without @) → 401
+        6. ✅ Driver login with full email (driver@demo.com) → 200 with role=driver
+        7. ✅ Non-existent username (nobody) → 401 (not 500 or 422)
+        8. ✅ Case insensitivity: uppercase username (ADMIN) → 200 with token
+        9. ✅ Regression: GET /api/homepage → 200
+        10. ✅ Regression: GET /api/settings/public → 200
+        
+        **KEY FINDINGS:**
+        - Username-based login works correctly and is admin-only as designed
+        - Non-admin users (driver, seller, customer) MUST use email for login
+        - Username matching is case-insensitive (admin, ADMIN, Admin all work)
+        - Error handling is correct (401 for invalid credentials, not 500 or 422)
+        - Existing endpoints unchanged (no regression)
+        
+        **BUSINESS RULE VERIFIED:**
+        The authentication logic correctly implements the rule:
+        - If identifier contains "@" → email lookup (all roles)
+        - If identifier does NOT contain "@" → username lookup with role=admin filter
+        - Non-admin usernames are rejected with 401
+        
+        **NO ISSUES FOUND**
+        All tests passed. The admin username login feature is working as specified.

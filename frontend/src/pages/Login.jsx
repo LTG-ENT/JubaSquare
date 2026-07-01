@@ -10,18 +10,23 @@ export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!email || !password) {
+    if (!identifier || !password) {
       toast.error(t("toastEnterEmailPassword"));
       return;
     }
     setBusy(true);
-    const res = await login(email.trim().toLowerCase(), password);
+    // Only lowercase full string when it looks like an email.
+    // Usernames are also compared lowercased server-side but we keep the raw
+    // value so display/error messages match user input.
+    const value = identifier.trim();
+    const normalized = value.includes("@") ? value.toLowerCase() : value.toLowerCase();
+    const res = await login(normalized, password);
     setBusy(false);
     if (!res.ok) {
       toast.error(res.error);
@@ -54,14 +59,14 @@ export default function Login() {
 
         <form onSubmit={handleSubmit} className="bg-white border border-[var(--js-border)] rounded-3xl p-6 sm:p-8 shadow-[0_8px_32px_rgba(0,0,0,0.06)]">
           <label className="block mb-4">
-            <span className="text-xs font-semibold text-[var(--js-text-secondary)] uppercase tracking-wider">{t("email")}</span>
+            <span className="text-xs font-semibold text-[var(--js-text-secondary)] uppercase tracking-wider">{t("email")} / Username</span>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
+              type="text"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
+              placeholder="you@example.com or admin"
               data-testid="login-email"
-              autoComplete="email"
+              autoComplete="username"
               required
               className="mt-1.5 w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#1A1A1A] transition"
             />
