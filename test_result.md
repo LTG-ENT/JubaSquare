@@ -764,7 +764,7 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Public signup is customer-only (role hardcoded)"
+    - "Maintenance mode + Signup customer-only (regression)"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
