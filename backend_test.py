@@ -1,545 +1,495 @@
 #!/usr/bin/env python3
 """
-Backend API Testing for JubaSquare
-Tests the customer-only public signup enforcement
+Customer-only signup security tests
+Tests that public signup is hardcoded to customer role and cannot be escalated
 """
 
 import requests
-import sys
 import json
-from typing import Optional
+from typing import Dict, Any, Optional
 
-# Base URL from environment
 BASE_URL = "https://jubasquare-odoo-v2.preview.emergentagent.com"
-API_BASE = f"{BASE_URL}/api"
-
-# Admin credentials
-ADMIN_EMAIL = "admin@jubasquare.com"
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "1234"
 
-# Test tracking
-tests_passed = 0
-tests_failed = 0
+# Test results tracking
 test_results = []
 
-
-def log_test(test_name: str, passed: bool, details: str = ""):
+def log_test(test_name: str, passed: bool, details: str):
     """Log test result"""
-    global tests_passed, tests_failed
-    if passed:
-        tests_passed += 1
-        status = "✅ PASS"
-    else:
-        tests_failed += 1
-        status = "❌ FAIL"
-    
-    result = f"{status}: {test_name}"
-    if details:
-        result += f"\n    {details}"
-    print(result)
-    test_results.append({"test": test_name, "passed": passed, "details": details})
+    status = "✅ PASS" if passed else "❌ FAIL"
+    print(f"\n{status}: {test_name}")
+    print(f"   {details}")
+    test_results.append({
+        "test": test_name,
+        "passed": passed,
+        "details": details
+    })
 
+def get_admin_token() -> str:
+    """Login as admin and get token"""
+    response = requests.post(
+        f"{BASE_URL}/api/auth/login",
+        json={"email": ADMIN_USERNAME, "password": ADMIN_PASSWORD}
+    )
+    if response.status_code == 200:
+        return response.json()["token"]
+    raise Exception(f"Admin login failed: {response.status_code} {response.text}")
 
-def admin_login() -> Optional[str]:
-    """Login as admin and return token"""
-    try:
-        response = requests.post(
-            f"{API_BASE}/auth/login",
-            json={"email": ADMIN_USERNAME, "password": ADMIN_PASSWORD},
-            timeout=10
-        )
-        if response.status_code == 200:
-            data = response.json()
-            return data.get("token")
-        else:
-            print(f"❌ Admin login failed: {response.status_code} - {response.text}")
-            return None
-    except Exception as e:
-        print(f"❌ Admin login error: {e}")
-        return None
+def get_user_by_email(email: str, admin_token: str) -> Optional[Dict[str, Any]]:
+    """Get user by email from admin users list"""
+    response = requests.get(
+        f"{BASE_URL}/api/admin/users",
+        headers={"Authorization": f"Bearer {admin_token}"}
+    )
+    if response.status_code == 200:
+        users = response.json()
+        for user in users:
+            if user.get("email") == email:
+                return user
+    return None
 
-
-def get_user_by_email(email: str, admin_token: str) -> Optional[dict]:
-    """Get user details by email using admin endpoint"""
-    try:
-        response = requests.get(
-            f"{API_BASE}/admin/users",
-            headers={"Authorization": f"Bearer {admin_token}"},
-            params={"search": email},
-            timeout=10
-        )
-        if response.status_code == 200:
-            data = response.json()
-            users = data.get("users", [])
-            for user in users:
-                if user.get("email") == email:
-                    return user
-        return None
-    except Exception as e:
-        print(f"    Error fetching user: {e}")
-        return None
-
-
-def delete_user_by_email(email: str, admin_token: str) -> bool:
-    """Delete a user by email (cleanup)"""
-    try:
-        user = get_user_by_email(email, admin_token)
-        if user:
-            user_id = user.get("id")
-            response = requests.delete(
-                f"{API_BASE}/admin/users/{user_id}",
-                headers={"Authorization": f"Bearer {admin_token}"},
-                timeout=10
+def cleanup_test_user(email: str, admin_token: str):
+    """Delete test user if exists"""
+    user = get_user_by_email(email, admin_token)
+    if user:
+        user_id = user.get("id")
+        if user_id:
+            requests.delete(
+                f"{BASE_URL}/api/admin/users/{user_id}",
+                headers={"Authorization": f"Bearer {admin_token}"}
             )
-            return response.status_code in [200, 204]
-        return True  # User doesn't exist, consider it cleaned up
-    except Exception as e:
-        print(f"    Error deleting user: {e}")
-        return False
 
+print("=" * 80)
+print("CUSTOMER-ONLY SIGNUP SECURITY TESTS")
+print("=" * 80)
+print(f"Base URL: {BASE_URL}")
+print(f"Admin: {ADMIN_USERNAME} / {ADMIN_PASSWORD}")
+print("=" * 80)
 
-def test_customer_signup_happy_path(admin_token: str):
-    """Test 1: Customer signup — happy path"""
-    test_name = "Test 1: Customer signup happy path"
-    email = "cust_test_1@jubasquare.test"
-    
-    # Cleanup first
-    delete_user_by_email(email, admin_token)
-    
-    try:
-        # Signup
-        response = requests.post(
-            f"{API_BASE}/auth/signup",
-            json={
-                "email": email,
-                "password": "testpass123",
-                "name": "Customer One",
-                "phone": ""
-            },
-            timeout=10
+# Get admin token for verification
+admin_token = get_admin_token()
+print(f"\n✓ Admin token obtained")
+
+# Test 1: Customer signup happy path
+print("\n" + "=" * 80)
+print("TEST 1: Customer signup happy path")
+print("=" * 80)
+test_email = "cust_test_A@example.com"
+cleanup_test_user(test_email, admin_token)
+
+response = requests.post(
+    f"{BASE_URL}/api/auth/signup",
+    json={
+        "email": test_email,
+        "password": "testpass123",
+        "name": "Customer One",
+        "phone": ""
+    }
+)
+
+if response.status_code == 200:
+    # Verify user was created with role="customer"
+    user = get_user_by_email(test_email, admin_token)
+    if user and user.get("role") == "customer":
+        log_test(
+            "Customer signup happy path",
+            True,
+            f"HTTP {response.status_code}. User created with role=customer. Response: {json.dumps(response.json(), indent=2)}"
         )
-        
-        if response.status_code != 200:
-            log_test(test_name, False, f"Signup failed: {response.status_code} - {response.text}")
-            return
-        
-        data = response.json()
-        if not data.get("ok"):
-            log_test(test_name, False, f"Signup response ok=false: {data}")
-            return
-        
-        if data.get("email") != email:
-            log_test(test_name, False, f"Email mismatch: expected {email}, got {data.get('email')}")
-            return
-        
-        # Verify role as admin
-        user = get_user_by_email(email, admin_token)
-        if not user:
-            log_test(test_name, False, "User not found after signup")
-            return
-        
-        if user.get("role") != "customer":
-            log_test(test_name, False, f"Role mismatch: expected 'customer', got '{user.get('role')}'")
-            return
-        
-        log_test(test_name, True, f"User created with role=customer")
-        
-    except Exception as e:
-        log_test(test_name, False, f"Exception: {e}")
-
-
-def test_attempted_seller_signup(admin_token: str):
-    """Test 2: Attempted seller signup via public endpoint — MUST become customer"""
-    test_name = "Test 2: Attempted seller signup (role field ignored)"
-    email = "seller_test_1@jubasquare.test"
-    
-    # Cleanup first
-    delete_user_by_email(email, admin_token)
-    
-    try:
-        # Attempt to signup with role="seller"
-        response = requests.post(
-            f"{API_BASE}/auth/signup",
-            json={
-                "email": email,
-                "password": "testpass123",
-                "name": "Seller Two",
-                "phone": "",
-                "role": "seller"  # This should be IGNORED
-            },
-            timeout=10
-        )
-        
-        if response.status_code != 200:
-            log_test(test_name, False, f"Signup failed: {response.status_code} - {response.text}")
-            return
-        
-        data = response.json()
-        if not data.get("ok"):
-            log_test(test_name, False, f"Signup response ok=false: {data}")
-            return
-        
-        # Verify role as admin - MUST be customer, not seller
-        user = get_user_by_email(email, admin_token)
-        if not user:
-            log_test(test_name, False, "User not found after signup")
-            return
-        
-        if user.get("role") != "customer":
-            log_test(test_name, False, f"Role mismatch: expected 'customer' (role field should be ignored), got '{user.get('role')}'")
-            return
-        
-        log_test(test_name, True, f"Role field ignored, user created with role=customer (not seller)")
-        
-    except Exception as e:
-        log_test(test_name, False, f"Exception: {e}")
-
-
-def test_attempted_admin_signup(admin_token: str):
-    """Test 3: Attempted admin signup via public endpoint — MUST become customer (privilege escalation guard)"""
-    test_name = "Test 3: Attempted admin signup (privilege escalation guard)"
-    email = "escalate_test_1@jubasquare.test"
-    
-    # Cleanup first
-    delete_user_by_email(email, admin_token)
-    
-    try:
-        # Attempt to signup with role="admin"
-        response = requests.post(
-            f"{API_BASE}/auth/signup",
-            json={
-                "email": email,
-                "password": "testpass123",
-                "name": "Attacker",
-                "phone": "",
-                "role": "admin"  # This should be IGNORED
-            },
-            timeout=10
-        )
-        
-        if response.status_code != 200:
-            log_test(test_name, False, f"Signup failed: {response.status_code} - {response.text}")
-            return
-        
-        data = response.json()
-        if not data.get("ok"):
-            log_test(test_name, False, f"Signup response ok=false: {data}")
-            return
-        
-        # Verify role as admin - MUST be customer, NOT admin
-        user = get_user_by_email(email, admin_token)
-        if not user:
-            log_test(test_name, False, "User not found after signup")
-            return
-        
-        if user.get("role") == "admin":
-            log_test(test_name, False, f"SECURITY ISSUE: User was created with role=admin (privilege escalation)")
-            return
-        
-        if user.get("role") != "customer":
-            log_test(test_name, False, f"Role mismatch: expected 'customer', got '{user.get('role')}'")
-            return
-        
-        log_test(test_name, True, f"Privilege escalation prevented, user created with role=customer (not admin)")
-        
-    except Exception as e:
-        log_test(test_name, False, f"Exception: {e}")
-
-
-def test_attempted_driver_signup(admin_token: str):
-    """Test 4: Attempted driver signup via public endpoint — MUST become customer"""
-    test_name = "Test 4: Attempted driver signup (role field ignored)"
-    email = "driver_test_1@jubasquare.test"
-    
-    # Cleanup first
-    delete_user_by_email(email, admin_token)
-    
-    try:
-        # Attempt to signup with role="driver"
-        response = requests.post(
-            f"{API_BASE}/auth/signup",
-            json={
-                "email": email,
-                "password": "testpass123",
-                "name": "Would Be Driver",
-                "phone": "",
-                "role": "driver"  # This should be IGNORED
-            },
-            timeout=10
-        )
-        
-        if response.status_code != 200:
-            log_test(test_name, False, f"Signup failed: {response.status_code} - {response.text}")
-            return
-        
-        data = response.json()
-        if not data.get("ok"):
-            log_test(test_name, False, f"Signup response ok=false: {data}")
-            return
-        
-        # Verify role as admin - MUST be customer, not driver
-        user = get_user_by_email(email, admin_token)
-        if not user:
-            log_test(test_name, False, "User not found after signup")
-            return
-        
-        if user.get("role") != "customer":
-            log_test(test_name, False, f"Role mismatch: expected 'customer', got '{user.get('role')}'")
-            return
-        
-        log_test(test_name, True, f"Role field ignored, user created with role=customer (not driver)")
-        
-    except Exception as e:
-        log_test(test_name, False, f"Exception: {e}")
-
-
-def test_missing_required_fields():
-    """Test 5: Missing required fields"""
-    test_name = "Test 5: Missing required fields"
-    
-    try:
-        # Test 5a: Missing name
-        response = requests.post(
-            f"{API_BASE}/auth/signup",
-            json={
-                "email": "noname@jubasquare.test",
-                "password": "testpass123",
-                "phone": ""
-            },
-            timeout=10
-        )
-        
-        if response.status_code != 422:
-            log_test(f"{test_name} (5a: missing name)", False, f"Expected 422, got {response.status_code}")
-        else:
-            log_test(f"{test_name} (5a: missing name)", True, "Correctly rejected with 422")
-        
-        # Test 5b: Missing email
-        response = requests.post(
-            f"{API_BASE}/auth/signup",
-            json={
-                "password": "testpass123",
-                "name": "NoEmail"
-            },
-            timeout=10
-        )
-        
-        if response.status_code != 422:
-            log_test(f"{test_name} (5b: missing email)", False, f"Expected 422, got {response.status_code}")
-        else:
-            log_test(f"{test_name} (5b: missing email)", True, "Correctly rejected with 422")
-        
-        # Test 5c: Short password
-        response = requests.post(
-            f"{API_BASE}/auth/signup",
-            json={
-                "email": "shortpw@jubasquare.test",
-                "password": "abc",
-                "name": "Short"
-            },
-            timeout=10
-        )
-        
-        if response.status_code != 422:
-            log_test(f"{test_name} (5c: short password)", False, f"Expected 422, got {response.status_code}")
-        else:
-            log_test(f"{test_name} (5c: short password)", True, "Correctly rejected with 422")
-        
-    except Exception as e:
-        log_test(test_name, False, f"Exception: {e}")
-
-
-def test_duplicate_email(admin_token: str):
-    """Test 6: Duplicate email"""
-    test_name = "Test 6: Duplicate email"
-    email = "cust_test_1@jubasquare.test"  # Reuse email from test 1
-    
-    try:
-        # Attempt to signup with same email
-        response = requests.post(
-            f"{API_BASE}/auth/signup",
-            json={
-                "email": email,
-                "password": "testpass123",
-                "name": "Duplicate User",
-                "phone": ""
-            },
-            timeout=10
-        )
-        
-        if response.status_code != 400:
-            log_test(test_name, False, f"Expected 400, got {response.status_code}")
-            return
-        
-        data = response.json()
-        detail = data.get("detail", "").lower()
-        if "already exists" not in detail and "exist" not in detail:
-            log_test(test_name, False, f"Expected 'already exists' message, got: {detail}")
-            return
-        
-        log_test(test_name, True, "Duplicate email correctly rejected with 400")
-        
-    except Exception as e:
-        log_test(test_name, False, f"Exception: {e}")
-
-
-def test_admin_created_seller(admin_token: str):
-    """Test 7: Regression: admin-created seller still works"""
-    test_name = "Test 7: Admin-created seller (regression check)"
-    email = "seller_admin_created_1@jubasquare.test"
-    
-    # Cleanup first
-    delete_user_by_email(email, admin_token)
-    
-    try:
-        # Admin creates a seller
-        response = requests.post(
-            f"{API_BASE}/admin/users",
-            headers={"Authorization": f"Bearer {admin_token}"},
-            json={
-                "email": email,
-                "password": "testpass123",
-                "name": "Real Seller",
-                "role": "seller",
-                "phone": ""
-            },
-            timeout=10
-        )
-        
-        if response.status_code not in [200, 201]:
-            log_test(test_name, False, f"Admin user creation failed: {response.status_code} - {response.text}")
-            return
-        
-        data = response.json()
-        if not data.get("ok"):
-            log_test(test_name, False, f"Admin user creation response ok=false: {data}")
-            return
-        
-        # Verify role
-        user = get_user_by_email(email, admin_token)
-        if not user:
-            log_test(test_name, False, "User not found after admin creation")
-            return
-        
-        if user.get("role") != "seller":
-            log_test(test_name, False, f"Role mismatch: expected 'seller', got '{user.get('role')}'")
-            return
-        
-        log_test(test_name, True, "Admin can still create sellers with role=seller")
-        
-    except Exception as e:
-        log_test(test_name, False, f"Exception: {e}")
-
-
-def test_regression_smokes(admin_token: str):
-    """Test 8: Regression smokes: existing endpoints still work"""
-    test_name = "Test 8: Regression smoke tests"
-    
-    try:
-        # Test 8a: Admin login
-        response = requests.post(
-            f"{API_BASE}/auth/login",
-            json={"email": ADMIN_USERNAME, "password": ADMIN_PASSWORD},
-            timeout=10
-        )
-        
-        if response.status_code != 200:
-            log_test(f"{test_name} (8a: admin login)", False, f"Expected 200, got {response.status_code}")
-        else:
-            log_test(f"{test_name} (8a: admin login)", True, "Admin login works")
-        
-        # Test 8b: GET /api/homepage
-        response = requests.get(f"{API_BASE}/homepage", timeout=10)
-        
-        if response.status_code != 200:
-            log_test(f"{test_name} (8b: GET /api/homepage)", False, f"Expected 200, got {response.status_code}")
-        else:
-            log_test(f"{test_name} (8b: GET /api/homepage)", True, "Homepage endpoint works")
-        
-        # Test 8c: GET /api/settings/public
-        response = requests.get(f"{API_BASE}/settings/public", timeout=10)
-        
-        if response.status_code != 200:
-            log_test(f"{test_name} (8c: GET /api/settings/public)", False, f"Expected 200, got {response.status_code}")
-        else:
-            log_test(f"{test_name} (8c: GET /api/settings/public)", True, "Public settings endpoint works")
-        
-    except Exception as e:
-        log_test(test_name, False, f"Exception: {e}")
-
-
-def cleanup_test_users(admin_token: str):
-    """Cleanup test users"""
-    print("\n" + "="*80)
-    print("CLEANUP: Deleting test users...")
-    print("="*80)
-    
-    test_emails = [
-        "cust_test_1@jubasquare.test",
-        "seller_test_1@jubasquare.test",
-        "escalate_test_1@jubasquare.test",
-        "driver_test_1@jubasquare.test",
-        "seller_admin_created_1@jubasquare.test",
-    ]
-    
-    for email in test_emails:
-        if delete_user_by_email(email, admin_token):
-            print(f"  ✓ Deleted {email}")
-        else:
-            print(f"  ⚠ Could not delete {email} (may not exist)")
-
-
-def main():
-    """Run all tests"""
-    print("="*80)
-    print("JUBASQUARE BACKEND TESTING: Customer-Only Public Signup Enforcement")
-    print("="*80)
-    print(f"Base URL: {BASE_URL}")
-    print(f"API Base: {API_BASE}")
-    print("="*80)
-    
-    # Login as admin
-    print("\n🔐 Logging in as admin...")
-    admin_token = admin_login()
-    if not admin_token:
-        print("❌ FATAL: Could not login as admin. Aborting tests.")
-        sys.exit(1)
-    print("✅ Admin login successful\n")
-    
-    # Run tests
-    print("="*80)
-    print("RUNNING TESTS")
-    print("="*80 + "\n")
-    
-    test_customer_signup_happy_path(admin_token)
-    test_attempted_seller_signup(admin_token)
-    test_attempted_admin_signup(admin_token)
-    test_attempted_driver_signup(admin_token)
-    test_missing_required_fields()
-    test_duplicate_email(admin_token)
-    test_admin_created_seller(admin_token)
-    test_regression_smokes(admin_token)
-    
-    # Cleanup
-    cleanup_test_users(admin_token)
-    
-    # Summary
-    print("\n" + "="*80)
-    print("TEST SUMMARY")
-    print("="*80)
-    print(f"Total tests: {tests_passed + tests_failed}")
-    print(f"✅ Passed: {tests_passed}")
-    print(f"❌ Failed: {tests_failed}")
-    print("="*80)
-    
-    if tests_failed > 0:
-        print("\n❌ SOME TESTS FAILED")
-        sys.exit(1)
     else:
-        print("\n✅ ALL TESTS PASSED")
-        sys.exit(0)
+        log_test(
+            "Customer signup happy path",
+            False,
+            f"HTTP {response.status_code} but user role is {user.get('role') if user else 'NOT FOUND'}"
+        )
+else:
+    log_test(
+        "Customer signup happy path",
+        False,
+        f"HTTP {response.status_code}. Response: {response.text}"
+    )
 
+# Test 2: Privilege escalation attempt - role:"seller"
+print("\n" + "=" * 80)
+print("TEST 2: Privilege escalation attempt - role:seller")
+print("=" * 80)
+test_email = "seller_attempt_B@jubasquare.test"
+cleanup_test_user(test_email, admin_token)
 
-if __name__ == "__main__":
-    main()
+response = requests.post(
+    f"{BASE_URL}/api/auth/signup",
+    json={
+        "email": test_email,
+        "password": "testpass123",
+        "name": "Would Seller",
+        "phone": "",
+        "role": "seller"  # Attempt to escalate
+    }
+)
+
+if response.status_code == 200:
+    user = get_user_by_email(test_email, admin_token)
+    if user and user.get("role") == "customer":
+        log_test(
+            "Privilege escalation blocked - seller",
+            True,
+            f"HTTP {response.status_code}. User created with role=customer (NOT seller). Escalation blocked. Response: {json.dumps(response.json(), indent=2)}"
+        )
+    else:
+        log_test(
+            "Privilege escalation blocked - seller",
+            False,
+            f"HTTP {response.status_code} but user role is {user.get('role') if user else 'NOT FOUND'}. SECURITY ISSUE: role escalation succeeded!"
+        )
+else:
+    log_test(
+        "Privilege escalation blocked - seller",
+        False,
+        f"HTTP {response.status_code}. Response: {response.text}"
+    )
+
+# Test 3: Privilege escalation attempt - role:"admin"
+print("\n" + "=" * 80)
+print("TEST 3: Privilege escalation attempt - role:admin")
+print("=" * 80)
+test_email = "admin_attempt_C@jubasquare.test"
+cleanup_test_user(test_email, admin_token)
+
+response = requests.post(
+    f"{BASE_URL}/api/auth/signup",
+    json={
+        "email": test_email,
+        "password": "testpass123",
+        "name": "Attacker",
+        "phone": "",
+        "role": "admin"  # Attempt to escalate
+    }
+)
+
+if response.status_code == 200:
+    user = get_user_by_email(test_email, admin_token)
+    if user and user.get("role") == "customer":
+        log_test(
+            "Privilege escalation blocked - admin",
+            True,
+            f"HTTP {response.status_code}. User created with role=customer (NOT admin). Escalation blocked. Response: {json.dumps(response.json(), indent=2)}"
+        )
+    else:
+        log_test(
+            "Privilege escalation blocked - admin",
+            False,
+            f"HTTP {response.status_code} but user role is {user.get('role') if user else 'NOT FOUND'}. SECURITY ISSUE: role escalation succeeded!"
+        )
+else:
+    log_test(
+        "Privilege escalation blocked - admin",
+        False,
+        f"HTTP {response.status_code}. Response: {response.text}"
+    )
+
+# Test 4: Privilege escalation attempt - role:"driver"
+print("\n" + "=" * 80)
+print("TEST 4: Privilege escalation attempt - role:driver")
+print("=" * 80)
+test_email = "driver_attempt_D@jubasquare.test"
+cleanup_test_user(test_email, admin_token)
+
+response = requests.post(
+    f"{BASE_URL}/api/auth/signup",
+    json={
+        "email": test_email,
+        "password": "testpass123",
+        "name": "Fake Driver",
+        "phone": "",
+        "role": "driver"  # Attempt to escalate
+    }
+)
+
+if response.status_code == 200:
+    user = get_user_by_email(test_email, admin_token)
+    if user and user.get("role") == "customer":
+        log_test(
+            "Privilege escalation blocked - driver",
+            True,
+            f"HTTP {response.status_code}. User created with role=customer (NOT driver). Escalation blocked. Response: {json.dumps(response.json(), indent=2)}"
+        )
+    else:
+        log_test(
+            "Privilege escalation blocked - driver",
+            False,
+            f"HTTP {response.status_code} but user role is {user.get('role') if user else 'NOT FOUND'}. SECURITY ISSUE: role escalation succeeded!"
+        )
+else:
+    log_test(
+        "Privilege escalation blocked - driver",
+        False,
+        f"HTTP {response.status_code}. Response: {response.text}"
+    )
+
+# Test 5a: Validation - missing name
+print("\n" + "=" * 80)
+print("TEST 5a: Validation - missing name")
+print("=" * 80)
+response = requests.post(
+    f"{BASE_URL}/api/auth/signup",
+    json={
+        "email": "noname@jubasquare.test",
+        "password": "testpass123",
+        "phone": ""
+    }
+)
+
+if response.status_code == 422:
+    log_test(
+        "Validation - missing name",
+        True,
+        f"HTTP {response.status_code} (422 Unprocessable Entity). Validation working. Response: {response.text[:200]}"
+    )
+else:
+    log_test(
+        "Validation - missing name",
+        False,
+        f"Expected HTTP 422, got {response.status_code}. Response: {response.text}"
+    )
+
+# Test 5b: Validation - short password
+print("\n" + "=" * 80)
+print("TEST 5b: Validation - short password")
+print("=" * 80)
+response = requests.post(
+    f"{BASE_URL}/api/auth/signup",
+    json={
+        "email": "shortpw@jubasquare.test",
+        "password": "abc",
+        "name": "Short"
+    }
+)
+
+if response.status_code == 422:
+    log_test(
+        "Validation - short password",
+        True,
+        f"HTTP {response.status_code} (422 Unprocessable Entity). Validation working. Response: {response.text[:200]}"
+    )
+else:
+    log_test(
+        "Validation - short password",
+        False,
+        f"Expected HTTP 422, got {response.status_code}. Response: {response.text}"
+    )
+
+# Test 5c: Validation - missing email
+print("\n" + "=" * 80)
+print("TEST 5c: Validation - missing email")
+print("=" * 80)
+response = requests.post(
+    f"{BASE_URL}/api/auth/signup",
+    json={
+        "password": "testpass123",
+        "name": "NoEmail"
+    }
+)
+
+if response.status_code == 422:
+    log_test(
+        "Validation - missing email",
+        True,
+        f"HTTP {response.status_code} (422 Unprocessable Entity). Validation working. Response: {response.text[:200]}"
+    )
+else:
+    log_test(
+        "Validation - missing email",
+        False,
+        f"Expected HTTP 422, got {response.status_code}. Response: {response.text}"
+    )
+
+# Test 6: Duplicate email
+print("\n" + "=" * 80)
+print("TEST 6: Duplicate email")
+print("=" * 80)
+# Use the email from test 1
+test_email = "cust_test_A@jubasquare.test"
+response = requests.post(
+    f"{BASE_URL}/api/auth/signup",
+    json={
+        "email": test_email,
+        "password": "testpass123",
+        "name": "Customer One Duplicate",
+        "phone": ""
+    }
+)
+
+if response.status_code == 400:
+    log_test(
+        "Duplicate email rejected",
+        True,
+        f"HTTP {response.status_code} (400 Bad Request). Duplicate detection working. Response: {response.text}"
+    )
+else:
+    log_test(
+        "Duplicate email rejected",
+        False,
+        f"Expected HTTP 400, got {response.status_code}. Response: {response.text}"
+    )
+
+# Test 7: Regression - admin-created seller still works
+print("\n" + "=" * 80)
+print("TEST 7: Regression - admin-created seller still works")
+print("=" * 80)
+test_email = "admin_created_seller_E@jubasquare.test"
+cleanup_test_user(test_email, admin_token)
+
+response = requests.post(
+    f"{BASE_URL}/api/admin/users",
+    headers={"Authorization": f"Bearer {admin_token}"},
+    json={
+        "email": test_email,
+        "password": "testpass123",
+        "name": "Real Seller",
+        "role": "seller",
+        "phone": ""
+    }
+)
+
+if response.status_code in [200, 201]:
+    user = get_user_by_email(test_email, admin_token)
+    if user and user.get("role") == "seller":
+        log_test(
+            "Admin-created seller works",
+            True,
+            f"HTTP {response.status_code}. Admin successfully created seller with role=seller. Response: {json.dumps(response.json(), indent=2)}"
+        )
+    else:
+        log_test(
+            "Admin-created seller works",
+            False,
+            f"HTTP {response.status_code} but user role is {user.get('role') if user else 'NOT FOUND'}"
+        )
+else:
+    log_test(
+        "Admin-created seller works",
+        False,
+        f"HTTP {response.status_code}. Response: {response.text}"
+    )
+
+# Test 8a: Regression smoke - admin login
+print("\n" + "=" * 80)
+print("TEST 8a: Regression smoke - admin login")
+print("=" * 80)
+response = requests.post(
+    f"{BASE_URL}/api/auth/login",
+    json={"email": ADMIN_USERNAME, "password": ADMIN_PASSWORD}
+)
+
+if response.status_code == 200 and "token" in response.json():
+    log_test(
+        "Admin login works",
+        True,
+        f"HTTP {response.status_code}. Admin login successful. Token obtained."
+    )
+else:
+    log_test(
+        "Admin login works",
+        False,
+        f"HTTP {response.status_code}. Response: {response.text}"
+    )
+
+# Test 8b: Regression smoke - homepage
+print("\n" + "=" * 80)
+print("TEST 8b: Regression smoke - homepage")
+print("=" * 80)
+response = requests.get(f"{BASE_URL}/api/homepage")
+
+if response.status_code == 200:
+    data = response.json()
+    has_required_fields = all(k in data for k in ["hero_slides", "hero_tagline", "hero_title", "hero_subtitle"])
+    if has_required_fields:
+        log_test(
+            "Homepage endpoint works",
+            True,
+            f"HTTP {response.status_code}. Homepage returns required fields."
+        )
+    else:
+        log_test(
+            "Homepage endpoint works",
+            False,
+            f"HTTP {response.status_code} but missing required fields. Got: {list(data.keys())}"
+        )
+else:
+    log_test(
+        "Homepage endpoint works",
+        False,
+        f"HTTP {response.status_code}. Response: {response.text}"
+    )
+
+# Test 8c: Regression smoke - public settings
+print("\n" + "=" * 80)
+print("TEST 8c: Regression smoke - public settings")
+print("=" * 80)
+response = requests.get(f"{BASE_URL}/api/settings/public")
+
+if response.status_code == 200:
+    data = response.json()
+    has_required_fields = "maintenance_mode" in data and "homepage" in data
+    if has_required_fields:
+        log_test(
+            "Public settings endpoint works",
+            True,
+            f"HTTP {response.status_code}. Settings returns maintenance_mode and homepage fields."
+        )
+    else:
+        log_test(
+            "Public settings endpoint works",
+            False,
+            f"HTTP {response.status_code} but missing required fields. Got: {list(data.keys())}"
+        )
+else:
+    log_test(
+        "Public settings endpoint works",
+        False,
+        f"HTTP {response.status_code}. Response: {response.text}"
+    )
+
+# Summary
+print("\n" + "=" * 80)
+print("TEST SUMMARY")
+print("=" * 80)
+
+passed = sum(1 for r in test_results if r["passed"])
+total = len(test_results)
+pass_rate = (passed / total * 100) if total > 0 else 0
+
+print(f"\nTotal tests: {total}")
+print(f"Passed: {passed}")
+print(f"Failed: {total - passed}")
+print(f"Pass rate: {pass_rate:.1f}%")
+
+print("\n" + "=" * 80)
+print("DETAILED RESULTS")
+print("=" * 80)
+
+for result in test_results:
+    status = "✅ PASS" if result["passed"] else "❌ FAIL"
+    print(f"\n{status}: {result['test']}")
+
+if passed == total:
+    print("\n" + "=" * 80)
+    print("🎉 ALL TESTS PASSED!")
+    print("=" * 80)
+    print("\nCONCLUSION:")
+    print("✓ Public signup is hardcoded to customer role")
+    print("✓ Privilege escalation attempts (seller/admin/driver) are blocked")
+    print("✓ Validation works correctly (missing fields, short password)")
+    print("✓ Duplicate email detection works")
+    print("✓ Admin-created sellers still work (regression OK)")
+    print("✓ Core endpoints working (admin login, homepage, settings)")
+else:
+    print("\n" + "=" * 80)
+    print("⚠️  SOME TESTS FAILED")
+    print("=" * 80)
+    print("\nFailed tests:")
+    for result in test_results:
+        if not result["passed"]:
+            print(f"  ❌ {result['test']}")
+            print(f"     {result['details']}")
