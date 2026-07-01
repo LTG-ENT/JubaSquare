@@ -12,6 +12,9 @@ import SellerWalletTab from "@/components/SellerWalletTab";
 import BulkImportModal from "@/components/BulkImportModal";
 import SellerAnalyticsTab from "@/components/SellerAnalyticsTab";
 import PasswordChangeForm from "@/components/PasswordChangeForm";
+import SellerOnboardingCard from "@/components/SellerOnboardingCard";
+import SellerFirstLoginWizard from "@/components/SellerFirstLoginWizard";
+import SellerDashboardTour from "@/components/SellerDashboardTour";
 import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle, ExternalLink, MessageCircle, Mail, Phone, ChefHat, Wallet, MapPin, Upload, TrendingUp, PackageCheck } from "lucide-react";
 import { useSearchParams, Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -45,6 +48,7 @@ export default function SellerDashboard() {
   const [tab, setTab] = useState(initial);
   const [lowStockCount, setLowStockCount] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const [runTour, setRunTour] = useState(false);
 
   useEffect(() => {
     const t = searchParams.get("tab");
@@ -92,6 +96,15 @@ export default function SellerDashboard() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full flex-1">
         <p className="text-[10px] uppercase tracking-[0.2em] text-[#5C5C5C] font-bold mb-2">{tr("dashboard")}</p>
         <h1 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">{tr("manageBusiness")}</h1>
+
+        {/* Onboarding progress card (auto-hides at 100%) */}
+        <SellerOnboardingCard onStartTour={() => setRunTour(true)} />
+
+        {/* First-login wizard modal (dismissable, persists on server) */}
+        <SellerFirstLoginWizard />
+
+        {/* Interactive dashboard tour */}
+        <SellerDashboardTour run={runTour} onFinish={() => setRunTour(false)} />
 
         {/* Low-stock alert banner */}
         {lowStockEnabled && lowStockCount > 0 && (

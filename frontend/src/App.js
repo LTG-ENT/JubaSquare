@@ -45,6 +45,7 @@ const Favorites = lazy(() => import("@/pages/Favorites"));
 const Settings = lazy(() => import("@/pages/Settings"));
 const SellerDashboard = lazy(() => import("@/pages/SellerDashboard"));
 const SellerShopEdit = lazy(() => import("@/pages/SellerShopEdit"));
+const SellerGuide = lazy(() => import("@/pages/SellerGuide"));
 const AdminDashboard = lazy(() => import("@/pages/AdminDashboard"));
 const DriverDashboard = lazy(() => import("@/pages/DriverDashboard"));
 const About = lazy(() => import("@/pages/legal/About"));
@@ -145,6 +146,7 @@ export default function App() {
                   <Route path="/favorites" element={<ProtectedRoute><Favorites /></ProtectedRoute>} />
                   <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
                   <Route path="/seller" element={<ProtectedRoute role="seller"><SellerDashboard /></ProtectedRoute>} />
+                  <Route path="/seller/guide" element={<ProtectedRoute role="seller"><SellerGuide /></ProtectedRoute>} />
                   <Route path="/seller/shop/:shop_id/edit" element={<ProtectedRoute role="seller"><SellerShopEdit /></ProtectedRoute>} />
                   <Route path="/admin" element={<ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>} />
                   <Route path="/driver" element={<ProtectedRoute role="driver"><DriverDashboard /></ProtectedRoute>} />

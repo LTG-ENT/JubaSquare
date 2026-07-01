@@ -2567,6 +2567,16 @@ async def bulk_import_products(
         except Exception as e:
             results["errors"].append({"row": idx, "name": (row.get("name") or "").strip()[:80], "error": str(e)})
 
+    # Mark onboarding: bulk_import_used (for the "Bulk import" step)
+    if results["created"] > 0:
+        try:
+            await db.users.update_one(
+                {"id": user["id"]},
+                {"$set": {"meta.bulk_import_used": True}},
+            )
+        except Exception:
+            pass
+
     return results
 
 
@@ -6240,6 +6250,162 @@ async def robots_txt(request: Request):
         f"Sitemap: {base}/api/sitemap.xml\n"
     )
     return PlainTextResponse(txt, media_type="text/plain")
+
+
+# ============================================================
+# Seller Onboarding Guide — step-by-step guide + progress tracking
+# ============================================================
+# Nine canonical steps. Some are auto-detected from existing data
+# (e.g. "shop" is complete when the seller has ≥1 shop); others are
+# manually marked complete by the seller (e.g. "orders" — read the
+# section explaining how to fulfill orders).
+#
+# The "core" steps required to earn the "Setup Verified" shop badge
+# are: profile, shop, product, delivery, payout.
+
+_ONBOARDING_STEPS = [
+    {"id": "profile",   "core": True,  "auto": True},
+    {"id": "shop",      "core": True,  "auto": True},
+    {"id": "product",   "core": True,  "auto": True},
+    {"id": "delivery",  "core": True,  "auto": True},
+    {"id": "payout",    "core": True,  "auto": False},
+    {"id": "orders",    "core": False, "auto": False},
+    {"id": "analytics", "core": False, "auto": False},
+    {"id": "bulk",      "core": False, "auto": True},
+    {"id": "reviews",   "core": False, "auto": False},
+]
+_ONBOARDING_CORE_IDS = {s["id"] for s in _ONBOARDING_STEPS if s["core"]}
+
+
+async def _compute_onboarding_progress(user_id: str) -> dict:
+    """Compute a seller's onboarding progress by auto-detecting completed
+    steps from existing collections + merging with manually-marked ones
+    stored in db.onboarding_progress."""
+    # Load user + manual progress in parallel would be nice, but keep it simple
+    user = await db.users.find_one({"id": user_id}, {"_id": 0}) or {}
+    progress = await db.onboarding_progress.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    manual_completed = set(progress.get("manual_completed") or [])
+    wizard_dismissed = bool(progress.get("wizard_dismissed"))
+    tour_completed = bool(progress.get("tour_completed"))
+
+    # Auto-detection
+    has_name = bool((user.get("name") or "").strip())
+    has_phone = bool((user.get("phone") or "").strip())
+    profile_done = has_name and has_phone
+
+    shops = await db.shops.find({"seller_id": user_id}, {"_id": 0}).to_list(50)
+    shop_done = len(shops) > 0
+
+    product_done = False
+    if shop_done:
+        shop_ids = [s["id"] for s in shops]
+        cnt = await db.products.count_documents({"shop_id": {"$in": shop_ids}})
+        product_done = cnt > 0
+
+    delivery_done = False
+    for s in shops:
+        mode = s.get("delivery_mode")
+        if mode == "fixed" and float(s.get("delivery_fee_usd") or 0) > 0:
+            delivery_done = True; break
+        if mode == "per_area" and (s.get("delivery_per_area") or []):
+            delivery_done = True; break
+        if mode == "free":
+            delivery_done = True; break
+
+    bulk_done = bool((user.get("meta") or {}).get("bulk_import_used"))
+
+    auto_status = {
+        "profile": profile_done,
+        "shop": shop_done,
+        "product": product_done,
+        "delivery": delivery_done,
+        "bulk": bulk_done,
+    }
+
+    steps_out = []
+    completed_count = 0
+    core_completed = 0
+    for s in _ONBOARDING_STEPS:
+        done = auto_status.get(s["id"], False) or (s["id"] in manual_completed)
+        if done:
+            completed_count += 1
+            if s["core"]:
+                core_completed += 1
+        steps_out.append({"id": s["id"], "done": done, "auto": s["auto"], "core": s["core"]})
+
+    total = len(_ONBOARDING_STEPS)
+    percent = int(round(100 * completed_count / total)) if total else 0
+    badge_earned = core_completed >= len(_ONBOARDING_CORE_IDS)
+
+    return {
+        "steps": steps_out,
+        "completed_count": completed_count,
+        "total_count": total,
+        "percent": percent,
+        "wizard_dismissed": wizard_dismissed,
+        "tour_completed": tour_completed,
+        "badge_earned": badge_earned,
+    }
+
+
+@api.get("/seller/onboarding/progress")
+async def get_onboarding_progress(user: dict = Depends(require_role("seller", "admin"))):
+    return await _compute_onboarding_progress(user["id"])
+
+
+class OnboardingStepIn(BaseModel):
+    step_id: str
+
+
+@api.post("/seller/onboarding/complete-step")
+async def complete_onboarding_step(body: OnboardingStepIn, user: dict = Depends(require_role("seller", "admin"))):
+    valid_ids = {s["id"] for s in _ONBOARDING_STEPS}
+    if body.step_id not in valid_ids:
+        raise HTTPException(status_code=400, detail="Unknown step_id")
+    await db.onboarding_progress.update_one(
+        {"user_id": user["id"]},
+        {
+            "$addToSet": {"manual_completed": body.step_id},
+            "$set": {"updated_at": datetime.now(timezone.utc).isoformat()},
+            "$setOnInsert": {"user_id": user["id"]},
+        },
+        upsert=True,
+    )
+    return await _compute_onboarding_progress(user["id"])
+
+
+@api.post("/seller/onboarding/uncheck-step")
+async def uncheck_onboarding_step(body: OnboardingStepIn, user: dict = Depends(require_role("seller", "admin"))):
+    """Allow sellers to un-check a manually-completed step (mistakes happen)."""
+    await db.onboarding_progress.update_one(
+        {"user_id": user["id"]},
+        {"$pull": {"manual_completed": body.step_id},
+         "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return await _compute_onboarding_progress(user["id"])
+
+
+@api.post("/seller/onboarding/dismiss-wizard")
+async def dismiss_onboarding_wizard(user: dict = Depends(require_role("seller", "admin"))):
+    await db.onboarding_progress.update_one(
+        {"user_id": user["id"]},
+        {"$set": {"wizard_dismissed": True, "updated_at": datetime.now(timezone.utc).isoformat()},
+         "$setOnInsert": {"user_id": user["id"]}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api.post("/seller/onboarding/complete-tour")
+async def complete_onboarding_tour(user: dict = Depends(require_role("seller", "admin"))):
+    await db.onboarding_progress.update_one(
+        {"user_id": user["id"]},
+        {"$set": {"tour_completed": True, "updated_at": datetime.now(timezone.utc).isoformat()},
+         "$setOnInsert": {"user_id": user["id"]}},
+        upsert=True,
+    )
+    return {"ok": True}
 
 
 # Serve uploaded images under /api/uploads so they go through the Kubernetes

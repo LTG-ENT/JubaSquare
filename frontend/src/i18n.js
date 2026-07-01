@@ -236,6 +236,89 @@ const resources = {
       deliveryAccepted: "Delivery accepted!",
       deliveryRejected: "Delivery rejected",
 
+      // Seller Onboarding Guide
+      "guide.card.eyebrow": "New seller? Start here",
+      "guide.card.title": "Get your shop up and running",
+      "guide.card.subtitle": "{{done}} of {{total}} setup steps completed. Finish them to unlock the ‘Setup Verified’ badge on your shop.",
+      "guide.card.badgeEarned": "Setup Verified",
+      "guide.card.openGuide": "Open full guide",
+      "guide.card.showAround": "Show me around",
+
+      "guide.hero.eyebrow": "Seller Guide",
+      "guide.hero.title": "Everything you need to start selling on JubaSquare",
+      "guide.hero.subtitle": "A step-by-step walkthrough to help you set up your shop, list your first product, configure delivery, and grow your business.",
+      "guide.hero.badgeEarned": "You've earned the ‘Setup Verified’ badge",
+      "guide.progress.count": "{{done}} of {{total}} steps complete",
+      "guide.stepLabel": "Step {{n}}",
+      "guide.core": "Core",
+      "guide.autoBadge": "Auto",
+      "guide.autoInfo": "This step is detected automatically once you perform the action.",
+      "guide.marked.done": "Marked as done",
+      "guide.marked.pending": "Marked as pending",
+      "guide.markFailed": "Couldn't update — try again",
+      "guide.backToDashboard": "Back to Dashboard",
+      "guide.footerHelp": "Need help along the way? Our team is here for you.",
+      "guide.footerContact": "Contact JubaSquare support",
+
+      "guide.profile.title": "Complete your seller profile",
+      "guide.profile.desc": "Add your full name and a phone number so customers can reach you when needed. Verified sellers rank higher in search.",
+      "guide.profile.action": "Go to profile settings",
+
+      "guide.shop.title": "Set up your shop",
+      "guide.shop.desc": "Pick a shop name, upload a logo and banner, choose your category and area, and write a short bio. This is the first thing customers see.",
+      "guide.shop.action": "Create your shop",
+
+      "guide.product.title": "Add your first product",
+      "guide.product.desc": "Every product needs a clear photo, price in USD, stock count, and a short description. Well-photographed products sell 3× more.",
+      "guide.product.action": "Add a product",
+
+      "guide.delivery.title": "Configure delivery / pickup zones",
+      "guide.delivery.desc": "Decide if you offer free delivery, a flat fee, or per-area fees. Customers see this before placing an order — clear pricing = fewer cancellations.",
+      "guide.delivery.action": "Configure delivery",
+
+      "guide.payout.title": "Connect your payout method",
+      "guide.payout.desc": "Tell us how you'd like to receive your earnings (bank transfer or mobile money). We settle weekly after commission is deducted.",
+      "guide.payout.action": "Set up payout",
+
+      "guide.orders.title": "Learn how to fulfill orders",
+      "guide.orders.desc": "New orders appear under Wallet & Active Orders. Confirm, prepare the item, hand it to the driver, and collect the pickup OTP. Read the full flow.",
+      "guide.orders.action": "See active orders",
+
+      "guide.analytics.title": "Read your analytics",
+      "guide.analytics.desc": "Track daily sales, top-selling products, average order value, and repeat customers. Data helps you decide what to restock or discount.",
+      "guide.analytics.action": "Open analytics",
+
+      "guide.bulk.title": "Bulk import products",
+      "guide.bulk.desc": "Have dozens of products? Download our Excel template, fill in your catalogue, and import in one click. Perfect for wholesale shops.",
+      "guide.bulk.action": "Try bulk import",
+
+      "guide.reviews.title": "Reply to reviews & messages",
+      "guide.reviews.desc": "Respond to customer reviews to build trust. Answer questions in Messages within 24h — fast replies boost your shop ranking.",
+      "guide.reviews.action": "Open messages",
+
+      // First-login wizard
+      "wizard.welcomeEyebrow": "Welcome to JubaSquare",
+      "wizard.welcomeTitle": "Let's get you selling in 3 quick steps",
+      "wizard.welcomeSubtitle": "Complete these essentials to publish your shop. You can revisit the full guide any time.",
+      "wizard.stepXofY": "Step {{current}} of {{total}}",
+      "wizard.back": "Back",
+      "wizard.next": "Next",
+      "wizard.finish": "Got it",
+
+      // Dashboard interactive tour
+      "tour.back": "Back",
+      "tour.close": "Close",
+      "tour.finish": "Finish",
+      "tour.next": "Next",
+      "tour.skip": "Skip tour",
+      "tour.onboarding": "This card tracks your setup progress. Complete the core steps to unlock the Setup Verified badge on your shop.",
+      "tour.shopsTab": "Manage your shops here — create, edit, or hide a shop from the marketplace.",
+      "tour.productsTab": "Add, edit, and manage your products. You can also bulk-import via Excel.",
+      "tour.analyticsTab": "See daily sales, top products, and revenue trends — your business at a glance.",
+      "tour.walletTab": "Your earnings live here, along with all active orders you need to fulfill.",
+      "tour.messagesTab": "Customer questions and reviews appear here. Reply within 24h to boost your ranking.",
+      "tour.settingsTab": "Personal settings, notification preferences, and account security.",
+
       // Language
       language: "Language",
       english: "English",
@@ -464,6 +547,89 @@ const resources = {
       totalToCollect: "الإجمالي المراد تحصيله (COD)",
       deliveryAccepted: "تم قبول التوصيل!",
       deliveryRejected: "تم رفض التوصيل",
+
+      // Seller Onboarding Guide (Arabic)
+      "guide.card.eyebrow": "بائع جديد؟ ابدأ من هنا",
+      "guide.card.title": "جهّز متجرك للبيع",
+      "guide.card.subtitle": "أكملت {{done}} من {{total}} خطوات. أكملها للحصول على شارة ‘الإعداد الموثق’ على متجرك.",
+      "guide.card.badgeEarned": "الإعداد موثق",
+      "guide.card.openGuide": "افتح الدليل الكامل",
+      "guide.card.showAround": "تجول معي",
+
+      "guide.hero.eyebrow": "دليل البائع",
+      "guide.hero.title": "كل ما تحتاجه لبدء البيع على جوبا سكوير",
+      "guide.hero.subtitle": "دليل خطوة بخطوة لإنشاء متجرك، إضافة أول منتج، إعداد التوصيل، وتنمية عملك.",
+      "guide.hero.badgeEarned": "لقد حصلت على شارة ‘الإعداد الموثق’",
+      "guide.progress.count": "{{done}} من {{total}} خطوات مكتملة",
+      "guide.stepLabel": "الخطوة {{n}}",
+      "guide.core": "أساسي",
+      "guide.autoBadge": "تلقائي",
+      "guide.autoInfo": "يتم اكتشاف هذه الخطوة تلقائياً عند تنفيذها.",
+      "guide.marked.done": "تم وضع علامة مكتمل",
+      "guide.marked.pending": "أُعيد إلى قيد الانتظار",
+      "guide.markFailed": "تعذر التحديث — حاول مرة أخرى",
+      "guide.backToDashboard": "العودة للوحة التحكم",
+      "guide.footerHelp": "بحاجة إلى مساعدة؟ فريقنا متاح لك.",
+      "guide.footerContact": "تواصل مع دعم جوبا سكوير",
+
+      "guide.profile.title": "أكمل ملفك الشخصي",
+      "guide.profile.desc": "أضف اسمك الكامل ورقم هاتفك ليتمكن العملاء من التواصل معك. البائعون الموثقون يظهرون في نتائج البحث بشكل أفضل.",
+      "guide.profile.action": "اذهب لإعدادات الملف الشخصي",
+
+      "guide.shop.title": "أنشئ متجرك",
+      "guide.shop.desc": "اختر اسماً وشعاراً وبانراً وفئة ومنطقة لمتجرك، واكتب نبذة قصيرة. هذا أول ما يراه العملاء.",
+      "guide.shop.action": "أنشئ متجرك",
+
+      "guide.product.title": "أضف أول منتج",
+      "guide.product.desc": "كل منتج يحتاج إلى صورة واضحة، سعر بالدولار، الكمية المتوفرة، ووصف قصير. المنتجات المصورة جيداً تُباع 3× أكثر.",
+      "guide.product.action": "أضف منتج",
+
+      "guide.delivery.title": "اضبط مناطق التوصيل / الاستلام",
+      "guide.delivery.desc": "حدّد إن كنت تقدم توصيلاً مجانياً، أو رسم ثابت، أو رسوم لكل منطقة. الأسعار الواضحة تقلل من إلغاء الطلبات.",
+      "guide.delivery.action": "اضبط التوصيل",
+
+      "guide.payout.title": "أضف طريقة استلام الأرباح",
+      "guide.payout.desc": "أخبرنا كيف تريد استلام أرباحك (تحويل بنكي أو محفظة إلكترونية). ندفع أسبوعياً بعد خصم العمولة.",
+      "guide.payout.action": "أضف طريقة الدفع",
+
+      "guide.orders.title": "تعلّم كيف تنفذ الطلبات",
+      "guide.orders.desc": "تظهر الطلبات الجديدة في المحفظة والطلبات النشطة. أكّد، جهّز، سلّم للسائق، واحصل على رمز الاستلام.",
+      "guide.orders.action": "شاهد الطلبات النشطة",
+
+      "guide.analytics.title": "اقرأ تحليلاتك",
+      "guide.analytics.desc": "تابع المبيعات اليومية، المنتجات الأكثر بيعاً، متوسط قيمة الطلب، والعملاء المتكررين. البيانات تساعدك على اتخاذ قرارات أفضل.",
+      "guide.analytics.action": "افتح التحليلات",
+
+      "guide.bulk.title": "استيراد المنتجات بالجملة",
+      "guide.bulk.desc": "لديك منتجات كثيرة؟ حمّل قالب الإكسل، عبّئه بمنتجاتك، واستورده بضغطة واحدة. مثالي لمتاجر الجملة.",
+      "guide.bulk.action": "جرّب الاستيراد بالجملة",
+
+      "guide.reviews.title": "ردّ على التقييمات والرسائل",
+      "guide.reviews.desc": "ردّ على تقييمات العملاء لبناء الثقة. أجب على الرسائل خلال 24 ساعة — الردود السريعة تحسّن ترتيب متجرك.",
+      "guide.reviews.action": "افتح الرسائل",
+
+      // First-login wizard (Arabic)
+      "wizard.welcomeEyebrow": "مرحباً بك في جوبا سكوير",
+      "wizard.welcomeTitle": "لنجهّزك للبيع في 3 خطوات سريعة",
+      "wizard.welcomeSubtitle": "أكمل هذه الأساسيات لنشر متجرك. يمكنك مراجعة الدليل الكامل في أي وقت.",
+      "wizard.stepXofY": "الخطوة {{current}} من {{total}}",
+      "wizard.back": "السابق",
+      "wizard.next": "التالي",
+      "wizard.finish": "فهمت",
+
+      // Interactive tour (Arabic)
+      "tour.back": "السابق",
+      "tour.close": "إغلاق",
+      "tour.finish": "إنهاء",
+      "tour.next": "التالي",
+      "tour.skip": "تخطى الجولة",
+      "tour.onboarding": "هذه البطاقة تتابع تقدم إعدادك. أكمل الخطوات الأساسية لتفعيل شارة الإعداد الموثق.",
+      "tour.shopsTab": "أدر متاجرك من هنا — أنشئ، عدّل، أو أخفِ متجراً من السوق.",
+      "tour.productsTab": "أضف وأدر منتجاتك. يمكنك أيضاً الاستيراد من Excel.",
+      "tour.analyticsTab": "شاهد المبيعات اليومية، المنتجات الأكثر بيعاً، واتجاهات الإيرادات.",
+      "tour.walletTab": "تجد هنا أرباحك والطلبات النشطة التي تحتاج تنفيذها.",
+      "tour.messagesTab": "أسئلة العملاء والتقييمات تظهر هنا. الردود السريعة ترفع ترتيبك.",
+      "tour.settingsTab": "الإعدادات الشخصية، تفضيلات الإشعارات، وأمان الحساب.",
 
       language: "اللغة",
       english: "الإنجليزية",
