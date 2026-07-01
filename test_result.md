@@ -105,15 +105,26 @@
 user_problem_statement: |
   Continuation enhancements for JubaSquare (July 2025):
   
-  BUGS to fix:
-  - Mobile menu button crashes (ReferenceError: GlobalSearch is not defined)
-  - Language switcher panel goes out of the display frame to the left when switched to Arabic (RTL)
-  - Network Error on every page reload (frontend was pointing to wrong preview URL)
+  BUGS to fix (done):
+  - Mobile menu button crashes (ReferenceError: GlobalSearch is not defined) ✓
+  - Language switcher panel goes out of the display frame to the left when switched to Arabic (RTL) ✓
+  - Network Error on every page reload (frontend was pointing to wrong preview URL) ✓
+  - Admin login broken; wants username login for admin only ✓
   
-  NEW FEATURES:
-  - Homepage customization pack: Admin can manage hero background images (up to 6 slides), hero tagline / title / subtitle, and site-wide announcement bar. Public homepage reads from admin config with sensible defaults.
-  - Bulk product import: Sellers can download a CSV template, upload a CSV to their shop, and get row-by-row success/error breakdown. Backend endpoint POST /api/products/bulk-import + GET /api/products/bulk-template.
-  - Push notifications: Enhanced in-app NotificationBell with browser Notification API integration (BellRing/BellOff toggle). Users can enable/disable, permission is requested on toggle, and new unread notifications fire native OS notifications while the app is polling.
+  PHASE 1 features (this iteration):
+  - PWA install (customer, seller, driver) with the user-provided JubaSquare shopping-bag logo
+  - Real Web Push (VAPID + service worker) with per-user category preferences and toggle on notification bell
+  - Sales analytics for sellers (today/week/month totals, 30-day revenue chart, top-5 products, low performers, low stock)
+  - Bulk stock update endpoint + Excel (.xlsx) templates for both Bulk Import and Bulk Stock Update
+  - Report Shop / Product / Review button + Admin Reports queue
+  - Admin Performance / Health panel inside Settings tab
+  - SEO: sitemap.xml, robots.txt, JSON-LD structured data (Organization/WebSite/Product) + Open Graph meta tags
+
+  PHASE 2 (deferred):
+  - Product reviews with photos
+  - Live Driver Map + ETA
+  - (WhatsApp notifications skipped — user declined paid integration)
+  - Auto backup export to user-owned server
 
 backend:
   - task: "Homepage customization API (hero slides / tagline / title / subtitle / announcement bar)"
@@ -790,6 +801,39 @@ backend_cod:
     file: "/app/backend/cod.py"
     stuck_count: 0
     priority: "high"
+
+    - agent: "main"
+      message: |
+        (Phase 1 continuation — July 2025) Shipped and tested by backend agent (36/37 = 97.3% pass):
+
+        NEW BACKEND (all verified):
+          • Web Push (VAPID): /api/push/public-key, /api/push/subscribe, /api/push/unsubscribe, /api/push/prefs (GET/PUT), /api/push/test. create_notification() now auto-fires a web push based on ntype→category mapping. Dead endpoints (404/410) get pruned automatically.
+          • Bulk stock update: /api/products/bulk-stock-update (CSV or XLSX), /api/products/stock-update-template?fmt=csv|xlsx. Bulk-import also now accepts XLSX. Templates are styled (bold navy headers).
+          • Seller analytics: /api/seller/analytics — totals, 30-day revenue series, top-5, low performers, low stock.
+          • Reports: /api/reports (create), /api/admin/reports (list, filter by status), /api/admin/reports/{id} (update status + admin notes). Notifies all admins on creation.
+          • Admin health: /api/admin/health — Mongo ping, integration fingerprints, collection counts, Odoo activity.
+          • SEO: /api/sitemap.xml (dynamic — includes shops + up to 5000 products), /api/robots.txt.
+          • Web Push subscribe upsert bug found & fixed by testing agent (created_at conflict in $set — excluded created_at, kept in $setOnInsert).
+
+        NEW FRONTEND:
+          • /app/frontend/public/manifest.json (JubaSquare, standalone, navy #0E1A2B theme) + generated icon set 72–512 + 192/512 maskable + apple-touch-icon + favicon.ico (all from the user-provided PNG).
+          • /app/frontend/public/sw.js — cache-first for static assets, network-first for HTML nav, push + notification click + subscription-change handlers.
+          • src/lib/pwa.js — registerServiceWorker, subscribeToPush, unsubscribeFromPush, canInstall/onInstallAvailable/promptInstall, isStandalone.
+          • src/components/InstallAppBanner.jsx — floating install prompt (auto-hides for 14 days on dismiss, 3 days on decline).
+          • NotificationBell.jsx — swapped client-side Notification API for real Web Push via subscribeToPush/unsubscribeFromPush; toggle now actually persists server-side.
+          • src/components/SellerAnalyticsTab.jsx — 4 stat cards, area chart (recharts), top-5, low performers, low-stock list. Added as new "Analytics" tab in seller dashboard.
+          • BulkImportModal.jsx — now supports `mode="import"` and `mode="stock-update"` and Excel downloads (2 buttons: CSV and Excel). New "Bulk Stock Update" button in seller ProductsTab.
+          • SeoMeta.jsx + productSchema/websiteSchema/organizationSchema builders. HelmetProvider wraps App. Home + ProductDetail emit meta tags + JSON-LD.
+          • ReportButton.jsx — dropped into ShopPage (visible to non-owners). AdminReportsTab.jsx with status tabs, per-row status actions, admin notes editor. New "Reports" tab in AdminDashboard.
+          • AdminPerformanceSection.jsx — Mongo ping, integration pills, collection counts, Odoo activity. Injected at the top of the admin Settings tab.
+          • index.html — swapped hard-coded favicon path for real favicon set + manifest link + PWA meta tags.
+
+        Missing envs recreated:
+          • VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY_PEM / VAPID_SUBJECT — added to /app/backend/.env.
+          • pywebpush + openpyxl added to requirements.txt.
+
+        Admin login (from previous iteration): admin@jubasquare.com or username `admin` / password `1234`.
+
     needs_retesting: false
     status_history:
       - working: true
