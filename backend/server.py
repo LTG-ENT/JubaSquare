@@ -1184,11 +1184,12 @@ async def upload_file(request: Request, file: UploadFile = File(...), user: dict
             f.write(data)
         stored_in = "disk"
 
-    # Build an absolute URL so the browser can load it directly.
-    origin = (os.environ.get("FRONTEND_URL") or "").rstrip("/")
-    if not origin:
-        origin = f"{request.url.scheme}://{request.url.netloc}"
-    public_url = f"{origin}/api/uploads/{fname}"
+    # Return a RELATIVE URL. The browser resolves it against whatever
+    # origin the page is served from — so it works on production
+    # (jubasquare.com / www.jubasquare.com), preview, or custom domains
+    # without env-var configuration. This avoids the class of bug where
+    # request.url.netloc returned the internal K8s cluster hostname.
+    public_url = f"/api/uploads/{fname}"
     return {"ok": True, "url": public_url, "filename": fname, "storage": stored_in}
 
 
