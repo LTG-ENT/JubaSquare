@@ -1317,6 +1317,24 @@ async def health():
     return {"ok": True, "service": "JubaSquare API"}
 
 
+@api.get("/health")
+async def api_health():
+    """Simple health check for uptime monitoring / load balancers.
+    Accessible publicly at `/api/health` (all backend routes on Emergent
+    Kubernetes are exposed via the `/api/*` prefix).
+    """
+    return {"status": "ok"}
+
+
+@app.get("/health", include_in_schema=False)
+async def container_health():
+    """Health check reachable directly on the container (bypasses the
+    Kubernetes ingress `/api/*` rewrite). Used by internal readiness /
+    liveness probes and local `curl http://localhost:8001/health`.
+    """
+    return {"status": "ok"}
+
+
 # ----------------------------------------------------------------------------
 # Pages (CMS) — admin-editable Terms / Privacy / Returns / About / Contact
 # ----------------------------------------------------------------------------
