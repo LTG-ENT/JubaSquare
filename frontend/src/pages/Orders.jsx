@@ -7,6 +7,7 @@ import { useOptimizedPolling } from "@/hooks/useOptimizedPolling";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import OrderStatusTimeline from "@/components/OrderStatusTimeline";
+import LiveTrackingMap from "@/components/LiveTrackingMap";
 import { Package, MapPin, Phone, Truck, CheckCircle2, Clock, Star, X, XCircle, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 
@@ -533,6 +534,10 @@ export default function Orders() {
 
                     {/* Delivery OTP Display for Restaurant Orders */}
                     {showDeliveryOtp && o.customer_delivery_otp && (
+                      <>
+                      <div className="mb-4">
+                        <LiveTrackingMap orderId={o.id} />
+                      </div>
                       <div
                         data-testid={`restaurant-delivery-otp-${o.id}`}
                         className="bg-[#E9C46A]/10 border-2 border-[#E9C46A] rounded-2xl p-4 mb-4"
@@ -550,6 +555,7 @@ export default function Orders() {
                           </div>
                         </div>
                       </div>
+                      </>
                     )}
 
                     <div className="border-t border-[#E2E2D9] pt-4 space-y-2">
@@ -673,6 +679,10 @@ export default function Orders() {
 
                   {/* Delivery OTP Display for Marketplace Splits */}
                   {splitsOutForDelivery.length > 0 && (
+                    <>
+                    <div className="mb-4">
+                      <LiveTrackingMap orderId={o.id} />
+                    </div>
                     <div className="mb-4 space-y-2">
                       {splitsOutForDelivery.map((split, idx) => (
                         <div
@@ -699,6 +709,7 @@ export default function Orders() {
                         </div>
                       ))}
                     </div>
+                    </>
                   )}
 
                   <div className="space-y-2 mb-4">

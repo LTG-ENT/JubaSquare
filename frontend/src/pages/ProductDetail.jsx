@@ -8,6 +8,7 @@ import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { Plus, Minus, Heart, ChevronLeft, Star, Store, Truck, Package } from "lucide-react";
 import { toast } from "sonner";
+import ReviewPhotoUpload from "@/components/ReviewPhotoUpload";
 
 function StarRating({ value, onChange, size = 18, readOnly = false }) {
   return (
@@ -41,7 +42,7 @@ export default function ProductDetail() {
   const [reviewData, setReviewData] = useState({ reviews: [], average: 0, count: 0 });
   const [qty, setQty] = useState(1);
   const [fav, setFav] = useState(false);
-  const [draft, setDraft] = useState({ rating: 5, comment: "" });
+  const [draft, setDraft] = useState({ rating: 5, comment: "", photos: [] });
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -128,7 +129,7 @@ export default function ProductDetail() {
     try {
       await api.post(`/products/${product.id}/reviews`, draft);
       toast.success("Review posted!");
-      setDraft({ rating: 5, comment: "" });
+      setDraft({ rating: 5, comment: "", photos: [] });
       const r = await api.get(`/products/${product.id}/reviews`);
       setReviewData(r.data);
     } catch (err) {
@@ -367,6 +368,15 @@ export default function ProductDetail() {
                 data-testid="review-comment"
                 className="js-input"
               />
+              <div>
+                <p className="text-xs font-semibold text-[var(--js-text-secondary)] uppercase tracking-wider mb-1.5">Add photos (optional)</p>
+                <ReviewPhotoUpload
+                  value={draft.photos}
+                  onChange={(photos) => setDraft({ ...draft, photos })}
+                  max={5}
+                  testId="review-photos"
+                />
+              </div>
               <button
                 type="submit"
                 disabled={submitting}
@@ -403,6 +413,21 @@ export default function ProductDetail() {
                   <StarRating value={rv.rating} readOnly size={14} />
                 </div>
                 {rv.comment && <p className="text-sm text-[var(--js-text)] mt-2 leading-relaxed">{rv.comment}</p>}
+                {Array.isArray(rv.photos) && rv.photos.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2" data-testid={`review-${rv.id}-photos`}>
+                    {rv.photos.map((url, i) => (
+                      <a
+                        key={i}
+                        href={url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block w-20 h-20 rounded-xl overflow-hidden border border-[var(--js-border)] hover:opacity-90 transition"
+                      >
+                        <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                      </a>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>

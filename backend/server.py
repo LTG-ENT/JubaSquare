@@ -736,6 +736,8 @@ class ProductReviewIn(BaseModel):
     """Review/rating for marketplace product"""
     rating: int = Field(ge=1, le=5)
     comment: Optional[str] = ""
+    # List of image URLs (already uploaded via /api/upload). Max 5 photos per review.
+    photos: Optional[List[str]] = None
 
 
 class TrendingClickIn(BaseModel):
@@ -4547,6 +4549,8 @@ async def add_review(product_id: str, body: ProductReviewIn, user: dict = Depend
         "user_name": user.get("name", "Customer"),
         "rating": int(body.rating),
         "comment": (body.comment or "").strip()[:1000],
+        # Cap at 5 photos; each URL truncated to 1024 chars to keep the doc bounded.
+        "photos": [str(u)[:1024] for u in (body.photos or [])][:5],
         "created_at": now_iso(),
     }
     await db.reviews.insert_one(review)
@@ -6578,6 +6582,165 @@ async def robots_txt(request: Request):
         f"Sitemap: {base}/api/sitemap.xml\n"
     )
     return PlainTextResponse(txt, media_type="text/plain")
+
+
+# ============================================================
+# Live Driver Tracking (P1 — customer sees driver on map + ETA)
+# ============================================================
+# Drivers POST their GPS every ~10 seconds while a delivery is
+# `out_for_delivery`. Customers with an active order pull the
+# latest known driver location + destination centroid to render
+# a live map (Leaflet on the frontend).
+#
+# Storage strategy
+# ----------------
+# - `db.driver_locations`: one doc per driver with the *latest*
+#   coordinates + a small `trail` of recent points (max 20) so
+#   the map can animate. Overwrites on every ping.
+# - No historical audit log — deliveries in this app are short
+#   and per-order geo history isn't required. Adding a TTL-indexed
+#   `driver_location_history` collection is an easy P2 upgrade.
+
+# Approximate lat/lng for known Juba neighborhood centroids. Used as
+# a destination fallback when the customer address doesn't have
+# explicit coordinates. Source: publicly known landmark centroids.
+JUBA_AREA_COORDS = {
+    "Munuki":       (4.8720, 31.5720),
+    "Jebel":        (4.8300, 31.5700),
+    "Gudele":       (4.8800, 31.5300),
+    "Konyo Konyo":  (4.8420, 31.5900),
+    "Hai Cinema":   (4.8560, 31.5920),
+    "Nyakuron":     (4.8480, 31.5810),
+    "Atlabara":     (4.8620, 31.5860),
+}
+# Fallback centroid = downtown Juba if the area isn't in our list.
+JUBA_DEFAULT_COORDS = (4.8517, 31.5825)
+
+
+class DriverLocationIn(BaseModel):
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    accuracy: Optional[float] = None  # meters, if the browser provides it
+
+
+def _haversine_km(a: tuple, b: tuple) -> float:
+    """Great-circle distance in kilometres between two (lat, lng) points."""
+    import math
+    lat1, lon1 = a
+    lat2, lon2 = b
+    r = 6371.0
+    p1 = math.radians(lat1)
+    p2 = math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    h = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(h))
+
+
+def _area_coords(area: Optional[str]) -> tuple:
+    return JUBA_AREA_COORDS.get((area or "").strip(), JUBA_DEFAULT_COORDS)
+
+
+@api.post("/driver/location")
+async def post_driver_location(body: DriverLocationIn, user: dict = Depends(require_role("driver"))):
+    """Driver → server: push current GPS position (called every ~10 s from the app)."""
+    doc = await db.driver_locations.find_one({"driver_id": user["id"]}, {"_id": 0})
+    trail = (doc or {}).get("trail", [])
+    point = {"lat": body.lat, "lng": body.lng, "at": now_iso()}
+    trail.append(point)
+    trail = trail[-20:]  # keep last 20 pings only
+    await db.driver_locations.update_one(
+        {"driver_id": user["id"]},
+        {"$set": {
+            "driver_id": user["id"],
+            "lat": body.lat,
+            "lng": body.lng,
+            "accuracy": body.accuracy,
+            "updated_at": now_iso(),
+            "trail": trail,
+        }},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api.get("/customer/orders/{order_id}/live-tracking")
+async def customer_live_tracking(order_id: str, user: dict = Depends(get_current_user)):
+    """Return every in-progress driver assignment for this order, with
+    the driver's current location + a destination centroid + a
+    simple ETA (Haversine × 4 min per km)."""
+    # Fetch order & authorize (customer or admin only)
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0}) \
+        or await db.restaurant_orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(404, "Order not found")
+    if user["role"] != "admin" and order.get("customer_id") != user["id"]:
+        raise HTTPException(403, "Forbidden")
+
+    # Destination = customer's delivery area centroid (fallback: downtown).
+    dest_area = (order.get("delivery_address") or {}).get("area") or order.get("delivery_area") or order.get("area")
+    dest_lat, dest_lng = _area_coords(dest_area)
+
+    # Collect assignments: splits (marketplace) or the restaurant_order itself.
+    assignments = []
+    splits = await db.order_splits.find(
+        {"parent_order_id": order_id},
+        {"_id": 0, "id": 1, "driver_id": 1, "delivery_status": 1, "seller_id": 1, "shop_area": 1}
+    ).to_list(50)
+    for sp in splits:
+        if sp.get("delivery_status") not in ("out_for_delivery", "picked_up"):
+            continue
+        assignments.append({
+            "kind": "split",
+            "id": sp["id"],
+            "driver_id": sp.get("driver_id"),
+            "status": sp.get("delivery_status"),
+            "pickup_area": sp.get("shop_area"),
+        })
+    # Standalone restaurant order — the doc itself carries the driver.
+    if order.get("driver_id") and order.get("status") in ("out_for_delivery", "picked_up"):
+        assignments.append({
+            "kind": "restaurant_order",
+            "id": order["id"],
+            "driver_id": order.get("driver_id"),
+            "status": order.get("status"),
+            "pickup_area": order.get("pickup_area"),
+        })
+
+    # Enrich with driver name + latest location + ETA.
+    out = []
+    for a in assignments:
+        drv = a.get("driver_id")
+        if not drv:
+            continue
+        loc = await db.driver_locations.find_one({"driver_id": drv}, {"_id": 0})
+        drv_user = await db.users.find_one({"id": drv}, {"_id": 0, "name": 1})
+        entry = {
+            "assignment_kind": a["kind"],
+            "assignment_id": a["id"],
+            "driver_id": drv,
+            "driver_name": (drv_user or {}).get("name", "Driver"),
+            "status": a["status"],
+            "destination": {"lat": dest_lat, "lng": dest_lng, "area": dest_area or "Juba"},
+        }
+        if loc and loc.get("lat") is not None:
+            entry["driver_location"] = {"lat": loc["lat"], "lng": loc["lng"], "at": loc.get("updated_at")}
+            km = _haversine_km((loc["lat"], loc["lng"]), (dest_lat, dest_lng))
+            # 4 min per km ≈ 15 km/h — realistic Juba delivery speed on motorbike.
+            eta_min = max(1, int(round(km * 4)))
+            entry["distance_km"] = round(km, 2)
+            entry["eta_minutes"] = eta_min
+        else:
+            entry["driver_location"] = None
+        out.append(entry)
+
+    return {
+        "order_id": order_id,
+        "destination": {"lat": dest_lat, "lng": dest_lng, "area": dest_area or "Juba"},
+        "assignments": out,
+    }
+
+
 
 
 # ============================================================

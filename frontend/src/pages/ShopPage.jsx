@@ -69,7 +69,7 @@ export default function ShopPage() {
         <div className="max-w-2xl mx-auto px-4 py-20 text-center">
           <AlertCircle className="w-12 h-12 mx-auto text-[#D90429] mb-4" />
           <h1 className="font-display font-bold text-2xl text-[var(--js-text)]">{error || "Shop unavailable"}</h1>
-          <p className="text-sm text-[var(--js-text-secondary)] mt-2">The shop you're looking for may have been removed or is not yet verified.</p>
+          <p className="text-sm text-[var(--js-text-secondary)] mt-2">The shop you&apos;re looking for may have been removed or is not yet verified.</p>
           <Link to="/shops" className="mt-6 inline-flex items-center gap-2 text-sm font-bold text-[#C84B31] hover:underline">
             <ArrowLeft className="w-4 h-4" /> Back to all shops
           </Link>
@@ -99,6 +99,10 @@ export default function ShopPage() {
 
   return (
     <PageWrapper>
+      {/* Owner-only: verification status banner */}
+      {(isOwner || user?.role === "admin") && shop.verification !== "Verified" && (
+        <VerificationBanner status={shop.verification || "Pending"} rejectionReason={shop.verification_note} />
+      )}
       {/* Banner */}
       <div className="relative w-full" data-testid="shop-banner">
         <div className="h-44 sm:h-60 lg:h-72 w-full bg-[#1A1A1A] overflow-hidden relative">
@@ -263,6 +267,52 @@ function PageWrapper({ children }) {
       <Header />
       <main className="flex-1">{children}</main>
       <Footer />
+    </div>
+  );
+}
+
+function VerificationBanner({ status, rejectionReason }) {
+  const isRejected = status === "Rejected";
+  const cfg = isRejected
+    ? {
+        wrap: "bg-[#D90429]/10 border-[#D90429]/40",
+        icon: "text-[#D90429]",
+        title: "Your shop was rejected",
+        body: rejectionReason || "An admin reviewed your submission and could not approve it. Please update your documents and resubmit for review.",
+        cta: { label: "Update KYC & resubmit", to: "/seller" },
+        badge: "REJECTED",
+      }
+    : {
+        wrap: "bg-[#E9C46A]/15 border-[#E9C46A]",
+        icon: "text-[#8A6C00]",
+        title: "Awaiting verification",
+        body: "Your shop is only visible to you right now. Customers won't see it until an admin verifies your documents. This usually takes a business day.",
+        cta: { label: "Complete KYC", to: "/seller" },
+        badge: "PENDING",
+      };
+  return (
+    <div className={`border-b ${cfg.wrap}`} data-testid="verification-banner">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+        <div className="flex items-start gap-3 flex-1 min-w-0">
+          <AlertCircle className={`w-5 h-5 flex-shrink-0 mt-0.5 ${cfg.icon}`} />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="font-display font-bold text-sm text-[var(--js-text)]">{cfg.title}</p>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isRejected ? "bg-[#D90429] text-white" : "bg-[#E9C46A] text-[#1A1A1A]"}`}>
+                {cfg.badge}
+              </span>
+            </div>
+            <p className="text-xs text-[var(--js-text-secondary)] mt-0.5 leading-relaxed">{cfg.body}</p>
+          </div>
+        </div>
+        <Link
+          to={cfg.cta.to}
+          data-testid="verification-cta"
+          className="inline-flex items-center justify-center gap-1.5 bg-[#1A1A1A] hover:bg-[#C84B31] text-white text-xs font-bold px-4 py-2 rounded-full flex-shrink-0"
+        >
+          {cfg.cta.label}
+        </Link>
+      </div>
     </div>
   );
 }

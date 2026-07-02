@@ -8,6 +8,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import SignaturePad from "@/components/SignaturePad";
 import OrderChatButton from "@/components/OrderChatButton";
+import DriverGeoBeacon from "@/components/DriverGeoBeacon";
 import { toast } from "sonner";
 import {
   Truck,
@@ -250,6 +251,21 @@ export default function DriverDashboard() {
         <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--js-text-secondary)] font-bold mb-1">{tr("dashboard")}</p>
         <h1 className="font-display font-bold text-3xl text-[var(--js-text)]">{tr("myDeliveries")}</h1>
         <p className="text-sm text-[var(--js-text-secondary)]">Hi {user?.name?.split(" ")?.[0]} — here are the orders assigned to you.</p>
+
+        {/* Live GPS beacon: only broadcasts while the driver has ≥1
+            assignment in an active transit state. Customers watching
+            /orders/:id see this on a Leaflet map. */}
+        {(() => {
+          const activeStates = new Set(["out_for_delivery", "picked_up", "pending_pickup", "assigned"]);
+          const hasActive =
+            (data.splits || []).some((s) => activeStates.has(s.delivery_status)) ||
+            (data.restaurant_orders || []).some((r) => activeStates.has(r.status));
+          return (
+            <div className="mt-3">
+              <DriverGeoBeacon active={hasActive} />
+            </div>
+          );
+        })()}
 
         {/* Cash to hand over summary */}
         <div
