@@ -351,12 +351,21 @@ export default function RestaurantCheckout() {
                       </div>
                       {item.sides && item.sides.length > 0 && (
                         <div className="text-xs text-[var(--js-text-secondary)] mt-1">
-                          + {item.sides.map(s => s.name).join(", ")}
+                          {item.sides.map((s, i) => (
+                            <div key={i} className="flex justify-between">
+                              <span>+ {s.name}</span>
+                              <span>{formatPrice(s.price_usd, item.exchange_rate_ssp || sellerExchangeRate, currency)}</span>
+                            </div>
+                          ))}
                         </div>
                       )}
                     </div>
                     <div className="font-semibold text-[var(--js-text)] whitespace-nowrap">
-                      {formatPrice(item.price_usd * item.quantity, item.exchange_rate_ssp || sellerExchangeRate, currency)}
+                      {formatPrice(
+                        (item.price_usd + (item.sides || []).reduce((a, x) => a + (x.price_usd || 0), 0)) * item.quantity,
+                        item.exchange_rate_ssp || sellerExchangeRate,
+                        currency
+                      )}
                     </div>
                   </div>
                 ))}

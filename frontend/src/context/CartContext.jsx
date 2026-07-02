@@ -146,10 +146,14 @@ export const CartProvider = ({ children }) => {
     setRestaurantName(null);
   };
 
-  const subtotalUSD = items.reduce((s, i) => s + i.price_usd * i.quantity, 0);
+  // Include side-option prices in the subtotal so what the customer sees on
+  // checkout matches what the backend computes (see server.py `create_restaurant_order`).
+  // Marketplace items don't carry `sides`, so this is a no-op for them.
+  const _sidesForLine = (i) => (i.sides || []).reduce((a, x) => a + (x.price_usd || 0), 0);
+  const subtotalUSD = items.reduce((s, i) => s + (i.price_usd + _sidesForLine(i)) * i.quantity, 0);
   // Per-line SSP using each line's own seller rate (falls back to global rate)
   const subtotalSSP = items.reduce(
-    (s, i) => s + i.price_usd * i.quantity * (i.exchange_rate_ssp || exchangeRate || 600),
+    (s, i) => s + (i.price_usd + _sidesForLine(i)) * i.quantity * (i.exchange_rate_ssp || exchangeRate || 600),
     0,
   );
   const count = items.reduce((s, i) => s + i.quantity, 0);
