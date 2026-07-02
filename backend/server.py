@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field, EmailStr
 import email_service
 import cod
 import odoo_routes
+import storage
 from pages_seed import PAGES_DEFAULT, PAGE_SLUGS
 from footer_seed import FOOTER_DEFAULT
 from categories_seed import CATEGORIES_DEFAULT, CATEGORY_GROUPS
@@ -1155,14 +1156,80 @@ async def upload_file(request: Request, file: UploadFile = File(...), user: dict
     if len(data) == 0:
         raise HTTPException(400, "Empty file.")
     fname = f"{uuid.uuid4().hex}{ext}"
-    dest = UPLOAD_DIR / fname
-    with open(dest, "wb") as f:
-        f.write(data)
-    # Build an absolute URL so the browser can load it directly without proxy rewrites.
+
+    # Try Emergent Object Storage first (persistent across deploys). Fall
+    # back to local disk only if the storage service is unreachable so
+    # uploads never hard-fail during a transient outage.
+    stored_in = "storage"
+    storage_path = f"{storage.UPLOADS_PREFIX}/{fname}"
+    try:
+        content_type = file.content_type or storage.guess_content_type(fname)
+        result = storage.put_object(storage_path, data, content_type)
+        # Persist a DB pointer so we can look up + soft-delete later.
+        await db.uploaded_files.insert_one({
+            "id": str(uuid.uuid4()),
+            "filename": fname,
+            "storage_path": result.get("path", storage_path),
+            "content_type": content_type,
+            "size": result.get("size", len(data)),
+            "uploaded_by": user["id"],
+            "original_filename": name,
+            "is_deleted": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception as e:
+        logging.warning("Object storage upload failed, falling back to local disk: %s", e)
+        dest = UPLOAD_DIR / fname
+        with open(dest, "wb") as f:
+            f.write(data)
+        stored_in = "disk"
+
+    # Build an absolute URL so the browser can load it directly.
     origin = (os.environ.get("FRONTEND_URL") or "").rstrip("/")
     if not origin:
         origin = f"{request.url.scheme}://{request.url.netloc}"
     public_url = f"{origin}/api/uploads/{fname}"
+    return {"ok": True, "url": public_url, "filename": fname, "storage": stored_in}
+
+
+@api.get("/uploads/{filename}")
+async def serve_upload(filename: str):
+    """Public read endpoint for uploaded images.
+
+    1. Try Emergent Object Storage (canonical location for all NEW uploads).
+    2. Fall back to `/app/backend/uploads/` on disk (legacy files still
+       served this way until a scheduled backfill migrates them).
+    3. Otherwise return 404.
+    """
+    # Basic sanity: no path traversal
+    if "/" in filename or ".." in filename:
+        raise HTTPException(400, "Invalid filename")
+
+    # Try object storage
+    storage_path = f"{storage.UPLOADS_PREFIX}/{filename}"
+    try:
+        data, content_type = storage.get_object(storage_path)
+        return Response(
+            content=data,
+            media_type=content_type,
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        )
+    except Exception:
+        pass  # fall through to disk fallback
+
+    # Legacy disk fallback
+    disk_path = UPLOAD_DIR / filename
+    if disk_path.is_file():
+        content_type = storage.guess_content_type(filename)
+        with open(disk_path, "rb") as f:
+            data = f.read()
+        return Response(
+            content=data,
+            media_type=content_type,
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        )
+
+    raise HTTPException(404, "File not found")
     return {"ok": True, "url": public_url, "filename": fname}
 
 
@@ -6206,6 +6273,12 @@ async def seed_production():
 @app.on_event("startup")
 async def on_startup():
     await seed_production()
+    # Init Emergent Object Storage session key (non-fatal — uploads fall
+    # back to local disk if this fails).
+    try:
+        storage.init_storage()
+    except Exception as exc:
+        log.warning("Object storage init failed at startup: %s (uploads will use disk fallback)", exc)
     # Bind cod module's dependencies (only after server module is fully loaded)
     cod.bind(
         db_=db, log_=log,
@@ -6508,9 +6581,9 @@ async def complete_onboarding_tour(user: dict = Depends(require_role("seller", "
     return {"ok": True}
 
 
-# Serve uploaded images under /api/uploads so they go through the Kubernetes
-# ingress /api prefix and hit the backend (non-/api paths are routed to frontend).
-app.mount("/api/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
+# Uploaded images are now served via the /api/uploads/{filename} route
+# defined earlier in this file. That route serves from Emergent Object
+# Storage (canonical) with a legacy fallback to /app/backend/uploads/.
 
 app.include_router(api)
 
