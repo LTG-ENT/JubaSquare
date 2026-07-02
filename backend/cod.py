@@ -2640,6 +2640,9 @@ async def _calculate_delivery_fee(
     if shop_id:
         shop_doc = await db.shops.find_one({"id": shop_id}, {"_id": 0, "delivery_managed_by": 1}) or {}
         shop_managed_by = (shop_doc.get("delivery_managed_by") or "default").lower()
+    elif restaurant_id:
+        rest_doc = await db.restaurants.find_one({"id": restaurant_id}, {"_id": 0, "delivery_managed_by": 1}) or {}
+        shop_managed_by = (rest_doc.get("delivery_managed_by") or "default").lower()
 
     if shop_managed_by == "seller":
         admin_manages = False
@@ -2649,23 +2652,31 @@ async def _calculate_delivery_fee(
         admin_manages = admin_manages_global
 
     # --- Seller-managed branch ----------------------------------------
-    if not admin_manages and shop_id:
-        shop = await db.shops.find_one({"id": shop_id}, {"_id": 0}) or {}
-        mode = (shop.get("delivery_mode") or "").strip().lower()
+    # Applies uniformly to shops and restaurants — both hold delivery_mode /
+    # delivery_fee_usd / delivery_per_area on their own document.
+    if not admin_manages and (shop_id or restaurant_id):
+        entity = None
+        if shop_id:
+            entity = await db.shops.find_one({"id": shop_id}, {"_id": 0}) or {}
+            log_tag = f"shop {shop_id[:8]}"
+        else:
+            entity = await db.restaurants.find_one({"id": restaurant_id}, {"_id": 0}) or {}
+            log_tag = f"restaurant {restaurant_id[:8]}"
+        mode = (entity.get("delivery_mode") or "").strip().lower()
         if mode == "free":
-            log.info(f"[DELIVERY FEE] Seller-managed: shop {shop_id[:8]} → FREE")
+            log.info(f"[DELIVERY FEE] Seller-managed: {log_tag} → FREE")
             return 0.0
         if mode == "fixed":
-            fee = float(shop.get("delivery_fee_usd") or 0)
-            log.info(f"[DELIVERY FEE] Seller-managed: shop {shop_id[:8]} → fixed {fee}")
+            fee = float(entity.get("delivery_fee_usd") or 0)
+            log.info(f"[DELIVERY FEE] Seller-managed: {log_tag} → fixed {fee}")
             return fee
         if mode == "per_area":
-            for row in (shop.get("delivery_per_area") or []):
+            for row in (entity.get("delivery_per_area") or []):
                 if (row.get("area") or "").strip().lower() == delivery_area_norm:
                     fee = float(row.get("fee_usd") or 0)
-                    log.info(f"[DELIVERY FEE] Seller-managed: shop {shop_id[:8]} → per-area '{delivery_area}' = {fee}")
+                    log.info(f"[DELIVERY FEE] Seller-managed: {log_tag} → per-area '{delivery_area}' = {fee}")
                     return fee
-            log.warning(f"[DELIVERY FEE] Seller-managed: shop {shop_id[:8]} has no rule for '{delivery_area}'; falling back to admin rules")
+            log.warning(f"[DELIVERY FEE] Seller-managed: {log_tag} has no rule for '{delivery_area}'; falling back to admin rules")
         # If mode is unset/unknown → fall through to admin logic below
     # -------------------------------------------------------------------
 

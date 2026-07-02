@@ -630,6 +630,12 @@ class RestaurantIn(BaseModel):
     delivery_pricing: Optional[DeliveryPricing] = Field(
         default_factory=lambda: DeliveryPricing(type="fixed", fixed_fee=2.0)
     )
+    # New: mirror shop delivery model so sellers can pick free/fixed/per-area
+    # for their own restaurants (same UI/UX as the Shop editor).
+    delivery_mode: Literal["free", "fixed", "per_area"] = "free"
+    delivery_fee_usd: float = 0.0
+    delivery_per_area: List[DeliveryAreaFee] = Field(default_factory=list)
+    delivery_managed_by: Literal["default", "seller", "admin"] = "default"
 
 
 class MenuItemIn(BaseModel):
@@ -1865,6 +1871,7 @@ def _sort_shops(shops, verified_first: bool):
 
 @api.get("/shops")
 async def list_shops(
+    request: Request,
     category: Optional[str] = None,
     area: Optional[str] = None,
     kind: Optional[str] = None,
@@ -1873,6 +1880,9 @@ async def list_shops(
 ):
     # Public marketplace listing — exclude shops that the seller has hidden (is_public=False)
     # and shops that are soft-deleted. Legacy shops without these flags default to visible.
+    # Also, when `require_verification` is enabled (default), only Verified shops are exposed
+    # to customers. Admin users (authenticated) bypass this filter so they can moderate.
+    # Sellers use `/shops/mine` to see their own shops regardless of verification status.
     lim, off = clamp_pagination(limit, skip)
     q: dict = {
         "$and": [
@@ -1880,6 +1890,16 @@ async def list_shops(
             {"is_deleted": {"$ne": True}},
         ]
     }
+    s = await get_settings()
+    # Skip verification gate for admins so the admin dashboard sees pending/rejected too.
+    caller_is_admin = False
+    try:
+        u = await get_current_user(request)
+        caller_is_admin = u.get("role") == "admin"
+    except HTTPException:
+        pass
+    if s.get("require_verification", True) and not caller_is_admin:
+        q["$and"].append({"verification": "Verified"})
     if category:
         q["category"] = category
     if area:
@@ -1889,7 +1909,6 @@ async def list_shops(
     # Verified-first sort happens in Python; we have to fetch a wider window
     # than `limit` so the sort is meaningful, then slice.
     raw = await db.shops.find(q, {"_id": 0}).to_list(MAX_PAGE_LIMIT + off + lim)
-    s = await get_settings()
     sorted_shops = _sort_shops(raw, s.get("verified_first", True))
     return sorted_shops[off : off + lim]
 
@@ -1912,8 +1931,15 @@ async def get_shop(shop_id: str, request: Request):
     shop = await db.shops.find_one({"id": shop_id}, {"_id": 0})
     if not shop:
         raise HTTPException(404, "Shop not found")
-    # Soft-deleted shops are only visible to the owner or admin so they can restore.
-    if shop.get("is_deleted"):
+    # Soft-deleted or non-Verified shops are only visible to the owner or admin.
+    # This lets the seller preview their storefront while it's Pending / Rejected,
+    # but hides the shop from customers until it has been Verified.
+    s = await get_settings()
+    require_verified = s.get("require_verification", True)
+    is_restricted = shop.get("is_deleted") or (
+        require_verified and shop.get("verification") != "Verified"
+    )
+    if is_restricted:
         try:
             u = await get_current_user(request)
         except HTTPException:
@@ -2259,11 +2285,18 @@ async def list_products(category_id: Optional[str] = None, category: Optional[st
         products = [p for p in products if p["shop_id"] in shop_ids]
 
     # Hide products from shops that are not public, or soft-deleted.
+    # Also hide products from shops that are not Verified (when require_verification is on),
+    # so customers only see products from approved shops. Sellers view their own products
+    # via /products/mine which does not apply these filters.
     # Skip when caller is targeting a specific shop_id (so the owner's preview / private shop page still works).
     if not shop_id:
-        hidden_shops = {s["id"] for s in await db.shops.find(
-            {"$or": [{"is_public": False}, {"is_deleted": True}]},
-            {"_id": 0, "id": 1}).to_list(INTERNAL_CAP)}
+        s_gate = await get_settings()
+        require_verified = s_gate.get("require_verification", True)
+        hide_q: dict = {"$or": [{"is_public": False}, {"is_deleted": True}]}
+        if require_verified:
+            hide_q = {"$or": hide_q["$or"] + [{"verification": {"$ne": "Verified"}}]}
+        hidden_shops = {sh["id"] for sh in await db.shops.find(
+            hide_q, {"_id": 0, "id": 1}).to_list(INTERNAL_CAP)}
         if hidden_shops:
             products = [p for p in products if p["shop_id"] not in hidden_shops]
 
@@ -2474,7 +2507,7 @@ async def bulk_stock_update(
 
 
 @api.get("/products/{product_id}")
-async def get_product(product_id: str):
+async def get_product(product_id: str, request: Request):
     p = await db.products.find_one({"id": product_id}, {"_id": 0})
     if not p:
         raise HTTPException(404, "Product not found")
@@ -2483,8 +2516,23 @@ async def get_product(product_id: str):
     global_rate = float(s.get("global_rate", 600.0))
     rec = await db.exchange_rates.find_one({"seller_id": p["seller_id"]}, {"_id": 0})
     p["exchange_rate_ssp"] = float(rec.get("rate", global_rate)) if rec else global_rate
-    sh = await db.shops.find_one({"id": p["shop_id"]}, {"_id": 0, "verification": 1})
+    sh = await db.shops.find_one({"id": p["shop_id"]}, {"_id": 0, "verification": 1, "seller_id": 1, "is_public": 1, "is_deleted": 1})
     p["shop_verification"] = (sh or {}).get("verification", "Pending")
+    # Gate product visibility on shop status: not Verified (when required) OR hidden OR deleted
+    # means only owner/admin can view.
+    require_verified = s.get("require_verification", True)
+    restricted = (
+        (sh or {}).get("is_deleted")
+        or (sh or {}).get("is_public") is False
+        or (require_verified and p["shop_verification"] != "Verified")
+    )
+    if restricted:
+        try:
+            u = await get_current_user(request)
+        except HTTPException:
+            raise HTTPException(404, "Product not found")
+        if u.get("role") != "admin" and u.get("id") != (sh or {}).get("seller_id"):
+            raise HTTPException(404, "Product not found")
     return p
 
 
@@ -2712,7 +2760,7 @@ async def delete_product(product_id: str, user: dict = Depends(require_role("sel
 # Restaurants & menu items
 # ----------------------------------------------------------------------------
 @api.get("/restaurants")
-async def list_restaurants(area: Optional[str] = None, category_id: Optional[str] = None,
+async def list_restaurants(request: Request, area: Optional[str] = None, category_id: Optional[str] = None,
                            category: Optional[str] = None,
                            limit: Optional[int] = None, skip: Optional[int] = None):
     """
@@ -2732,6 +2780,17 @@ async def list_restaurants(area: Optional[str] = None, category_id: Optional[str
     import logging
     logger = logging.getLogger("uvicorn.error")
     logger.info(f"[RESTAURANTS FILTER] category_id={category_id}, category={category}, area={area}")
+    
+    s = await get_settings()
+    # Skip verification gate for admins so the admin dashboard sees pending/rejected.
+    caller_is_admin = False
+    try:
+        u = await get_current_user(request)
+        caller_is_admin = u.get("role") == "admin"
+    except HTTPException:
+        pass
+    require_verified = s.get("require_verification", True) and not caller_is_admin
+    verified_filter: dict = {"verification": "Verified"} if require_verified else {}
     
     # PRIMARY: Filter by category_id through menu_items (database-driven)
     if category_id:
@@ -2755,7 +2814,8 @@ async def list_restaurants(area: Optional[str] = None, category_id: Optional[str
         # Fetch restaurants that have menu items in this category
         q: dict = {
             "id": {"$in": restaurant_ids},
-            "is_deleted": {"$ne": True}
+            "is_deleted": {"$ne": True},
+            **verified_filter,
         }
         if area:
             q["area"] = area
@@ -2765,7 +2825,7 @@ async def list_restaurants(area: Optional[str] = None, category_id: Optional[str
     else:
         logger.info("[RESTAURANTS FILTER] No category_id filter - returning all restaurants")
         # No category filter or legacy category filter
-        q: dict = {"is_deleted": {"$ne": True}}
+        q: dict = {"is_deleted": {"$ne": True}, **verified_filter}
         if area:
             q["area"] = area
         # DEPRECATED: legacy category name filter (backward compat only)
@@ -2774,7 +2834,6 @@ async def list_restaurants(area: Optional[str] = None, category_id: Optional[str
         rests = await db.restaurants.find(q, {"_id": 0}).to_list(MAX_PAGE_LIMIT + off + lim)
     
     # Verified-first sort
-    s = await get_settings()
     if s.get("verified_first", True):
         order = {"Verified": 0, "Pending": 1, "Rejected": 2}
         rests.sort(key=lambda r: order.get(r.get("verification", "Pending"), 1))
@@ -2782,17 +2841,65 @@ async def list_restaurants(area: Optional[str] = None, category_id: Optional[str
     return rests[off : off + lim]
 
 
+@api.get("/restaurants/mine")
+async def my_restaurants(
+    user: dict = Depends(require_role("seller", "admin")),
+    limit: Optional[int] = None,
+    skip: Optional[int] = None,
+):
+    """List restaurants owned by the current seller. Unlike the public
+    `/restaurants` endpoint, this returns Pending / Rejected / non-Verified
+    restaurants too, so the owner can view and manage them."""
+    lim, off = clamp_pagination(limit, skip)
+    q = {"seller_id": user["id"], "is_deleted": {"$ne": True}}
+    return await db.restaurants.find(q, {"_id": 0}).skip(off).to_list(lim)
+
+
 @api.get("/restaurants/{restaurant_id}")
-async def get_restaurant(restaurant_id: str):
+async def get_restaurant(restaurant_id: str, request: Request):
     r = await db.restaurants.find_one({"id": restaurant_id}, {"_id": 0})
     if not r:
         raise HTTPException(404, "Restaurant not found")
+    # Hide non-Verified restaurants from customers (owner/admin still see them).
+    s = await get_settings()
+    require_verified = s.get("require_verification", True)
+    is_restricted = r.get("is_deleted") or (
+        require_verified and r.get("verification") != "Verified"
+    )
+    if is_restricted:
+        try:
+            u = await get_current_user(request)
+        except HTTPException:
+            raise HTTPException(404, "Restaurant not found")
+        if u.get("role") != "admin" and u.get("id") != r.get("seller_id"):
+            raise HTTPException(404, "Restaurant not found")
     return r
 
 
 @api.get("/restaurants/{restaurant_id}/menu")
-async def get_menu(restaurant_id: str, limit: Optional[int] = None, skip: Optional[int] = None):
+async def get_menu(restaurant_id: str, request: Request, limit: Optional[int] = None, skip: Optional[int] = None):
     lim, off = clamp_pagination(limit, skip)
+    # Gate menu access on the parent restaurant's verification state so customers
+    # can't reach the menu of a non-Verified restaurant while sellers can still
+    # preview their own.
+    r = await db.restaurants.find_one(
+        {"id": restaurant_id},
+        {"_id": 0, "verification": 1, "seller_id": 1, "is_deleted": 1},
+    )
+    if not r:
+        raise HTTPException(404, "Restaurant not found")
+    s = await get_settings()
+    require_verified = s.get("require_verification", True)
+    is_restricted = r.get("is_deleted") or (
+        require_verified and r.get("verification") != "Verified"
+    )
+    if is_restricted:
+        try:
+            u = await get_current_user(request)
+        except HTTPException:
+            raise HTTPException(404, "Restaurant not found")
+        if u.get("role") != "admin" and u.get("id") != r.get("seller_id"):
+            raise HTTPException(404, "Restaurant not found")
     items = await db.menu_items.find({"restaurant_id": restaurant_id}, {"_id": 0}).skip(off).to_list(lim)
     
     # Embed per-seller exchange rate (same as products endpoint)
@@ -2836,11 +2943,16 @@ async def list_menu_items(
         
     if restaurant_id:
         q["restaurant_id"] = restaurant_id
-    # Hide menu items belonging to soft-deleted restaurants
+    # Hide menu items belonging to soft-deleted restaurants, and (when
+    # require_verification is enabled) non-Verified restaurants.
+    _s = await get_settings()
+    _hide_q: dict = {"$or": [{"is_deleted": True}]}
+    if _s.get("require_verification", True):
+        _hide_q["$or"].append({"verification": {"$ne": "Verified"}})
     hidden_rest = {
         r["id"]
         for r in await db.restaurants.find(
-            {"is_deleted": True}, {"_id": 0, "id": 1}
+            _hide_q, {"_id": 0, "id": 1}
         ).to_list(MAX_PAGE_LIMIT)
     }
     items = await db.menu_items.find(q, {"_id": 0}).skip(off).to_list(lim)
@@ -2926,7 +3038,15 @@ async def update_restaurant(restaurant_id: str, body: RestaurantIn, user: dict =
         "area": body.area,
         "is_open": body.is_open,
         "delivery_pricing": body.delivery_pricing.model_dump() if body.delivery_pricing else None,
+        # Mirror-of-shop delivery fields (seller-controlled). NOTE: only
+        # admins can change `delivery_managed_by` — for sellers we ignore
+        # any value they send and preserve whatever's already stored.
+        "delivery_mode": body.delivery_mode,
+        "delivery_fee_usd": float(body.delivery_fee_usd or 0),
+        "delivery_per_area": [a.model_dump() for a in (body.delivery_per_area or [])],
     }
+    if user["role"] == "admin":
+        update_data["delivery_managed_by"] = body.delivery_managed_by
     await db.restaurants.update_one({"id": restaurant_id}, {"$set": update_data})
     return await db.restaurants.find_one({"id": restaurant_id}, {"_id": 0})
 
@@ -5641,6 +5761,22 @@ async def admin_set_shop_delivery_managed_by(
     if result.matched_count == 0:
         raise HTTPException(404, "Shop not found")
     return await db.shops.find_one({"id": shop_id}, {"_id": 0})
+
+
+@api.put("/admin/restaurants/{restaurant_id}/delivery-managed-by")
+async def admin_set_restaurant_delivery_managed_by(
+    restaurant_id: str,
+    body: ShopDeliveryManagedByIn,
+    _: dict = Depends(require_role("admin")),
+):
+    """Same as the shop endpoint, but for a restaurant."""
+    result = await db.restaurants.update_one(
+        {"id": restaurant_id},
+        {"$set": {"delivery_managed_by": body.delivery_managed_by}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "Restaurant not found")
+    return await db.restaurants.find_one({"id": restaurant_id}, {"_id": 0})
 
 
 @api.put("/admin/shops/{shop_id}/commission")

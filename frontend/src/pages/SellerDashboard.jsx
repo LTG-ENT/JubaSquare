@@ -210,11 +210,9 @@ function ShopsTab({ currency, exchangeRate }) {
   const [form, setForm] = useState(emptyForm);
 
   const load = async () => {
-    const [s, r] = await Promise.all([api.get("/shops/mine?limit=200"), api.get("/restaurants?limit=200")]);
+    const [s, r] = await Promise.all([api.get("/shops/mine?limit=200"), api.get("/restaurants/mine?limit=200")]);
     setShops(s.data);
-    // Filter restaurants owned by current seller (using seller_id match by first shop's seller)
-    const myId = s.data[0]?.seller_id;
-    setRestaurants(r.data.filter((x) => !myId || x.seller_id === myId));
+    setRestaurants(r.data);
   };
   useEffect(() => { load(); }, []);
 
@@ -601,13 +599,20 @@ function ShopsTab({ currency, exchangeRate }) {
                 <button onClick={() => onDelete(s, s._kind)} data-testid={`delete-shop-${s.id}`} className="flex-1 bg-[#D90429]/10 text-[#D90429] text-xs font-semibold py-2 rounded-full inline-flex items-center justify-center gap-1"><Trash2 className="w-3 h-3" /> Delete</button>
               </div>
               {s._kind === "restaurant" && (
-                <div className="mt-2">
+                <div className="mt-2 space-y-2">
                   <Link
                     to={`/kitchen/${s.id}`}
                     data-testid={`kitchen-dashboard-${s.id}`}
                     className="w-full bg-[#C84B31] hover:bg-[#A83A23] text-white text-sm font-bold py-3 rounded-full inline-flex items-center justify-center gap-2"
                   >
                     <ChefHat className="w-4 h-4" /> Open Kitchen Dashboard
+                  </Link>
+                  <Link
+                    to={`/seller/restaurant/${s.id}/edit`}
+                    data-testid={`edit-restaurant-page-${s.id}`}
+                    className="w-full bg-[#1A1A1A] text-white text-xs font-bold py-2 rounded-full inline-flex items-center justify-center gap-1 hover:bg-[#C84B31]"
+                  >
+                    <Edit2 className="w-3 h-3" /> Edit Restaurant Page &amp; Delivery
                   </Link>
                 </div>
               )}
@@ -726,7 +731,7 @@ function ProductsTab({ currency, exchangeRate }) {
   const loadAll = async () => {
     const [sRes, rRes, rateRes] = await Promise.all([
       api.get("/shops/mine?limit=200"),
-      api.get("/restaurants?limit=200"),
+      api.get("/restaurants/mine?limit=200"),
       api.get(user?.id ? `/exchange-rate?seller_id=${user.id}` : "/exchange-rate"),
     ]);
     setShops(sRes.data);
@@ -741,7 +746,7 @@ function ProductsTab({ currency, exchangeRate }) {
     setProducts(allProducts);
 
     const allMenu = [];
-    for (const r of rRes.data.filter((x) => x.seller_id === sRes.data[0]?.seller_id || true)) {
+    for (const r of rRes.data) {
       const m = await api.get(`/restaurants/${r.id}/menu`);
       allMenu.push(...m.data.map((mi) => ({ ...mi, restaurant_name: r.name })));
     }

@@ -1,0 +1,28 @@
+{
+  "summary": "Backend testing for Restaurant Mirror-Shops delivery logic + Shop/Restaurant customer-visibility gate. 24/24 pytest tests pass. Verified: anonymous listing hides Pending/Rejected shops & restaurants; owner previews their own Pending; admin bypasses filter on lists and single-doc fetch; /restaurants/mine returns seller's own regardless of status; /menu, /menu-items, /products, /products/{id} all correctly gated; PUT /api/restaurants/{id} persists delivery_mode=fixed/per_area/free with delivery_fee_usd & delivery_per_area; PUT /api/admin/restaurants/{id}/delivery-managed-by persists all three values (seller/admin/default); sellers CANNOT override delivery_managed_by through PUT /restaurants/{id}; _calculate_delivery_fee correctly resolves restaurant seller-managed fixed/per_area/free and admin fallback branch. Health endpoint healthy.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter14_visibility_and_delivery.py",
+    "/app/test_reports/pytest/iter14_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 6752 lines — still well above the 700-line guideline; split by domain (shops/restaurants/menu/products/admin) is overdue.",
+    "list_restaurants performs a second DB round-trip via get_current_user for every anon request just to detect admin — consider caching the admin flag per-request or using a lightweight optional auth dependency.",
+    "list_menu_items builds a hidden-restaurant set by scanning up to MAX_PAGE_LIMIT restaurants on every call; for larger catalogs this should be a join/aggregation or a cached bloom set.",
+    "update_restaurant silently drops delivery_managed_by for sellers (good), but does not return 403 either — a seller can be misled into thinking their PUT succeeded. Consider surfacing a warning or ignoring the field via Pydantic-side sanitization only when role != admin.",
+    "RestaurantIn has BOTH legacy `delivery_pricing` and new `delivery_mode/*` fields — two sources of truth; add a migration plan or deprecate delivery_pricing to avoid drift.",
+    "get_menu re-fetches settings twice within the same request (line 2891 and 2908) — minor micro-optimization."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter14_visibility_and_delivery.py"
+  ],
+  "success_rate": {"backend": "100% (24/24)", "frontend": "N/A (skipped per request)"},
+  "test_credentials": "admin@jubasquare.com / 1234 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Session-scoped fixture creates: 1 seller user (test_seller_<uuid>@example.com), 2 shops (Pending+Verified), 2 restaurants (Pending+Verified), and — when a matching category exists — 2 menu items and 2 products. All prefixed TEST_. Session teardown deletes users/shops/restaurants/menu_items/products where seller_id matches. Post-run Mongo scan confirms 0 leftover documents.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration-14 test file is idempotent and safe to re-run against production-like Atlas DB. It re-uses existing admin, mints a fresh seller user each session, and cleans up on teardown. If new visibility-gated endpoints are added, extend the seller_ctx fixture with additional resource creates + parallel gate assertions. The seller_cannot_override_delivery_managed_by test doubles as regression coverage for the update_restaurant role-branch.",
+  "rca_of_the_issue": "N/A — no bugs found."
+}

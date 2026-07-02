@@ -232,10 +232,10 @@ function AdminShopsTab() {
 
   const saveDeliveryManagedBy = async (value) => {
     try {
-      const { data } = await api.put(
-        `/admin/shops/${detail.id}/delivery-managed-by`,
-        { delivery_managed_by: value },
-      );
+      const base = detail._kind === "restaurant"
+        ? `/admin/restaurants/${detail.id}/delivery-managed-by`
+        : `/admin/shops/${detail.id}/delivery-managed-by`;
+      const { data } = await api.put(base, { delivery_managed_by: value });
       const labels = { default: "Follow platform default", seller: "Seller manages", admin: "Admin manages" };
       toast.success(`Delivery for ${detail.name}: ${labels[value]}`);
       setDetail({ ...data, _kind: detail._kind });
@@ -456,8 +456,8 @@ function AdminShopsTab() {
                 <p className="text-[10px] text-[var(--js-text-secondary)] mt-2">Saving will automatically regenerate invoices for this shop.</p>
               </div>
 
-              {detail._kind !== "restaurant" && (
-                <div className="bg-[var(--js-subtle)] rounded-2xl p-4" data-testid="shop-delivery-managed-by-card">
+              {/* Delivery managed-by card — applies to both shops and restaurants */}
+              <div className="bg-[var(--js-subtle)] rounded-2xl p-4" data-testid="shop-delivery-managed-by-card">
                   <h3 className="font-display font-semibold text-sm mb-1">Delivery managed by</h3>
                   <p className="text-xs text-[var(--js-text-secondary)] mb-3">
                     Override the platform-wide setting for <strong>{detail.name}</strong>. Choose <code className="bg-white px-1 rounded">default</code> to follow the global toggle.
