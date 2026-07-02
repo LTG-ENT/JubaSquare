@@ -15,7 +15,7 @@ import PasswordChangeForm from "@/components/PasswordChangeForm";
 import SellerOnboardingCard from "@/components/SellerOnboardingCard";
 import SellerFirstLoginWizard from "@/components/SellerFirstLoginWizard";
 import SellerDashboardTour from "@/components/SellerDashboardTour";
-import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle, ExternalLink, MessageCircle, Mail, Phone, ChefHat, Wallet, MapPin, Upload, TrendingUp, PackageCheck } from "lucide-react";
+import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle, ExternalLink, MessageCircle, Mail, Phone, ChefHat, Wallet, MapPin, Upload, TrendingUp, PackageCheck, GraduationCap } from "lucide-react";
 import { useSearchParams, Link } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -95,7 +95,18 @@ export default function SellerDashboard() {
       <Header />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full flex-1">
         <p className="text-[10px] uppercase tracking-[0.2em] text-[#5C5C5C] font-bold mb-2">{tr("dashboard")}</p>
-        <h1 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">{tr("manageBusiness")}</h1>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <h1 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">{tr("manageBusiness")}</h1>
+          <Link
+            to="/seller/guide"
+            data-testid="seller-header-guide-link"
+            className="inline-flex items-center gap-1.5 rounded-full border border-[#E2E2D9] hover:border-[#C84B31] hover:text-[#C84B31] text-[#5C5C5C] text-xs font-semibold px-3 py-1.5 transition"
+            aria-label="Open seller guide"
+          >
+            <GraduationCap className="w-3.5 h-3.5" />
+            Seller Guide
+          </Link>
+        </div>
 
         {/* Onboarding progress card (auto-hides at 100%) */}
         <SellerOnboardingCard onStartTour={() => setRunTour(true)} />
@@ -1588,6 +1599,7 @@ function InvoicesTab({ currency, exchangeRate }) {
 }
 
 function SellerShopInvoices() {
+  const { currency = "USD", exchangeRate = 1 } = useCart() || {};
   const [invoices, setInvoices] = useState([]);
   const load = () => api.get("/seller/invoices").then((r) => setInvoices(r.data));
   useEffect(() => { load(); }, []);
@@ -1642,6 +1654,7 @@ function SellerShopInvoices() {
 }
 
 function SellerRestaurantInvoices() {
+  const { currency = "USD", exchangeRate = 1 } = useCart() || {};
   const [invoices, setInvoices] = useState([]);
   useEffect(() => {
     api.get("/seller/restaurant-invoices").then((r) => setInvoices(r.data)).catch(() => setInvoices([]));
@@ -1726,6 +1739,9 @@ function DeliveryEditor({ form, setForm }) {
 
 function OrdersTab() {
   const { user } = useAuth();
+  // Read exchange rate + currency from cart context to prevent
+  // ReferenceError when this component is rendered.
+  const { currency = "USD", exchangeRate = 1 } = useCart() || {};
   const [orders, setOrders] = useState([]);
   const [stockMap, setStockMap] = useState({}); // product_id -> stock
   const [search, setSearch] = useState("");

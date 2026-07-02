@@ -108,7 +108,7 @@ export default function NotificationBell() {
     setOpen(false);
     if (n.type === "order") {
       if (user?.role === "customer") navigate("/orders");
-      else navigate("/seller?tab=orders");
+      else navigate("/seller?tab=wallet");
     } else if (n.type === "commission") {
       if (user?.role === "admin") navigate("/admin?tab=invoices");
       else navigate("/seller?tab=invoices");
