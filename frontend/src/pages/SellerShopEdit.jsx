@@ -156,7 +156,7 @@ export default function SellerShopEdit() {
           </Link>
         </div>
 
-        <form onSubmit={onSave} className="space-y-6" data-testid="shop-edit-form">
+        <form onSubmit={onSave} noValidate className="space-y-6" data-testid="shop-edit-form">
           {/* Storefront identity */}
           <Section title="Storefront identity" subtitle="Logo, banner, and basic info shown to customers.">
             <Field label="Shop name" required>

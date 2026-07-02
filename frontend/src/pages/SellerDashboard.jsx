@@ -380,7 +380,7 @@ function ShopsTab({ currency, exchangeRate }) {
 
       {showForm && (
         <Modal onClose={() => { setShowForm(false); setEditing(null); }} title={editing ? `Edit ${editing._kind}` : "New business"}>
-          <form onSubmit={submit} className="space-y-3">
+          <form onSubmit={submit} noValidate className="space-y-3">
             <div>
               <span className="text-xs text-[var(--js-text-secondary)] font-semibold block mb-1.5">What are you opening?</span>
               <div className="grid grid-cols-2 gap-2">
@@ -1058,7 +1058,7 @@ function ProductsTab({ currency, exchangeRate }) {
 
       {showForm && (
         <Modal onClose={() => { setShowForm(false); setEditing(null); }} title={editing ? "Edit item" : "New item"}>
-          <form onSubmit={submit} className="space-y-3">
+          <form onSubmit={submit} noValidate className="space-y-3">
             {/* Business selector — unified shops + restaurants */}
             <div>
               <label className="text-xs text-[var(--js-text-secondary)] font-semibold block mb-1.5">Business</label>
@@ -1987,7 +1987,7 @@ function SettingsTab() {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-4xl">
-      <form onSubmit={saveProfile} className="bg-white border border-[#E2E2D9] rounded-3xl p-6 space-y-3">
+      <form onSubmit={saveProfile} noValidate className="bg-white border border-[#E2E2D9] rounded-3xl p-6 space-y-3">
         <h2 className="font-display font-semibold text-xl">Profile</h2>
         <Input label="Name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} testId="settings-name-input" />
         <Input label="Phone" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} testId="settings-phone-input" />
