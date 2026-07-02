@@ -21,7 +21,31 @@ log = logging.getLogger("jubasquare.email")
 
 _ENV_API_KEY = (os.environ.get("RESEND_API_KEY") or "").strip()
 _ENV_SENDER = (os.environ.get("SENDER_EMAIL") or "noreply@jubasquare.com").strip()
-FRONTEND_URL = (os.environ.get("FRONTEND_URL") or "").rstrip("/")
+
+# NOTE: DO NOT capture FRONTEND_URL at module-load time — the env var may
+# be empty in preview but set correctly in production. Use get_frontend_url()
+# at every send so the current value is always read.
+_PROD_FALLBACK = "https://jubasquare.com"
+
+
+def get_frontend_url() -> str:
+    """Return the public URL of the frontend, checked at call time.
+
+    Order of resolution:
+      1. FRONTEND_URL (canonical)
+      2. APP_URL / SITE_URL / PUBLIC_URL (common aliases we accept for
+         convenience — some hosting providers use different names)
+      3. REACT_APP_BACKEND_URL as a last-resort dev fallback so preview
+         email links still work end-to-end
+      4. Hardcoded production domain — guarantees we NEVER emit a broken
+         `http:///verify-email?...` link even when every env var is empty.
+    """
+    for key in ("FRONTEND_URL", "APP_URL", "SITE_URL", "PUBLIC_URL", "REACT_APP_BACKEND_URL"):
+        v = (os.environ.get(key) or "").strip().rstrip("/")
+        if v and v not in ("http://", "https://"):
+            return v
+    log.warning("No FRONTEND_URL/APP_URL/SITE_URL configured — falling back to %s", _PROD_FALLBACK)
+    return _PROD_FALLBACK
 
 # Lazy Mongo client — created on first use
 _mongo_client: Optional[AsyncIOMotorClient] = None
@@ -127,7 +151,7 @@ def _shell(title: str, body_html: str, cta_label: Optional[str] = None, cta_url:
           </p>
         </td></tr>
         <tr><td bgcolor="#F4F1EA" style="padding:18px 28px;text-align:center;font-size:11px;color:#808080;">
-          © {_year()} JubaSquare — Juba's Marketplace · <a href="{FRONTEND_URL}" style="color:#C84B31;text-decoration:none;">jubasquare.com</a>
+          © {_year()} JubaSquare — Juba's Marketplace · <a href="{get_frontend_url()}" style="color:#C84B31;text-decoration:none;">jubasquare.com</a>
         </td></tr>
       </table>
     </td></tr>
@@ -144,7 +168,7 @@ def _year() -> int:
 # Public send functions
 # --------------------------------------------------------------------
 async def send_verification_email(to: str, name: str, token: str) -> Optional[str]:
-    link = f"{FRONTEND_URL}/verify-email?token={token}"
+    link = f"{get_frontend_url()}/verify-email?token={token}"
     body = f"""
       <p>Hi {name or 'there'},</p>
       <p>Welcome to JubaSquare! Please confirm your email address to activate your account.</p>
@@ -160,7 +184,7 @@ async def send_verification_email(to: str, name: str, token: str) -> Optional[st
 
 
 async def send_password_reset_email(to: str, name: str, token: str) -> Optional[str]:
-    link = f"{FRONTEND_URL}/reset-password?token={token}"
+    link = f"{get_frontend_url()}/reset-password?token={token}"
     body = f"""
       <p>Hi {name or 'there'},</p>
       <p>We got a request to reset your JubaSquare password. This link expires in 1 hour.</p>
@@ -208,7 +232,7 @@ async def send_order_confirmation_customer(to: str, name: str, order: dict) -> O
         title=f"Order confirmed — #{order_id}",
         body_html=body,
         cta_label="View my orders",
-        cta_url=f"{FRONTEND_URL}/orders",
+        cta_url=f"{get_frontend_url()}/orders",
         preheader=f"Your order #{order_id} has been placed (${total:.2f}).",
     )
     return await _send(to, f"Order confirmed — #{order_id}", html)
@@ -227,7 +251,7 @@ async def send_order_notification_seller(to: str, seller_name: str, order: dict,
         title=f"New order — #{order_id}",
         body_html=body,
         cta_label="Open seller dashboard",
-        cta_url=f"{FRONTEND_URL}/seller",
+        cta_url=f"{get_frontend_url()}/seller",
         preheader=f"New order received for {shop_name}.",
     )
     return await _send(to, f"New order received — #{order_id}", html)
