@@ -1,9 +1,9 @@
 # JubaSquare — Product Requirements (PRD)
 
-Branch: `with-odoo-v2`
+Branch: `with-odoo-v2` · **PRODUCTION deployed** at https://jubasquare.com
 
 ## Product intent
-A multilingual (English/Arabic RTL) Juba-focused marketplace connecting shops, restaurants, wholesale suppliers, drivers and customers. Odoo-integrated. Runs on React + FastAPI + MongoDB Atlas, deployed via Emergent.
+A multilingual (English/Arabic RTL) Juba-focused marketplace connecting shops, restaurants, wholesale suppliers, drivers, and customers. Odoo-integrated. Runs on React + FastAPI + MongoDB Atlas, deployed via Emergent.
 
 ## Core personas
 - **Customer**: browses, orders, pays cash-on-delivery or wallet, tracks deliveries.
@@ -13,51 +13,70 @@ A multilingual (English/Arabic RTL) Juba-focused marketplace connecting shops, r
 
 ## Established feature areas
 - Auth (JWT-based email + password + email verification), Odoo integration, wallet, Web Push/PWA, Notifications.
-- Cash-on-Delivery flow with per-seller order splits (see `/app/backend/cod.py`).
+- Cash-on-Delivery flow with per-seller order splits (`/app/backend/cod.py`).
 - Hybrid Delivery: Admin OR Seller manages delivery per-shop / per-restaurant. Modes: free / fixed / per_area.
 - Emergent Object Storage for uploads (survives redeploys).
 - Cascade deletes on user removal.
 - Multilingual UI + Arabic RTL support.
 
 ## Completed (Feb 2026, this fork)
-- ✅ Verified "Mirror Shops" restaurant delivery logic (backend `_calculate_delivery_fee` supports restaurant-level free/fixed/per_area + `delivery_managed_by` override). All 4 delivery scenarios pass (fixed 3.5, per_area x2 rates, free, admin-fallback → default).
-- ✅ New endpoint `GET /api/restaurants/mine` — sellers see own restaurants regardless of verification.
-- ✅ New page `SellerRestaurantEdit.jsx` (route `/seller/restaurant/:restaurant_id/edit`) — mirror of `SellerShopEdit`, letting sellers configure delivery model for restaurants (free/fixed/per_area).
-- ✅ Shop/Restaurant customer-visibility gate:
-  - Only **Verified** shops/restaurants appear in `/api/shops`, `/api/restaurants`, `/api/products`, `/api/menu-items`, `/api/restaurants/{id}/menu`.
-  - Anonymous access to unverified shop/restaurant/product detail returns 404.
-  - Owners (seller_id match) and admins bypass the gate for their own resources.
-  - Admin list endpoints (`/api/shops`, `/api/restaurants`) bypass the gate when authenticated with role=admin.
-- ✅ All 24/24 backend regression tests pass (`/app/test_reports/iteration_14.json`).
+
+### Iter 14 — Restaurant delivery mirror + verification visibility gate
+- ✅ "Mirror Shops" restaurant delivery — `_calculate_delivery_fee` supports restaurant-level free/fixed/per_area + `delivery_managed_by`.
+- ✅ `GET /api/restaurants/mine` — seller's own restaurants regardless of verification.
+- ✅ `SellerRestaurantEdit.jsx` (route `/seller/restaurant/:restaurant_id/edit`).
+- ✅ Only Verified shops/restaurants visible to customers. Anon requests to unverified detail routes → 404. Owner/admin bypass.
+- ✅ 24/24 backend tests pass (`/app/test_reports/iteration_14.json`).
+
+### Iter 15/16 — Reviews with photos + Live Driver Tracking + polish
+- ✅ **Side-options input sizing** — name input widened (flex-3), price narrowed (flex-1).
+- ✅ **Verification banner** on `ShopPage` — owner/admin see a Pending or Rejected banner with CTA to `/seller` for KYC.
+- ✅ **Product reviews with photos** — `ProductReviewIn` accepts `photos:List[str]` (capped at 5, URL length capped at 1024). Frontend `ReviewPhotoUpload` compresses to 1600 px JPEG @ q82 client-side, then uploads to Object Storage.
+- ✅ **Live Driver Tracking** — new endpoints:
+  - `POST /api/driver/location` (driver-only): pushes `{lat, lng, accuracy}` every ~10 s. Stores latest + last-20 trail in `db.driver_locations`.
+  - `GET /api/customer/orders/{order_id}/live-tracking` (customer/admin): returns per-assignment `driver_location`, `destination`, `distance_km`, `eta_minutes` (Haversine × 4 min/km).
+  - Frontend: `DriverGeoBeacon` (silent geolocation watcher on `DriverDashboard`), `LiveTrackingMap` (Leaflet map on `Orders.jsx` for `out_for_delivery` orders). `JUBA_AREA_COORDS` centroid map for known Juba areas.
+- ✅ **Reviews index migration** — legacy non-sparse unique index `reviews.order_id_1` migrated to a **partial** unique index (`{order_id: {$type: 'string'}}`) so product reviews (no order_id) can coexist with per-order restaurant-review dedupe. Idempotent on startup.
+- ✅ 16/16 backend tests pass (`/app/test_reports/iteration_16.json`).
 
 ## P1 Backlog
-- Product reviews with photos (extend review models + photo compression on upload).
-- Live Driver Map (real-time geolocation reporting every 10s, Leaflet map on tracking page, ETA calc).
+- (none — Phase 2 P1 items shipped)
 
 ## P2 / Refactor
-- Break `/app/backend/server.py` (now ~6750 lines) into routers (`shops.py`, `restaurants.py`, `products.py`, `admin.py`, etc.).
-- Deprecate legacy `delivery_pricing` on RestaurantIn now that mirror-shops mode is authoritative.
-- Consider caching admin-flag per-request for `list_restaurants` / `list_shops` (currently invokes `get_current_user` per anon call).
-- `list_menu_items` scans `MAX_PAGE_LIMIT` restaurants each call; move to aggregation/cache.
+- Split `/app/backend/server.py` (~6,900 lines) into domain routers (`shops.py`, `restaurants.py`, `products.py`, `reviews.py`, `driver_tracking.py`, `admin.py`).
+- Expand `JUBA_AREA_COORDS` — missing Rock City, Tongping, Kator, Lologo, etc. (users in those areas currently get downtown fallback ETA).
+- Deprecate legacy `delivery_pricing` on RestaurantIn now that mirror-shops is authoritative.
+- Batch driver lookups in `customer_live_tracking` (`$in` instead of per-assignment `find_one`).
+- `post_driver_location` — consolidate to single `findOneAndUpdate` with `$push`+`$slice`.
+- SSRF hardening: validate review photo URLs are same-origin or `/api/uploads/`.
 
 ## Key files
-- `/app/backend/server.py` — main API router.
+- `/app/backend/server.py` — main API router, all new endpoints for iter14–16.
 - `/app/backend/cod.py` — cash-on-delivery + delivery fee calculator.
 - `/app/backend/storage.py` — Emergent Object Storage.
 - `/app/backend/email_service.py` — Resend email integration.
 - `/app/frontend/src/pages/SellerShopEdit.jsx` — shop editor (with delivery).
-- `/app/frontend/src/pages/SellerRestaurantEdit.jsx` — NEW restaurant editor (with delivery mirror).
-- `/app/frontend/src/pages/SellerDashboard.jsx` — seller landing; now uses `/restaurants/mine`.
-- `/app/frontend/src/pages/AdminDashboard.jsx` — admin console with per-shop / per-restaurant delivery override toggle.
+- `/app/frontend/src/pages/SellerRestaurantEdit.jsx` — restaurant editor (with delivery mirror).
+- `/app/frontend/src/pages/SellerDashboard.jsx` — seller landing.
+- `/app/frontend/src/pages/AdminDashboard.jsx` — admin console.
+- `/app/frontend/src/pages/ShopPage.jsx` — customer shop preview + owner verification banner.
+- `/app/frontend/src/pages/ProductDetail.jsx` — product detail + reviews with photos.
+- `/app/frontend/src/pages/Orders.jsx` — customer order tracking (live map).
+- `/app/frontend/src/pages/DriverDashboard.jsx` — driver assignments + geolocation beacon.
+- `/app/frontend/src/components/ReviewPhotoUpload.jsx` — multi-photo upload with compression.
+- `/app/frontend/src/components/DriverGeoBeacon.jsx` — silent watchPosition sender.
+- `/app/frontend/src/components/LiveTrackingMap.jsx` — Leaflet map + ETA.
 
 ## Critical guardrails (do not break)
 1. All upload URLs must be relative (`/api/uploads/...`).
 2. Never use `<input type="url">` for image URL fields; use `type="text"` + `noValidate` on the form.
-3. `_calculate_delivery_fee` is the single source of truth for delivery pricing — always trace via `cod.py` when touching delivery logic.
-4. Preserve `.git` / `.emergent` folders. Only edit `.env` when strictly necessary.
+3. `_calculate_delivery_fee` is the single source of truth for delivery pricing.
+4. The `reviews.order_id_1` index MUST remain a partial index; do not recreate as unfiltered unique or you'll break product reviews again.
+5. Preserve `.git` / `.emergent` folders.
 
 ## 3rd-party integrations
 - MongoDB Atlas, Resend, Stripe, Emergent Object Storage (via EMERGENT_LLM_KEY).
+- **New**: OpenStreetMap tiles via react-leaflet on the customer tracking map (no key needed).
 
 ## Test credentials
-See `/app/memory/test_credentials.md` — admin only. Sellers/customers sign up fresh in production.
+See `/app/memory/test_credentials.md` — admin only.
