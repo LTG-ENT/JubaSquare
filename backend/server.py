@@ -6328,7 +6328,28 @@ async def seed_production():
     await db.restaurant_orders.create_index([("restaurant_id", 1), ("status", 1)])
     await db.restaurant_orders.create_index([("customer_id", 1), ("created_at", -1)])
     await db.reviews.create_index([("restaurant_id", 1), ("created_at", -1)])
-    await db.reviews.create_index("order_id", unique=True)  # One review per order
+    # `order_id_1` used to be a NON-sparse unique index intended for
+    # restaurant reviews (one review per order). Product reviews don't
+    # carry an order_id, so every product review inserted `null` and
+    # collided after the first insert (E11000 DuplicateKeyError → HTTP 500).
+    # Migrate: drop the legacy index if it exists, then recreate as a
+    # PARTIAL unique index — uniqueness is only enforced when order_id
+    # is present and non-null (i.e. restaurant reviews only).
+    try:
+        info = await db.reviews.index_information()
+        if "order_id_1" in info:
+            legacy = info["order_id_1"]
+            # If it's already a partial index we're good; otherwise recreate.
+            if "partialFilterExpression" not in legacy:
+                await db.reviews.drop_index("order_id_1")
+    except Exception:
+        pass  # missing index / permission — ignore, next call will create it.
+    await db.reviews.create_index(
+        "order_id",
+        unique=True,
+        partialFilterExpression={"order_id": {"$exists": True, "$type": "string"}},
+        name="order_id_1",
+    )
     await db.trending_stats.create_index([("target_type", 1), ("target_id", 1)], unique=True)
 
     # Global settings

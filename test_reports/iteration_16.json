@@ -1,0 +1,20 @@
+{
+  "summary": "Re-tested iteration 15 after partial-unique-index fix on db.reviews.order_id_1. All 16 tests in test_iter15_reviews_photos_and_tracking.py now pass (previously blocked by legacy unique index causing duplicate-null-key errors on multiple product reviews). Additionally verified via direct MongoDB inspection that `order_id_1` index carries `partialFilterExpression` — uniqueness now enforced only when order_id exists as a string.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter15_reviews_photos_and_tracking.py",
+    "/app/backend/tests/test_iter15_index_verify.py",
+    "/app/test_reports/pytest/iter15_retest.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": ["/app/backend/tests/test_iter15_index_verify.py (new supplementary test)"],
+  "success_rate": {"backend": "100%", "frontend": "N/A (skipped per request)"},
+  "test_credentials": "admin@jubasquare.com / 1234",
+  "seed_data_creation": "None (fixtures self-clean TEST_ prefixed docs)",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "iter15 fully green. Partial index migration in seed_production() confirmed working. Restaurant-review dedupe still enforced (order_id present branch); product-review multi-post now succeeds (order_id absent branch skipped by partial filter). The supplementary test_product_review_twice_both_succeed was skipped because admin's /api/products list returned empty in this env — the main iter15 suite already validates multi-review persistence with its own product-creation fixture, so this is not a gap.",
+  "rca of the issue": "Prior failure RCA: reviews collection had a legacy non-partial unique index on order_id which rejected 2nd insert of null-order_id (product reviews). Fix (in server.py seed_production ~L6317-6355) drops the legacy index and recreates as partial unique with filter {order_id: {$type: 'string'}}. Verified via db.reviews.index_information() showing partialFilterExpression on order_id_1."
+}
