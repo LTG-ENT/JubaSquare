@@ -1714,11 +1714,9 @@ function DeliveryEditor({ form, setForm }) {
           <MapPin className="w-5 h-5 text-[#1A1A1A]" />
         </div>
         <div>
-          <p className="font-bold text-sm text-[var(--js-text)] mb-1">Delivery Pricing Controlled by Admin</p>
+          <p className="font-bold text-sm text-[var(--js-text)] mb-1">Delivery Pricing — Hybrid Model</p>
           <p className="text-xs text-[var(--js-text-secondary)] leading-relaxed">
-            Delivery fees are now set by the platform admin based on pickup and delivery areas. 
-            You don't need to configure delivery pricing for your shop. The correct fees will be 
-            automatically calculated for each order based on admin-defined pricing rules.
+            By default, sellers manage their own delivery via the shop editor (free / fixed fee / per-area). If JubaSquare enables platform-wide admin delivery, admin-defined rules take over. A per-shop override can lock any shop to seller-mode or admin-mode regardless of the platform toggle.
           </p>
         </div>
       </div>
