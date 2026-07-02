@@ -553,6 +553,11 @@ class ShopIn(BaseModel):
     delivery_mode: Literal["free", "fixed", "per_area"] = "free"
     delivery_fee_usd: float = 0.0
     delivery_per_area: List[DeliveryAreaFee] = Field(default_factory=list)
+    # Per-shop override for who runs the delivery. Defaults to "default" =
+    # follow the platform-wide `admin_manages_delivery` setting. Set to
+    # "seller" or "admin" to lock this shop to one mode regardless of the
+    # global toggle. Admin-editable only.
+    delivery_managed_by: Literal["default", "seller", "admin"] = "default"
     # Storefront fields (Round 7) — separate banner + logo + opening hours + open/closed
     banner_url: Optional[str] = ""
     logo_url: Optional[str] = ""
@@ -5527,6 +5532,28 @@ async def admin_verify(shop_id: str, _: dict = Depends(require_role("admin"))):
 @api.put("/admin/shops/{shop_id}/reject")
 async def admin_reject(shop_id: str, _: dict = Depends(require_role("admin"))):
     await db.shops.update_one({"id": shop_id}, {"$set": {"verification": "Rejected"}})
+    return await db.shops.find_one({"id": shop_id}, {"_id": 0})
+
+
+class ShopDeliveryManagedByIn(BaseModel):
+    delivery_managed_by: Literal["default", "seller", "admin"]
+
+
+@api.put("/admin/shops/{shop_id}/delivery-managed-by")
+async def admin_set_shop_delivery_managed_by(
+    shop_id: str,
+    body: ShopDeliveryManagedByIn,
+    _: dict = Depends(require_role("admin")),
+):
+    """Per-shop override for who runs delivery. `default` follows the
+    platform-wide `admin_manages_delivery` toggle; `seller` / `admin` lock
+    the shop to that mode regardless of the global toggle."""
+    result = await db.shops.update_one(
+        {"id": shop_id},
+        {"$set": {"delivery_managed_by": body.delivery_managed_by}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "Shop not found")
     return await db.shops.find_one({"id": shop_id}, {"_id": 0})
 
 

@@ -2633,7 +2633,20 @@ async def _calculate_delivery_fee(
 
     # Load the global toggle
     sysettings = await db.settings.find_one({"id": "system"}, {"_id": 0}) or {}
-    admin_manages = bool(sysettings.get("admin_manages_delivery", False))
+    admin_manages_global = bool(sysettings.get("admin_manages_delivery", False))
+
+    # Per-shop override (highest priority). "default" → follow global toggle.
+    shop_managed_by = "default"
+    if shop_id:
+        shop_doc = await db.shops.find_one({"id": shop_id}, {"_id": 0, "delivery_managed_by": 1}) or {}
+        shop_managed_by = (shop_doc.get("delivery_managed_by") or "default").lower()
+
+    if shop_managed_by == "seller":
+        admin_manages = False
+    elif shop_managed_by == "admin":
+        admin_manages = True
+    else:
+        admin_manages = admin_manages_global
 
     # --- Seller-managed branch ----------------------------------------
     if not admin_manages and shop_id:

@@ -230,6 +230,21 @@ function AdminShopsTab() {
     }
   };
 
+  const saveDeliveryManagedBy = async (value) => {
+    try {
+      const { data } = await api.put(
+        `/admin/shops/${detail.id}/delivery-managed-by`,
+        { delivery_managed_by: value },
+      );
+      const labels = { default: "Follow platform default", seller: "Seller manages", admin: "Admin manages" };
+      toast.success(`Delivery for ${detail.name}: ${labels[value]}`);
+      setDetail({ ...data, _kind: detail._kind });
+      load();
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail) || "Failed to update delivery mode");
+    }
+  };
+
   const saveInvoiceFrequency = async () => {
     const freq = invoiceFrequencyDraft === "" ? null : invoiceFrequencyDraft;
     try {
@@ -440,6 +455,41 @@ function AdminShopsTab() {
                 </div>
                 <p className="text-[10px] text-[var(--js-text-secondary)] mt-2">Saving will automatically regenerate invoices for this shop.</p>
               </div>
+
+              {detail._kind !== "restaurant" && (
+                <div className="bg-[var(--js-subtle)] rounded-2xl p-4" data-testid="shop-delivery-managed-by-card">
+                  <h3 className="font-display font-semibold text-sm mb-1">Delivery managed by</h3>
+                  <p className="text-xs text-[var(--js-text-secondary)] mb-3">
+                    Override the platform-wide setting for <strong>{detail.name}</strong>. Choose <code className="bg-white px-1 rounded">default</code> to follow the global toggle.
+                  </p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { value: "default", label: "Default" },
+                      { value: "seller", label: "Seller" },
+                      { value: "admin", label: "Admin" },
+                    ].map((opt) => {
+                      const active = (detail.delivery_managed_by || "default") === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          onClick={() => saveDeliveryManagedBy(opt.value)}
+                          data-testid={`delivery-managed-by-${opt.value}`}
+                          className={`px-2 py-2 rounded-lg text-xs font-semibold transition border-2 ${
+                            active
+                              ? "border-[#C84B31] bg-[#FFF3E9] text-[#C84B31]"
+                              : "border-[var(--js-border)] text-[var(--js-text)] hover:border-[#C84B31]"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-[var(--js-text-secondary)] mt-2">
+                    <strong>Default</strong>: follow platform-wide setting. <strong>Seller</strong>: use this shop's own delivery rules. <strong>Admin</strong>: use admin's Delivery Pricing rules.
+                  </p>
+                </div>
+              )}
 
               <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
                 <h3 className="font-display font-semibold text-sm mb-1 text-blue-900">Invoice Frequency Override</h3>
