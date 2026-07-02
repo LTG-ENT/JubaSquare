@@ -102,6 +102,8 @@ export default function ProductDetail() {
       price_usd: unitPrice,
       image_url: product.image_url,
       exchange_rate_ssp: product.exchange_rate_ssp,
+      is_wholesale: isWholesale,
+      min_order_qty: isWholesale ? minQty : 1,
       quantity: qty,
     });
     if (ok) toast.success(`${qty}× ${product.name} added to cart`);

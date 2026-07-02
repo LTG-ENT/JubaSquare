@@ -24,6 +24,8 @@ export default function ProductCard({ product, shop }) {
 
   const onAdd = (e) => {
     e.preventDefault(); e.stopPropagation();
+    // Wholesale items must be added at their minimum-order quantity, not 1.
+    const initialQty = product.is_wholesale ? Math.max(1, product.min_order_qty || 1) : 1;
     const ok = addItem({
       item_type: "product",
       item_id: product.id,
@@ -31,9 +33,15 @@ export default function ProductCard({ product, shop }) {
       price_usd: product.price_usd,
       image_url: product.image_url,
       exchange_rate_ssp: product.exchange_rate_ssp,
-      quantity: 1,
+      // Propagate wholesale constraints so the cart can honor the floor.
+      is_wholesale: !!product.is_wholesale,
+      min_order_qty: product.is_wholesale ? Math.max(1, product.min_order_qty || 1) : 1,
+      quantity: initialQty,
     });
-    if (ok) toast.success(`${product.name} added to cart`);
+    if (ok) {
+      const suffix = initialQty > 1 ? ` (min. order ${initialQty} units)` : "";
+      toast.success(`${product.name} added to cart${suffix}`);
+    }
   };
 
   const toggleFav = async (e) => {

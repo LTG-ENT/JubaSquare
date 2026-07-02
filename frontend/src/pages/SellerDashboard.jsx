@@ -1143,7 +1143,7 @@ function ProductsTab({ currency, exchangeRate }) {
                 <Input label="Price (USD)" type="number" step="0.01" value={form.price_usd} onChange={(v) => setForm({ ...form, price_usd: v })} required testId="product-price-input" />
                 <ImageUpload label="Food photo" value={form.image_url} onChange={(v) => setForm({ ...form, image_url: v })} testId="product-image-upload" />
                 <Textarea label="Description" value={form.description} onChange={(v) => setForm({ ...form, description: v })} testId="product-desc-input" />
-                <SideItemsEditor sides={form.side_items} setSides={(s) => setForm({ ...form, side_items: s })} currency={currency} exchangeRate={exchangeRate} />
+                <SideItemsEditor sides={form.side_items} setSides={(s) => setForm({ ...form, side_items: s })} currency={currency} exchangeRate={rate} />
               </>
             ) : (
               <>
@@ -1302,7 +1302,7 @@ function ProductsTab({ currency, exchangeRate }) {
                       <Input label="Minimum order qty (optional)" type="number" value={form.min_order_qty} onChange={(v) => setForm({ ...form, min_order_qty: v })} testId="min-order-qty-input" />
                       <Input label="Bulk price (USD, optional)" type="number" step="0.01" value={form.bulk_price_usd} onChange={(v) => setForm({ ...form, bulk_price_usd: v })} testId="bulk-price-input" />
                     </div>
-                    <PricingTiersEditor tiers={form.pricing_tiers} setTiers={(t) => setForm({ ...form, pricing_tiers: t })} currency={currency} exchangeRate={exchangeRate} />
+                    <PricingTiersEditor tiers={form.pricing_tiers} setTiers={(t) => setForm({ ...form, pricing_tiers: t })} currency={currency} exchangeRate={rate} />
                   </div>
                 )}
               </>
@@ -1509,10 +1509,40 @@ function PricingTiersEditor({ tiers, setTiers, currency, exchangeRate }) {
   return (
     <div>
       <p className="text-xs uppercase tracking-wider font-bold text-[var(--js-text-secondary)] mb-2">Pricing tiers (optional)</p>
-      <div className="flex gap-2">
-        <input placeholder="Min qty" type="number" value={draft.min_qty} onChange={(e) => setDraft({ ...draft, min_qty: e.target.value })} className="js-input flex-1 text-sm" data-testid="tier-min-qty-input" />
-        <input placeholder="Price $" type="number" step="0.01" value={draft.price_usd} onChange={(e) => setDraft({ ...draft, price_usd: e.target.value })} className="js-input w-28 text-sm" data-testid="tier-price-input" />
-        <button type="button" onClick={add} data-testid="tier-add-btn" className="bg-[#1A1A1A] text-white text-sm font-semibold px-3 rounded-xl">Add tier</button>
+      <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
+        <label className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)] flex flex-col gap-1">
+          Min qty
+          <input
+            placeholder="e.g. 10"
+            type="number"
+            min="1"
+            value={draft.min_qty}
+            onChange={(e) => setDraft({ ...draft, min_qty: e.target.value })}
+            className="js-input text-sm w-full"
+            data-testid="tier-min-qty-input"
+          />
+        </label>
+        <label className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)] flex flex-col gap-1">
+          Price (USD)
+          <input
+            placeholder="e.g. 8.50"
+            type="number"
+            step="0.01"
+            min="0"
+            value={draft.price_usd}
+            onChange={(e) => setDraft({ ...draft, price_usd: e.target.value })}
+            className="js-input text-sm w-full"
+            data-testid="tier-price-input"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={add}
+          data-testid="tier-add-btn"
+          className="bg-[#1A1A1A] text-white text-sm font-semibold px-4 py-2 rounded-xl whitespace-nowrap h-[42px]"
+        >
+          Add tier
+        </button>
       </div>
       {(tiers || []).length > 0 && (
         <ul className="mt-2 space-y-1">

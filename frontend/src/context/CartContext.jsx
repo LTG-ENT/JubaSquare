@@ -129,7 +129,14 @@ export const CartProvider = ({ children }) => {
 
   const setQuantity = (item_id, qty) =>
     setItems((prev) =>
-      prev.map((i) => (i.item_id === item_id ? { ...i, quantity: Math.max(1, qty) } : i)),
+      prev.map((i) => {
+        if (i.item_id !== item_id) return i;
+        // Wholesale items have a per-product minimum order — enforce it as
+        // the lower bound so customers can't sneak the quantity below the
+        // seller's minimum via the cart's − button.
+        const floor = i.is_wholesale ? Math.max(1, i.min_order_qty || 1) : 1;
+        return { ...i, quantity: Math.max(floor, qty) };
+      }),
     );
 
   const clear = () => {
