@@ -203,7 +203,7 @@ export default function SellerShopEdit() {
           <Section title="Branding & imagery" subtitle="A wide banner and a square logo make your shop page feel professional.">
             <ImageUpload
               label="Logo (square)"
-              value={form.logo_url || form.image_url}
+              value={form.logo_url}
               onChange={(v) => setForm({ ...form, logo_url: v })}
               testId="shop-edit-logo"
             />

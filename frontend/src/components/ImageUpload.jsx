@@ -68,8 +68,21 @@ export default function ImageUpload({ value, onChange, label = "Image", testId =
               from (jubasquare.com, www.jubasquare.com, preview, etc.).
               type="url" would trigger native validation and reject
               relative paths with "Please enter a URL". */}
-          <input type="text" value={value || ""} placeholder="https://... or /api/uploads/..." onChange={(e) => onChange(e.target.value)} data-testid={`${testId}-url`}
-            className="mt-2 w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-[#1A1A1A]" />
+          <div className="mt-2 flex gap-1.5">
+            <input type="text" value={value || ""} placeholder="https://... or /api/uploads/..." onChange={(e) => onChange(e.target.value)} data-testid={`${testId}-url`}
+              className="flex-1 min-w-0 bg-[var(--js-bg)] border border-[var(--js-border)] rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-[#1A1A1A]" />
+            {value && (
+              <button
+                type="button"
+                onClick={() => onChange("")}
+                data-testid={`${testId}-clear`}
+                title="Clear image"
+                className="shrink-0 px-2.5 py-1.5 rounded-lg border border-[var(--js-border)] bg-white text-[var(--js-text-secondary)] hover:bg-[#FEEDEA] hover:border-[#C84B31] hover:text-[#C84B31] text-xs font-semibold transition"
+              >
+                Clear
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
