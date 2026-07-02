@@ -1493,10 +1493,10 @@ function SideItemsEditor({ sides, setSides, currency, exchangeRate }) {
   return (
     <div className="bg-[var(--js-subtle)] rounded-2xl p-3 space-y-2">
       <p className="text-xs uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">Side options</p>
-      <div className="flex gap-2">
-        <input placeholder="Side name (e.g., Fries)" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className="js-input flex-[3] min-w-0 text-sm" data-testid="side-name-input" />
-        <input placeholder="$" type="number" step="0.01" value={draft.price_usd} onChange={(e) => setDraft({ ...draft, price_usd: e.target.value })} className="js-input flex-1 min-w-0 text-sm" data-testid="side-price-input" />
-        <button type="button" onClick={add} data-testid="side-add-btn" className="bg-[#1A1A1A] text-white text-sm font-semibold px-3 rounded-xl shrink-0">Add</button>
+      <div className="grid grid-cols-[1fr_88px_auto] gap-2">
+        <input placeholder="Side name (e.g., Fries)" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className="js-input text-sm min-w-0" data-testid="side-name-input" />
+        <input placeholder="USD" type="number" step="0.01" value={draft.price_usd} onChange={(e) => setDraft({ ...draft, price_usd: e.target.value })} className="js-input text-sm min-w-0" data-testid="side-price-input" />
+        <button type="button" onClick={add} data-testid="side-add-btn" className="bg-[#1A1A1A] text-white text-sm font-semibold px-4 rounded-xl">Add</button>
       </div>
       {(sides || []).length > 0 && (
         <ul className="space-y-1">
