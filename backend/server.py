@@ -90,6 +90,11 @@ DEFAULT_SETTINGS = {
     "maintenance_mode": False,
     "login_attempt_limit": 5,
     "commission_rate": 0.10,
+    # If TRUE → admin's Delivery Pricing rules apply to all orders.
+    # If FALSE (default) → the seller's own shop-level delivery settings
+    # (delivery_mode/delivery_fee_usd/delivery_per_area) are used, with the
+    # admin's rules as a fallback only when the shop hasn't configured any.
+    "admin_manages_delivery": False,
     "areas": DEFAULT_AREAS,
     "token_version": 1,
     "homepage": DEFAULT_HOMEPAGE,
@@ -747,6 +752,7 @@ class SettingsIn(BaseModel):
     maintenance_mode: Optional[bool] = None
     login_attempt_limit: Optional[int] = None
     commission_rate: Optional[float] = None
+    admin_manages_delivery: Optional[bool] = None
 
 
 class InvoiceStatusIn(BaseModel):

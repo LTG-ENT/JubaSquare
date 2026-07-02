@@ -2612,18 +2612,53 @@ async def _calculate_delivery_fee(
     shop_id: str = None,
     restaurant_id: str = None
 ) -> float:
-    """Calculate delivery fee based on admin pricing rules.
-    
-    Priority:
-    1. Shop/restaurant-specific rule (if shop_id or restaurant_id provided)
-    2. Order type + area rule
-    3. Generic area rule (order_type = 'all')
-    4. Default fee
+    """Calculate delivery fee based on the platform-wide delivery mode.
+
+    Two modes controlled by `settings.admin_manages_delivery`:
+
+    - **admin_manages_delivery == True**: Admin's `delivery_pricing_rules`
+      govern the fee for every shop. (Existing behavior.)
+    - **admin_manages_delivery == False (default)**: Sellers deliver
+      themselves — read the shop's own delivery_mode / delivery_fee_usd /
+      delivery_per_area. If the shop hasn't configured anything, the
+      admin's rules are used as a graceful fallback so orders don't stall.
+
+    The seller-delivery branch applies only to shop orders (order_type
+    == 'product'/'wholesale'/'shop'). Restaurants always fall through to
+    the admin/rule-based pricing since restaurant_id is passed instead.
     """
     # Normalize areas (trim and lowercase for matching)
-    pickup_area = (pickup_area or "").strip().lower()
-    delivery_area = (delivery_area or "").strip().lower()
-    
+    pickup_area_norm = (pickup_area or "").strip().lower()
+    delivery_area_norm = (delivery_area or "").strip().lower()
+
+    # Load the global toggle
+    sysettings = await db.settings.find_one({"id": "system"}, {"_id": 0}) or {}
+    admin_manages = bool(sysettings.get("admin_manages_delivery", False))
+
+    # --- Seller-managed branch ----------------------------------------
+    if not admin_manages and shop_id:
+        shop = await db.shops.find_one({"id": shop_id}, {"_id": 0}) or {}
+        mode = (shop.get("delivery_mode") or "").strip().lower()
+        if mode == "free":
+            log.info(f"[DELIVERY FEE] Seller-managed: shop {shop_id[:8]} → FREE")
+            return 0.0
+        if mode == "fixed":
+            fee = float(shop.get("delivery_fee_usd") or 0)
+            log.info(f"[DELIVERY FEE] Seller-managed: shop {shop_id[:8]} → fixed {fee}")
+            return fee
+        if mode == "per_area":
+            for row in (shop.get("delivery_per_area") or []):
+                if (row.get("area") or "").strip().lower() == delivery_area_norm:
+                    fee = float(row.get("fee_usd") or 0)
+                    log.info(f"[DELIVERY FEE] Seller-managed: shop {shop_id[:8]} → per-area '{delivery_area}' = {fee}")
+                    return fee
+            log.warning(f"[DELIVERY FEE] Seller-managed: shop {shop_id[:8]} has no rule for '{delivery_area}'; falling back to admin rules")
+        # If mode is unset/unknown → fall through to admin logic below
+    # -------------------------------------------------------------------
+
+    pickup_area = pickup_area_norm
+    delivery_area = delivery_area_norm
+
     # Log for debugging
     print(f"🚚 [DELIVERY FEE] Calculating: pickup={pickup_area}, delivery={delivery_area}, type={order_type}, shop={shop_id}, restaurant={restaurant_id}")
     log.info(f"[DELIVERY FEE] Calculating: pickup={pickup_area}, delivery={delivery_area}, type={order_type}, shop={shop_id}, restaurant={restaurant_id}")

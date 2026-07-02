@@ -114,6 +114,16 @@ function AdminSettings() {
         <Toggle label="Maintenance mode" hint="Customers cannot place orders" checked={s.maintenance_mode} onChange={(v) => update({ maintenance_mode: v })} testId="admin-maintenance" />
       </Card>
 
+      <Card title="🚚 Delivery">
+        <Toggle
+          label="Admin manages delivery for all shops"
+          hint="OFF (default): each seller sets their own delivery from the Shop editor. ON: the admin's Delivery Pricing rules apply to every shop, restaurant, and route."
+          checked={!!s.admin_manages_delivery}
+          onChange={(v) => update({ admin_manages_delivery: v })}
+          testId="admin-manages-delivery"
+        />
+      </Card>
+
       <Card title="🔐 Security">
         <Row label="Login attempt limit (per email/IP)">
           <input type="number" min={1} value={s.login_attempt_limit} onChange={(e) => setS({ ...s, login_attempt_limit: parseInt(e.target.value) || 5 })}

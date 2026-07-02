@@ -1,25 +1,28 @@
 import { useState, useEffect } from "react";
 import api, { formatUSD, formatDetail } from "@/lib/api";
 import { toast } from "sonner";
-import { Plus, Edit2, Trash2, Search, MapPin, DollarSign, X, Check, AlertCircle } from "lucide-react";
+import { Plus, Edit2, Trash2, Search, MapPin, DollarSign, X, Check, AlertCircle, Info } from "lucide-react";
 
 export default function AdminDeliveryPricingTab() {
   const [rules, setRules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [defaultFee, setDefaultFee] = useState(2.0);
+  const [adminManages, setAdminManages] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingRule, setEditingRule] = useState(null);
 
   const loadRules = async () => {
     setLoading(true);
     try {
-      const [rulesRes, defaultRes] = await Promise.all([
+      const [rulesRes, defaultRes, settingsRes] = await Promise.all([
         api.get("/admin/delivery-pricing-rules"),
         api.get("/admin/delivery-pricing-rules/default-fee"),
+        api.get("/admin/settings"),
       ]);
       setRules(rulesRes.data || []);
       setDefaultFee(defaultRes.data?.default_delivery_fee_usd || 2.0);
+      setAdminManages(!!settingsRes.data?.admin_manages_delivery);
     } catch (e) {
       toast.error(formatDetail(e.response?.data?.detail) || "Failed to load pricing rules");
     } finally {
@@ -30,6 +33,21 @@ export default function AdminDeliveryPricingTab() {
   useEffect(() => {
     loadRules();
   }, []);
+
+  const toggleAdminManages = async (next) => {
+    setAdminManages(next);
+    try {
+      await api.put("/admin/settings", { admin_manages_delivery: next });
+      toast.success(
+        next
+          ? "Admin now manages delivery for all shops"
+          : "Sellers now manage their own delivery"
+      );
+    } catch (e) {
+      setAdminManages(!next);
+      toast.error(formatDetail(e.response?.data?.detail) || "Failed to update setting");
+    }
+  };
 
   const handleSaveDefaultFee = async () => {
     try {
@@ -61,6 +79,59 @@ export default function AdminDeliveryPricingTab() {
 
   return (
     <div className="space-y-6">
+      {/* Delivery mode toggle */}
+      <div
+        data-testid="admin-delivery-mode-card"
+        className={`rounded-2xl border p-5 sm:p-6 transition ${
+          adminManages
+            ? "border-[#C84B31] bg-gradient-to-br from-[#FFF6EE] to-white"
+            : "border-[#E2E2D9] bg-white"
+        }`}
+      >
+        <div className="flex items-start gap-4">
+          <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${
+            adminManages ? "bg-[#C84B31] text-white" : "bg-[#F0F0E8] text-[#5C5C5C]"
+          }`}>
+            <MapPin className="w-5 h-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-[#5C5C5C] font-bold">Delivery mode</p>
+                <h3 className="font-display font-bold text-lg text-[#1A1A1A] mt-0.5">
+                  {adminManages ? "Admin manages delivery for all shops" : "Sellers manage their own delivery"}
+                </h3>
+              </div>
+              <label className="inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={adminManages}
+                  onChange={(e) => toggleAdminManages(e.target.checked)}
+                  data-testid="admin-manages-delivery-toggle"
+                  className="sr-only peer"
+                />
+                <div className="relative w-12 h-7 bg-gray-300 rounded-full peer peer-checked:bg-[#C84B31] transition">
+                  <div className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform ${
+                    adminManages ? "translate-x-5" : ""
+                  }`} />
+                </div>
+              </label>
+            </div>
+            <p className="text-sm text-[#5C5C5C] mt-2">
+              {adminManages
+                ? "The pricing rules below apply to every shop and restaurant. Individual shop delivery settings are ignored."
+                : "Each seller sets their own delivery fees from the Shop editor (free / fixed / per-area). The rules below only apply as a fallback when the seller hasn't configured any."}
+            </p>
+            <div className="mt-3 flex items-start gap-2 text-xs text-[#5C5C5C] bg-[#FAFAF6] rounded-lg p-2.5">
+              <Info className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#C84B31]" />
+              <p>
+                Toggle this OFF (default) if sellers do their own deliveries. Flip it ON only if JubaSquare handles the delivery fleet.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
