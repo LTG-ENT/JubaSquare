@@ -62,7 +62,13 @@ export default function ImageUpload({ value, onChange, label = "Image", testId =
           <p className="text-[11px] text-[var(--js-text-secondary)] mt-2 leading-relaxed">
             JPG, PNG, WEBP or GIF · max 5 MB.{value && " Or paste a URL below."}
           </p>
-          <input type="url" value={value || ""} placeholder="https://..." onChange={(e) => onChange(e.target.value)} data-testid={`${testId}-url`}
+          {/* NOTE: use type="text" (NOT type="url") — the uploaded image
+              URL is intentionally RELATIVE (/api/uploads/xxx.png) so the
+              browser resolves it against whatever origin the app is served
+              from (jubasquare.com, www.jubasquare.com, preview, etc.).
+              type="url" would trigger native validation and reject
+              relative paths with "Please enter a URL". */}
+          <input type="text" value={value || ""} placeholder="https://... or /api/uploads/..." onChange={(e) => onChange(e.target.value)} data-testid={`${testId}-url`}
             className="mt-2 w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-[#1A1A1A]" />
         </div>
       </div>
