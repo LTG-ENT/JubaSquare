@@ -412,10 +412,57 @@ def create_odoo_routes(db, require_role):
     
     @router.post("/orders/status-update")
     async def odoo_order_status_update(
-        _verified: bool = Depends(verify_odoo_webhook)
+        payload: dict = Body(...),
+        _verified: bool = Depends(verify_odoo_webhook),
     ):
-        """Webhook: Odoo sends order status update (placeholder)"""
-        return {"status": "placeholder", "message": "Order status update endpoint - to be implemented"}
+        """Odoo → JubaSquare: ack a synced order.
+
+        Body: {order_id, sub_order_id?, status}. When status='synced' we set
+        odoo_sync_status='synced' + odoo_last_sync_at=now on the matching
+        seller_order_split (when sub_order_id is present) or restaurant_order
+        (when only order_id is given). Writes an odoo_sync_logs entry
+        following the same pattern as the product-upsert endpoint."""
+        order_id = (payload or {}).get("order_id")
+        sub_order_id = (payload or {}).get("sub_order_id")
+        status = (payload or {}).get("status") or ""
+        if not order_id or not status:
+            raise HTTPException(400, "order_id and status are required")
+
+        now = datetime.now(timezone.utc).isoformat()
+        updated = 0
+        entity_type = None
+        set_fields = {"odoo_last_sync_at": now}
+        if status == "synced":
+            set_fields["odoo_sync_status"] = "synced"
+        else:
+            set_fields["odoo_sync_status"] = status  # e.g. "failed"
+
+        if sub_order_id:
+            res = await db.seller_order_splits.update_one(
+                {"id": sub_order_id, "order_id": order_id},
+                {"$set": set_fields},
+            )
+            updated = res.modified_count
+            entity_type = "seller_order_split"
+        else:
+            res = await db.restaurant_orders.update_one(
+                {"id": order_id}, {"$set": set_fields}
+            )
+            updated = res.modified_count
+            entity_type = "restaurant_order"
+
+        log_id = str(uuid.uuid4())
+        await db.odoo_sync_logs.insert_one({
+            "id": log_id,
+            "kind": "order_status_update",
+            "entity_type": entity_type,
+            "order_id": order_id,
+            "sub_order_id": sub_order_id,
+            "status": status,
+            "matched": bool(updated),
+            "created_at": now,
+        })
+        return {"status": "success", "log_id": log_id, "matched": bool(updated)}
     
     @router.post("/delivery/status-update")
     async def odoo_delivery_status_update(

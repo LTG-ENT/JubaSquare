@@ -261,55 +261,107 @@ export default function KitchenDashboard() {
       }
       return formatUSD(n);
     };
-    const items = (order.items || order.items_secure || []).map((it) => `
+    const dtStr = dt.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true });
+    const orderShort = `JS-${dt.toISOString().slice(2,10).replaceAll("-","")}-${order.id.slice(0,5).toUpperCase()}`;
+    const restShort = `O-${dt.toISOString().slice(2,10).replaceAll("-","")}-${order.id.slice(-5).toUpperCase()}`;
+    const paymentLabel = { cash_on_delivery: "Cash on Delivery", card: "Card", wallet: "Wallet" }[order.payment_method] || (order.payment_method || "Cash on Delivery").replaceAll("_", " ");
+    const deliveryType = order.delivery_type === "delivery" ? "DELIVERY ORDER" : "PICKUP ORDER";
+    const items = (order.items || order.items_secure || []);
+    const rows = items.map((it, idx) => `
       <tr>
-        <td>${it.quantity}×</td>
-        <td>${it.name}${(it.sides || []).length ? '<br><small style="color:#666">' + it.sides.map((s) => `+ ${s.name}`).join(', ') + '</small>' : ''}</td>
-        <td style="text-align:right">${fmt(lineTotalUSD(it))}</td>
+        <td class="num">${idx + 1}</td>
+        <td class="itm">${it.name}${(it.sides || []).length ? '<div class="sides">' + it.sides.map(s => `+ ${s.name}${curr && s.price_usd ? ` (${fmt(s.price_usd)})` : ""}`).join("<br>") + "</div>" : ""}</td>
+        <td class="qty">${it.quantity}</td>
       </tr>
-    `).join('');
-    const subtotal = itemsSubtotalUSD(order);
-    const delivery = Number(order.delivery_fee || order.delivery_fee_usd || 0);
-    const total = subtotal + delivery;
-    w.document.write(`<!doctype html><html><head><title>Receipt ${order.id.slice(0, 8)}</title>
+    `).join("");
+
+    w.document.write(`<!doctype html><html><head><title>Customer Receipt ${order.id.slice(0,8)}</title>
 <style>
-body{font-family:'Helvetica Neue',Arial,sans-serif;width:320px;margin:16px auto;font-size:12px;color:#111}
-h1{text-align:center;font-size:20px;margin:4px 0}
-.brand{text-align:center;font-size:11px;color:#666;letter-spacing:2px;text-transform:uppercase}
-.hr{border-top:1px dashed #999;margin:10px 0}
-table{width:100%;border-collapse:collapse}
-td{padding:3px 0;vertical-align:top}
-.totals td{padding:4px 0;font-weight:600}
-.big{font-size:15px;font-weight:800}
-.center{text-align:center}
-.muted{color:#666;font-size:11px}
-.thanks{text-align:center;margin-top:14px;font-weight:700;font-size:13px}
+  * { box-sizing: border-box; }
+  body { font-family: 'Helvetica Neue', Arial, sans-serif; width: 380px; margin: 20px auto; color: #111; font-size: 12px; line-height: 1.5; }
+  .receipt { border: 1px dotted #888; padding: 22px; }
+  h1 { text-align: center; font-size: 26px; letter-spacing: 4px; margin: 0 0 4px; font-weight: 800; }
+  .dots { text-align: center; letter-spacing: 6px; color: #333; margin: 0 0 8px; }
+  .badge { display: block; margin: 0 auto 14px; padding: 6px 22px; background: #111; color: #fff; text-align: center; font-weight: 700; letter-spacing: 3px; font-size: 12px; width: fit-content; }
+  .divider { border-top: 1.5px dashed #888; margin: 12px 0; }
+  .from { background: #f0f0f0; padding: 10px 14px; border-radius: 3px; font-weight: 700; text-align: center; margin-bottom: 12px; font-size: 13px; letter-spacing: 1px; }
+  .from span { display: inline-block; margin-left: 6px; }
+  .from .r { font-size: 15px; letter-spacing: 0; text-transform: none; }
+  .meta { display: table; width: 100%; margin-bottom: 8px; }
+  .col { display: table-cell; width: 50%; vertical-align: top; padding: 0 8px; font-size: 11px; }
+  .col + .col { border-left: 1px solid #999; }
+  .row { margin: 6px 0; }
+  .lbl { font-weight: 700; letter-spacing: 1px; text-transform: uppercase; font-size: 10px; }
+  .val { padding-left: 6px; }
+  table.items { width: 100%; border-collapse: collapse; margin: 14px 0 8px; }
+  table.items thead th { background: #111; color: #fff; padding: 8px 6px; text-align: left; font-size: 11px; letter-spacing: 2px; }
+  table.items thead th.qty, table.items thead th.num { text-align: center; }
+  table.items thead th.qty { text-align: right; }
+  table.items tbody td { padding: 8px 6px; border-bottom: 1px dashed #bbb; }
+  table.items tbody tr:last-child td { border-bottom: 1.5px solid #111; }
+  td.num { width: 30px; text-align: center; color: #555; }
+  td.qty { width: 40px; text-align: right; font-weight: 700; }
+  .sides { color: #666; font-size: 10px; margin-top: 2px; }
+  .foot-box { display: table; width: 100%; border: 1px solid #333; border-radius: 8px; margin: 14px 0 6px; }
+  .foot-col { display: table-cell; width: 50%; padding: 12px 14px; vertical-align: top; font-size: 11px; }
+  .foot-col + .foot-col { border-left: 1px dashed #999; }
+  .foot-col .lbl { display: block; margin-bottom: 4px; }
+  .totals { text-align: right; padding: 6px 6px 4px; font-size: 12px; }
+  .totals .big { font-size: 16px; font-weight: 800; margin-top: 4px; }
+  .thanks { text-align: center; font-family: 'Brush Script MT', 'Lucida Handwriting', cursive; font-size: 26px; margin: 14px 0 6px; }
+  .footer { text-align: center; font-size: 11px; margin-top: 4px; }
+  .brand { font-weight: 800; font-size: 18px; letter-spacing: 1px; margin-top: 4px; }
+  .bottom-dots { text-align: center; letter-spacing: 4px; margin-top: 10px; color: #999; }
 </style></head><body>
-<div class="brand">Customer Receipt · ${curr}</div>
-<h1>${restaurant?.name || 'Restaurant'}</h1>
-${restaurant?.area ? `<div class="center muted">${restaurant.area}</div>` : ''}
-<div class="hr"></div>
-<div><strong>Order #</strong> ${order.id.slice(0, 8)}</div>
-<div><strong>Date</strong> ${dt.toLocaleString()}</div>
-<div><strong>Type</strong> ${order.delivery_type === 'delivery' ? 'Delivery' : 'Pickup'}</div>
-<div class="hr"></div>
-<div><strong>Customer</strong> ${order.customer_name || '—'}</div>
-${order.customer_phone ? `<div class="muted">${order.customer_phone}</div>` : ''}
-${order.customer_address ? `<div class="muted">${order.customer_address}</div>` : ''}
-${order.customer_area ? `<div class="muted">Area: ${order.customer_area}</div>` : ''}
-<div class="hr"></div>
-<table>${items}</table>
-<div class="hr"></div>
-<table class="totals">
-  <tr><td>Subtotal</td><td style="text-align:right">${fmt(subtotal)}</td></tr>
-  ${delivery > 0 ? `<tr><td>Delivery</td><td style="text-align:right">${fmt(delivery)}</td></tr>` : ''}
-  <tr class="big"><td>TOTAL</td><td style="text-align:right">${fmt(total)}</td></tr>
-  <tr><td class="muted">Payment</td><td class="muted" style="text-align:right">${(order.payment_method || 'cash_on_delivery').replaceAll('_', ' ')}</td></tr>
-  ${curr === "SSP" ? `<tr><td class="muted">Rate</td><td class="muted" style="text-align:right">1 USD = SSP ${rate.toLocaleString()}</td></tr>` : ''}
-</table>
-${order.note ? `<div class="hr"></div><div><strong>Note</strong><br>${order.note}</div>` : ''}
-<div class="thanks">Thank you! 🙏</div>
-<div class="center muted" style="margin-top:6px">Powered by JubaSquare</div>
+<div class="receipt">
+  <h1>CUSTOMER RECEIPT</h1>
+  <div class="dots">•••</div>
+  <div class="badge">${deliveryType}</div>
+  <div class="divider"></div>
+  <div class="from">🏬 <span>FROM RESTAURANT:</span> <span class="r">${restaurant?.name || "Restaurant"}</span></div>
+  <div class="divider"></div>
+
+  <div class="meta">
+    <div class="col">
+      <div class="row"><span class="lbl">📋 Order ID</span><br><span class="val">${orderShort}</span></div>
+      <div class="row"><span class="lbl">🕒 Order Time</span><br><span class="val">${dtStr}</span></div>
+      <div class="row"><span class="lbl">🏪 Restaurant Order No.</span><br><span class="val">${restShort}</span></div>
+    </div>
+    <div class="col">
+      <div class="row"><span class="lbl">👤 Customer</span><br><span class="val">${order.customer_name || "—"}</span></div>
+      <div class="row"><span class="lbl">📞 Phone</span><br><span class="val">${order.customer_phone || "—"}</span></div>
+      ${order.customer_address ? `<div class="row"><span class="lbl">📍 Address</span><br><span class="val">${order.customer_address}${order.customer_area ? ", " + order.customer_area : ""}</span></div>` : ""}
+    </div>
+  </div>
+
+  <table class="items">
+    <thead><tr><th class="num">#</th><th>ITEMS</th><th class="qty">QTY</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+
+  <div class="totals">
+    <div>Subtotal: <strong>${fmt(itemsSubtotalUSD(order))}</strong></div>
+    ${Number(order.delivery_fee || order.delivery_fee_usd || 0) > 0 ? `<div>Delivery: <strong>${fmt(Number(order.delivery_fee || order.delivery_fee_usd || 0))}</strong></div>` : ""}
+    <div class="big">TOTAL: ${fmt(itemsSubtotalUSD(order) + Number(order.delivery_fee || order.delivery_fee_usd || 0))}</div>
+    ${curr === "SSP" ? `<div style="font-size:10px;color:#666">Rate: 1 USD = SSP ${rate.toLocaleString()}</div>` : ""}
+  </div>
+
+  <div class="foot-box">
+    <div class="foot-col">
+      <span class="lbl">💵 Payment Method</span>
+      ${paymentLabel}
+    </div>
+    <div class="foot-col">
+      <span class="lbl">📝 Note to Driver</span>
+      ${order.note ? order.note : "Please collect the full amount from the customer. Thank you!"}
+    </div>
+  </div>
+
+  <div class="thanks">Thank You!</div>
+  <div class="footer">This order is placed on</div>
+  <div class="brand">🛍 JubaSquare</div>
+  <div class="bottom-dots">• • • • • • • • • • • • • • •</div>
+</div>
 </body></html>`);
     w.document.close();
     setTimeout(() => w.print(), 300);
