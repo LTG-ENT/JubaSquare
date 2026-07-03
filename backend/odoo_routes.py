@@ -428,10 +428,11 @@ def create_odoo_routes(db, require_role):
         if not order_id or not status:
             raise HTTPException(400, "order_id and status are required")
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(timezone.utc)
+        now_iso = now.isoformat()
         updated = 0
         entity_type = None
-        set_fields = {"odoo_last_sync_at": now}
+        set_fields = {"odoo_last_sync_at": now_iso}
         if status == "synced":
             set_fields["odoo_sync_status"] = "synced"
         else:

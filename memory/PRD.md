@@ -21,6 +21,13 @@ A multilingual (English/Arabic RTL) Juba-focused marketplace connecting shops, r
 
 ## Completed (Feb 2026, this fork)
 
+### Iter 22 — Odoo pull-sync enrichment + Customer Receipt polish (Feb 3, 2026)
+- ✅ **Missing `Body` import** — `odoo_routes.py` was crashing on startup with `NameError: name 'Body' is not defined` (imported in fix). Backend now boots clean.
+- ✅ **GET /api/admin/odoo/orders/pending** — now returns the enriched Odoo-consumable envelope per shop split / restaurant order: `{sub_order_id, order_id, entity_type, odoo_order_ref, customer_*, delivery_area/address, payment_method, delivery_type, currency='USD', exchange_rate_ssp, subtotal_usd, delivery_fee_usd, total_usd, items[{sku, odoo_product_id, name, quantity, price_usd, sides[]}], meta.source='jubasquare'}`. SKU/`odoo_product_id` are resolved via a batched product/menu-item lookup. Only orders with `odoo_connection.enabled=true AND send_orders=true` are exposed.
+- ✅ **POST /api/odoo/orders/status-update** — Odoo can now ack a sync: `{order_id, sub_order_id?, status:"synced"|"failed"}` updates `seller_order_splits` (when `sub_order_id`) or `restaurant_orders` (fallback) with `odoo_sync_status` + `odoo_last_sync_at`, and writes an `odoo_sync_logs` entry. Requires the DB-managed service token via `X-Jubasquare-Odoo-Token` header (admin JWT alone is intentionally not accepted here).
+- ✅ **Kitchen Dashboard Customer Receipt redesign** — clean monochrome inline-SVG icons (store, clipboard, clock, user, phone, pin, cash, note, bag), replaced colored emoji, tighter layout matching user's reference design; USD/SSP currency toggle preserved.
+- ✅ 18/18 backend tests pass (`/app/test_reports/iteration_22.json`).
+
 ### Iter 14 — Restaurant delivery mirror + verification visibility gate
 - ✅ "Mirror Shops" restaurant delivery — `_calculate_delivery_fee` supports restaurant-level free/fixed/per_area + `delivery_managed_by`.
 - ✅ `GET /api/restaurants/mine` — seller's own restaurants regardless of verification.
