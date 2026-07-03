@@ -3132,6 +3132,13 @@ async def update_restaurant(restaurant_id: str, body: RestaurantIn, user: dict =
         "delivery_mode": body.delivery_mode,
         "delivery_fee_usd": float(body.delivery_fee_usd or 0),
         "delivery_per_area": [a.model_dump() for a in (body.delivery_per_area or [])],
+        # Opening-hours schedule + auto-close toggle. Persisted as-is; the
+        # `is_open_effective` derived flag is recomputed on every GET.
+        "opening_hours_by_day": {
+            k: v.model_dump() if hasattr(v, "model_dump") else v
+            for k, v in (body.opening_hours_by_day or {}).items()
+        },
+        "auto_close_by_hours": bool(body.auto_close_by_hours),
     }
     if user["role"] == "admin":
         update_data["delivery_managed_by"] = body.delivery_managed_by
