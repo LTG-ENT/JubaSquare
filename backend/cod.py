@@ -1293,6 +1293,166 @@ def register_endpoints():
         await maybe_mark_split_ready(split_id)
         return await _find_split(split_id)
 
+    # ============================================================
+    # SELLER SELF-DELIVERY (seller-managed delivery mode)
+    # ============================================================
+    # When the seller manages delivery for their shop / restaurant (either
+    # via `delivery_managed_by='seller'` or the platform default with
+    # `admin_manages_delivery=False`), THEY are the driver. The regular
+    # driver → pickup → out_for_delivery → deliver handshake doesn't apply
+    # because there's no separate driver to hand the order off to.
+    #
+    # These endpoints let the seller skip the OTP handshake with themselves
+    # and go straight from `ready_for_pickup` → `out_for_delivery` →
+    # `delivered` (verifying the customer's delivery OTP + signature at the
+    # doorstep, same as a regular driver).
+
+    async def _assert_seller_manages(shop=None, restaurant=None):
+        entity = shop or restaurant or {}
+        managed_by = entity.get("delivery_managed_by") or "default"
+        if managed_by == "seller":
+            return True
+        if managed_by == "admin":
+            raise HTTPException(400, "Delivery is admin-managed — a driver will be assigned")
+        sysettings = await db.settings.find_one({"id": "system"}, {"_id": 0}) or {}
+        if bool(sysettings.get("admin_manages_delivery", False)):
+            raise HTTPException(400, "Platform is currently in admin-managed delivery mode")
+        return True
+
+    @new_router.post("/seller/splits/{split_id}/self-deliver-start")
+    async def seller_self_deliver_start(split_id: str, user: dict = seller_dep):
+        s = await _find_split(split_id)
+        _check_seller_owns(s, user)
+        shop = await db.shops.find_one({"id": s.get("shop_id")}, {"_id": 0}) or {}
+        await _assert_seller_manages(shop=shop)
+        if s.get("seller_preparation_status") != "ready_for_pickup":
+            raise HTTPException(400, "Mark the order ready for pickup first")
+        now = now_iso()
+        await db.seller_order_splits.update_one(
+            {"id": split_id},
+            {"$set": {
+                # Skip the OTP handshake — the seller IS the driver here.
+                "driver_id": user["id"],
+                "pickup_status": "picked_up",
+                "seller_handover_status": "handed_to_driver",
+                "seller_preparation_status": "handed_to_driver",
+                "delivery_status": "out_for_delivery",
+                "proof_of_delivery_status": "pending",
+                "picked_up_at": now,
+                "self_delivered_by_seller": True,
+                "updated_at": now,
+            }},
+        )
+        return await _find_split(split_id)
+
+    @new_router.post("/seller/splits/{split_id}/self-deliver-complete")
+    async def seller_self_deliver_complete(split_id: str, body: DeliverIn, user: dict = seller_dep):
+        s = await _find_split(split_id)
+        _check_seller_owns(s, user)
+        shop = await db.shops.find_one({"id": s.get("shop_id")}, {"_id": 0}) or {}
+        await _assert_seller_manages(shop=shop)
+        if s.get("delivery_status") != "out_for_delivery":
+            raise HTTPException(400, "Start delivery first")
+        if (body.otp or "").strip() != (s.get("customer_delivery_otp") or ""):
+            raise HTTPException(400, "Invalid customer delivery OTP")
+        if not body.signature_b64 or len(body.signature_b64) < 10:
+            raise HTTPException(400, "Customer signature required")
+        if not body.receiver_name.strip():
+            raise HTTPException(400, "Receiver name required")
+        now = now_iso()
+        update_dict = {
+            "delivery_status": "delivered",
+            "proof_of_delivery_status": "submitted",
+            "signature_b64": body.signature_b64,
+            "receiver_name": body.receiver_name.strip(),
+            "delivered_at": now,
+            "updated_at": now,
+        }
+        if body.picture_b64:
+            update_dict["delivery_picture_b64"] = body.picture_b64
+        # COD collected directly by the seller-driver — money is already
+        # theirs; skip the cash_handover step entirely.
+        if s.get("payment_method") == "cash_on_delivery":
+            update_dict["payment_status"] = "collected_by_seller"
+            update_dict["cash_handover_status"] = "not_applicable"
+            update_dict["cash_collected_at"] = now
+        await db.seller_order_splits.update_one({"id": split_id}, {"$set": update_dict})
+        try:
+            await db.audit_logs.insert_one({
+                "id": str(uuid.uuid4()),
+                "action": "self_delivered",
+                "entity_type": "seller_order_split",
+                "entity_id": split_id,
+                "order_id": s.get("order_id"),
+                "user_id": user["id"], "user_role": "seller",
+                "user_email": user.get("email"),
+                "timestamp": now,
+                "notes": f"Seller self-delivered to {body.receiver_name.strip()}",
+            })
+        except Exception:
+            pass
+        return await _find_split(split_id)
+
+    @new_router.post("/seller/restaurant-orders/{order_id}/self-deliver-start")
+    async def rest_self_deliver_start(order_id: str, user: dict = seller_dep):
+        o = await _find_rest_order(order_id)
+        _check_seller_owns(o, user)
+        rest = await db.restaurants.find_one({"id": o.get("restaurant_id")}, {"_id": 0}) or {}
+        await _assert_seller_manages(restaurant=rest)
+        if o.get("seller_preparation_status") != "ready_for_pickup":
+            raise HTTPException(400, "Mark the order ready for pickup first")
+        now = now_iso()
+        await db.restaurant_orders.update_one(
+            {"id": order_id},
+            {"$set": {
+                "driver_id": user["id"],
+                "pickup_status": "picked_up",
+                "seller_handover_status": "handed_to_driver",
+                "seller_preparation_status": "handed_to_driver",
+                "delivery_status": "out_for_delivery",
+                "status": "out_for_delivery",
+                "proof_of_delivery_status": "pending",
+                "picked_up_at": now,
+                "self_delivered_by_seller": True,
+                "updated_at": now,
+            }},
+        )
+        return await _find_rest_order(order_id)
+
+    @new_router.post("/seller/restaurant-orders/{order_id}/self-deliver-complete")
+    async def rest_self_deliver_complete(order_id: str, body: DeliverIn, user: dict = seller_dep):
+        o = await _find_rest_order(order_id)
+        _check_seller_owns(o, user)
+        rest = await db.restaurants.find_one({"id": o.get("restaurant_id")}, {"_id": 0}) or {}
+        await _assert_seller_manages(restaurant=rest)
+        if o.get("delivery_status") != "out_for_delivery":
+            raise HTTPException(400, "Start delivery first")
+        if (body.otp or "").strip() != (o.get("customer_delivery_otp") or ""):
+            raise HTTPException(400, "Invalid customer delivery OTP")
+        if not body.signature_b64 or len(body.signature_b64) < 10:
+            raise HTTPException(400, "Customer signature required")
+        if not body.receiver_name.strip():
+            raise HTTPException(400, "Receiver name required")
+        now = now_iso()
+        update_dict = {
+            "delivery_status": "delivered",
+            "status": "delivered",
+            "proof_of_delivery_status": "submitted",
+            "signature_b64": body.signature_b64,
+            "receiver_name": body.receiver_name.strip(),
+            "delivered_at": now,
+            "updated_at": now,
+        }
+        if body.picture_b64:
+            update_dict["delivery_picture_b64"] = body.picture_b64
+        if o.get("payment_method") == "cash_on_delivery":
+            update_dict["payment_status"] = "collected_by_seller"
+            update_dict["cash_handover_status"] = "not_applicable"
+            update_dict["cash_collected_at"] = now
+        await db.restaurant_orders.update_one({"id": order_id}, {"$set": update_dict})
+        return await _find_rest_order(order_id)
+
+
     @new_router.post("/seller/splits/{split_id}/return-received")
     async def seller_return_received(split_id: str, body: OTPIn, user: dict = seller_dep):
         s = await _find_split(split_id)

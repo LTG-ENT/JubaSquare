@@ -6719,8 +6719,10 @@ def _area_coords(area: Optional[str]) -> tuple:
 
 
 @api.post("/driver/location")
-async def post_driver_location(body: DriverLocationIn, user: dict = Depends(require_role("driver"))):
-    """Driver → server: push current GPS position (called every ~10 s from the app)."""
+async def post_driver_location(body: DriverLocationIn, user: dict = Depends(require_role("driver", "seller"))):
+    """Driver (or seller acting as self-driver) → server: push current GPS
+    position (called every ~10 s from the app). Keyed on the caller's
+    user_id, which matches whatever `driver_id` we stored on the order."""
     doc = await db.driver_locations.find_one({"driver_id": user["id"]}, {"_id": 0})
     trail = (doc or {}).get("trail", [])
     point = {"lat": body.lat, "lng": body.lng, "at": now_iso()}
