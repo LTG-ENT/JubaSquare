@@ -469,12 +469,19 @@ export default function SellerWalletTab() {
                 <div>
                   <p className="text-xs text-[var(--js-text-secondary)]">Order total</p>
                   <p className="font-semibold">{formatPrice(detail.order_total_usd, exchangeRate, currency)}</p>
+                  <p className="text-[10px] text-[var(--js-text-secondary)]">
+                    Items {formatPrice(detail.product_subtotal_usd || 0, exchangeRate, currency)}
+                    {(detail.delivery_fee_usd || 0) > 0 && <> · Delivery {formatPrice(detail.delivery_fee_usd, exchangeRate, currency)}</>}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs text-[var(--js-text-secondary)]">Your earning</p>
                   <p className="font-semibold text-emerald-700">{formatPrice(detail.seller_earning_usd, exchangeRate, currency)}</p>
                   <p className="text-[10px] text-[var(--js-text-secondary)]">
                     Commission {Math.round((detail.commission_rate || 0) * 100)}%
+                    {(detail.seller_earning_usd || 0) > ((detail.product_subtotal_usd || 0) - (detail.platform_commission_usd || 0)) + 0.005 && (
+                      <> · incl. delivery you earned</>
+                    )}
                   </p>
                 </div>
               </div>

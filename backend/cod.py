@@ -429,7 +429,21 @@ async def create_marketplace_splits(order: dict) -> List[dict]:
         rate = float(commission_rate) if commission_rate is not None else global_rate
         product_subtotal = round(b["product_subtotal"], 2)
         platform_commission = round(product_subtotal * rate, 2)
-        seller_earning = round(product_subtotal - platform_commission, 2)
+        # When the seller manages delivery for this shop, they ALSO earn the
+        # delivery fee (they're the driver). When it's admin/platform-managed,
+        # delivery goes to the driver pool via cash handover so it stays out
+        # of the seller's earnings.
+        _managed_by = (shop.get("delivery_managed_by") or "default")
+        if _managed_by == "seller":
+            _seller_keeps_delivery = True
+        elif _managed_by == "admin":
+            _seller_keeps_delivery = False
+        else:
+            _seller_keeps_delivery = not bool(sysconf.get("admin_manages_delivery", False))
+        seller_earning = round(
+            product_subtotal - platform_commission + (delivery_fee if _seller_keeps_delivery else 0.0),
+            2,
+        )
         order_total = round(product_subtotal + delivery_fee, 2)
 
         split = {
@@ -535,7 +549,19 @@ async def initialize_restaurant_order_cod(order: dict) -> dict:
     delivery_fee = float(order.get("delivery_fee", 0))
     order_total = round(product_subtotal + delivery_fee, 2)
     platform_commission = round(product_subtotal * rate, 2)
-    seller_earning = round(product_subtotal - platform_commission, 2)
+    # When the seller manages delivery, they ALSO keep the delivery fee (they
+    # are the driver). Otherwise the platform driver takes it via cash handover.
+    _managed_by = (rest.get("delivery_managed_by") or "default")
+    if _managed_by == "seller":
+        _seller_keeps_delivery = True
+    elif _managed_by == "admin":
+        _seller_keeps_delivery = False
+    else:
+        _seller_keeps_delivery = not bool(sysconf.get("admin_manages_delivery", False))
+    seller_earning = round(
+        product_subtotal - platform_commission + (delivery_fee if _seller_keeps_delivery else 0.0),
+        2,
+    )
 
     cod_fields = {
         "items_secure": secure_items,

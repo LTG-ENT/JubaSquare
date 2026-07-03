@@ -1,0 +1,23 @@
+{
+  "summary": "Verified seller earning fix: delivery_fee is now added to seller_earning_usd when the shop/restaurant is seller-managed. 8/8 new tests pass, 12/12 iter17 + 16/16 iter18 regression pass, /api/health ok.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter19_seller_delivery_earning.py",
+    "/app/test_reports/pytest/iter19_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "cod.py:436-442 and cod.py:554-560 duplicate the same delivery-managed-by branching logic. Consider extracting into a small helper `_seller_keeps_delivery(entity, sysconf)` to avoid drift between marketplace splits and restaurant orders.",
+    "cod.py:429 reuses variable `rate` as commission_rate, while global_rate is derived from sysconf.commission_rate — the naming is a bit misleading (global_rate looks like an FX rate). Consider renaming to `default_commission_rate` for readability.",
+    "initialize_restaurant_order_cod does not multiply delivery_fee, but if a shop later switches from seller→admin managed after order creation, the stored seller_earning_usd remains stale. That's correct per spec (immutable at creation) but worth documenting."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter19_seller_delivery_earning.py (new)"],
+  "success_rate": {"backend": "100% (8/8 new + 28/28 regression)", "frontend": "N/A (skipped per request)"},
+  "test_credentials": "admin@jubasquare.com / 1234",
+  "seed_data_creation": "Session fixture seeds seller, 2 shops (seller/admin managed), 4 restaurants (seller/admin/default/default+CR override), matching menu items and products. All TEST_ prefixed and cleaned in teardown. Tests bind cod module directly with an in-process fake get_settings to toggle admin_manages_delivery + commission_rate per test.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "iter19 verified all 8 problem-statement scenarios (rest seller-managed, admin-managed, default+platform-off, default+platform-on, 10% commission, marketplace seller-managed, marketplace admin-managed) plus health. Approach: import cod module and bind() with fake get_settings — avoids the need to set up admin delivery-pricing rules for full end-to-end POST /api/restaurant-orders. If future changes touch these two functions, extend test_iter19_seller_delivery_earning.py.",
+  "rca of the issue": "N/A — feature verification, fix implementation is correct."
+}
