@@ -3469,7 +3469,9 @@ async def list_restaurant_orders_by_restaurant(
         seller_manages = await _seller_manages_delivery_for(restaurant=restaurant)
         for o in orders:
             cod.redact_for_seller(o, seller_manages_delivery=seller_manages)
-    return orders
+    # Attach seller's exchange_rate_ssp so the Kitchen Dashboard receipt
+    # renders SSP totals at the SELLER's rate (not the 600 fallback).
+    return await enrich_restaurant_orders(orders)
 
 
 @api.get("/restaurant-orders/{order_id}")
@@ -3489,7 +3491,10 @@ async def get_restaurant_order(order_id: str, user: dict = Depends(get_current_u
         seller_manages = await _seller_manages_delivery_for(restaurant=restaurant)
         cod.redact_for_seller(order, seller_manages_delivery=seller_manages)
     
-    return order
+    # Attach the seller's exchange_rate_ssp so SSP renderings (receipts,
+    # order pages) use the correct rate rather than the 600 fallback.
+    enriched = await enrich_restaurant_orders([order])
+    return enriched[0] if enriched else order
 
 
 @api.put("/restaurant-orders/{order_id}/status")
