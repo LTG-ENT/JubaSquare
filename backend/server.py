@@ -636,6 +636,15 @@ class DeliveryPricing(BaseModel):
     area_fees: List[dict] = Field(default_factory=list)  # [{"area": "Munuki", "fee": 5.0}]
 
 
+class OpeningHours(BaseModel):
+    """Per-day opening hours. `closed=True` means the whole day is closed
+    regardless of open/close time. `open` / `close` are 24h strings
+    (e.g. "09:00", "22:30")."""
+    closed: bool = False
+    open: str = "09:00"
+    close: str = "22:00"
+
+
 class RestaurantIn(BaseModel):
     name: str
     category: Optional[str] = ""
@@ -652,6 +661,12 @@ class RestaurantIn(BaseModel):
     delivery_fee_usd: float = 0.0
     delivery_per_area: List[DeliveryAreaFee] = Field(default_factory=list)
     delivery_managed_by: Literal["default", "seller", "admin"] = "default"
+    # Weekly opening hours + optional auto-close by hours. When
+    # `auto_close_by_hours` is on, the frontend / kitchen-dashboard hides
+    # ordering (`is_open` is displayed as False) outside the configured
+    # window for the current day.
+    opening_hours_by_day: Optional[Dict[str, OpeningHours]] = None
+    auto_close_by_hours: bool = False
 
 
 class MenuItemIn(BaseModel):
@@ -663,6 +678,10 @@ class MenuItemIn(BaseModel):
     category_id: str  # PRIMARY: UUID from categories.id (required, group=restaurant)
     food_category: Optional[str] = ""  # DEPRECATED: backward compatibility only, NOT used for filtering
     side_items: List[SideItem] = Field(default_factory=list)
+    # Kitchen prep time in minutes — used by the Kitchen Dashboard to show
+    # a target-vs-actual timer per order. Optional; falls back to a global
+    # default (or "—") when not set.
+    prep_time_minutes: Optional[int] = None
 
 
 class OrderItemIn(BaseModel):
@@ -1971,12 +1990,19 @@ async def get_shop(shop_id: str, request: Request):
 async def create_shop(body: ShopIn, user: dict = Depends(require_role("seller", "admin"))):
     s = await get_settings()
     initial_status = "Verified" if s.get("auto_approve_shops") else "Pending"
+    payload = body.model_dump()
+    # Resolve delivery_managed_by="default" at write time based on the platform
+    # toggle: when admins manage delivery globally, new shops default to
+    # `admin`; otherwise sellers self-deliver by default. This gives sellers
+    # the "seller manages" default they expect at signup.
+    if (payload.get("delivery_managed_by") or "default") == "default":
+        payload["delivery_managed_by"] = "admin" if s.get("admin_manages_delivery") else "seller"
     shop = {
         "id": str(uuid.uuid4()),
         "seller_id": user["id"],
         "verification": initial_status,
         "created_at": now_iso(),
-        **body.model_dump(),
+        **payload,
         # Initialize Odoo connection as disabled by default
         "odoo_connection": {
             "enabled": False,
@@ -2891,7 +2917,48 @@ async def get_restaurant(restaurant_id: str, request: Request):
             raise HTTPException(404, "Restaurant not found")
         if u.get("role") != "admin" and u.get("id") != r.get("seller_id"):
             raise HTTPException(404, "Restaurant not found")
+    # Apply auto-close-by-hours: overrides is_open=False when outside the
+    # configured window for the current day. This is a derived flag (not
+    # persisted) so it re-evaluates on every request.
+    r["is_open_effective"] = _is_open_now(r)
     return r
+
+
+def _is_open_now(restaurant: dict) -> bool:
+    """Combines `is_open` with the auto-close-by-hours schedule.
+    Returns False if the restaurant is manually closed OR (auto-close is on
+    AND the current time is outside the day's window)."""
+    if not restaurant.get("is_open", True):
+        return False
+    if not restaurant.get("auto_close_by_hours"):
+        return True
+    hours = (restaurant.get("opening_hours_by_day") or {})
+    from datetime import datetime, timezone
+    # Note: Juba is UTC+3. Adjust if the platform later needs multi-timezone.
+    now = datetime.now(timezone.utc)
+    # Rough Juba offset — good enough for opening-hours matching until we
+    # store per-seller timezones.
+    from datetime import timedelta as _td
+    juba_now = now + _td(hours=3)
+    day_key = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"][juba_now.weekday()]
+    cfg = hours.get(day_key)
+    if not cfg or cfg.get("closed"):
+        return False
+    def _t(s: str) -> int:
+        try:
+            h, m = s.split(":")
+            return int(h) * 60 + int(m)
+        except Exception:
+            return -1
+    cur = juba_now.hour * 60 + juba_now.minute
+    o = _t(cfg.get("open", "09:00"))
+    c = _t(cfg.get("close", "22:00"))
+    if o < 0 or c < 0:
+        return True  # bad config → don't block
+    if c <= o:
+        # Overnight window (e.g. 20:00 → 02:00): open if past 'open' OR before 'close'
+        return cur >= o or cur <= c
+    return o <= cur <= c
 
 
 @api.get("/restaurants/{restaurant_id}/menu")
@@ -2996,12 +3063,15 @@ async def list_menu_items(
 async def create_restaurant(body: RestaurantIn, user: dict = Depends(require_role("seller", "admin"))):
     s = await get_settings()
     initial_status = "Verified" if s.get("auto_approve_shops") else "Pending"
+    payload = body.model_dump()
+    if (payload.get("delivery_managed_by") or "default") == "default":
+        payload["delivery_managed_by"] = "admin" if s.get("admin_manages_delivery") else "seller"
     r = {
         "id": str(uuid.uuid4()),
         "seller_id": user["id"],
         "verification": initial_status,
         "created_at": now_iso(),
-        **body.model_dump(),
+        **payload,
         # Initialize Odoo connection as disabled by default
         "odoo_connection": {
             "enabled": False,

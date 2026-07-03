@@ -27,6 +27,8 @@ export default function SellerRestaurantEdit() {
     delivery_mode: "free",
     delivery_fee_usd: 0,
     delivery_per_area: [],
+    opening_hours_by_day: {},
+    auto_close_by_hours: false,
   });
 
   useEffect(() => {
@@ -46,6 +48,8 @@ export default function SellerRestaurantEdit() {
           delivery_mode: s.delivery_mode || "free",
           delivery_fee_usd: s.delivery_fee_usd || 0,
           delivery_per_area: s.delivery_per_area || [],
+          opening_hours_by_day: s.opening_hours_by_day || {},
+          auto_close_by_hours: !!s.auto_close_by_hours,
         });
       })
       .catch((err) => {
@@ -80,6 +84,8 @@ export default function SellerRestaurantEdit() {
             .filter((a) => a.area && a.area.trim())
             .map((a) => ({ area: a.area.trim(), fee_usd: parseFloat(a.fee_usd) || 0 }))
           : [],
+        opening_hours_by_day: form.opening_hours_by_day || {},
+        auto_close_by_hours: !!form.auto_close_by_hours,
       };
       const { data } = await api.put(`/restaurants/${restaurant_id}`, payload);
       setRestaurant(data);
@@ -227,6 +233,11 @@ export default function SellerRestaurantEdit() {
           {/* Delivery */}
           <Section title="Delivery settings" subtitle="Pick a pricing model for delivery from this restaurant. Only applies when the platform lets sellers manage delivery.">
             <DeliveryEditor form={form} setForm={setForm} />
+          </Section>
+
+          {/* Opening hours */}
+          <Section title="Opening hours" subtitle="Set the hours you're open each day. Optionally auto-close outside those hours so customers can't place orders while you're closed.">
+            <OpeningHoursEditor form={form} setForm={setForm} />
           </Section>
 
           <div className="flex items-center justify-end gap-2 pt-2">
@@ -395,3 +406,87 @@ function DeliveryEditor({ form, setForm }) {
     </div>
   );
 }
+
+const DAYS = [
+  { key: "mon", label: "Monday" },
+  { key: "tue", label: "Tuesday" },
+  { key: "wed", label: "Wednesday" },
+  { key: "thu", label: "Thursday" },
+  { key: "fri", label: "Friday" },
+  { key: "sat", label: "Saturday" },
+  { key: "sun", label: "Sunday" },
+];
+
+function OpeningHoursEditor({ form, setForm }) {
+  const hoursByDay = form.opening_hours_by_day || {};
+  const setDay = (dayKey, patch) => {
+    const current = hoursByDay[dayKey] || { closed: false, open: "09:00", close: "22:00" };
+    setForm({
+      ...form,
+      opening_hours_by_day: { ...hoursByDay, [dayKey]: { ...current, ...patch } },
+    });
+  };
+  return (
+    <div className="space-y-3">
+      {/* Auto-close toggle */}
+      <div className="flex items-center gap-3 bg-[var(--js-subtle)] border border-[var(--js-border)] rounded-2xl p-4">
+        <input
+          id="auto_close_by_hours"
+          type="checkbox"
+          checked={!!form.auto_close_by_hours}
+          onChange={(e) => setForm({ ...form, auto_close_by_hours: e.target.checked })}
+          className="w-5 h-5 accent-[#C84B31]"
+          data-testid="restaurant-edit-auto-close"
+        />
+        <label htmlFor="auto_close_by_hours" className="flex-1 cursor-pointer">
+          <p className="font-display font-semibold text-sm text-[var(--js-text)]">Auto-close outside opening hours</p>
+          <p className="text-xs text-[var(--js-text-secondary)]">
+            When on, customers cannot place orders outside the hours below — even if the restaurant is marked open.
+          </p>
+        </label>
+      </div>
+
+      {/* Per-day grid */}
+      <div className="space-y-2">
+        {DAYS.map((d) => {
+          const cur = hoursByDay[d.key] || { closed: false, open: "09:00", close: "22:00" };
+          return (
+            <div key={d.key} className="flex items-center gap-2 flex-wrap" data-testid={`hours-row-${d.key}`}>
+              <div className="w-24 text-sm font-semibold text-[var(--js-text)]">{d.label}</div>
+              <label className="flex items-center gap-1.5 text-xs text-[var(--js-text-secondary)]">
+                <input
+                  type="checkbox"
+                  checked={!cur.closed}
+                  onChange={(e) => setDay(d.key, { closed: !e.target.checked })}
+                  data-testid={`hours-open-${d.key}`}
+                  className="w-4 h-4 accent-[#C84B31]"
+                />
+                {cur.closed ? "Closed" : "Open"}
+              </label>
+              {!cur.closed && (
+                <>
+                  <input
+                    type="time"
+                    value={cur.open}
+                    onChange={(e) => setDay(d.key, { open: e.target.value })}
+                    data-testid={`hours-from-${d.key}`}
+                    className="js-input text-sm w-28"
+                  />
+                  <span className="text-xs text-[var(--js-text-secondary)]">to</span>
+                  <input
+                    type="time"
+                    value={cur.close}
+                    onChange={(e) => setDay(d.key, { close: e.target.value })}
+                    data-testid={`hours-to-${d.key}`}
+                    className="js-input text-sm w-28"
+                  />
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+

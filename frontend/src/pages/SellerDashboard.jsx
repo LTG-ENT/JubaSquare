@@ -725,6 +725,7 @@ function ProductsTab({ currency, exchangeRate }) {
       category_id_menu: "",  // PRIMARY: UUID for menu items (required)
       food_category: "",     // DEPRECATED: for display only
       side_items: [],
+      prep_time_minutes: "",
     };
   }
 
@@ -876,6 +877,7 @@ function ProductsTab({ currency, exchangeRate }) {
       category_id_menu: m.category_id || "",  // PRIMARY
       food_category: m.food_category || "",   // DEPRECATED (for display)
       side_items: m.side_items || [],
+      prep_time_minutes: m.prep_time_minutes ?? "",
     });
     setShowForm(true);
   };
@@ -891,6 +893,7 @@ function ProductsTab({ currency, exchangeRate }) {
           category_id: form.category_id_menu,  // PRIMARY (required)
           food_category: form.food_category,   // DEPRECATED (backward compat)
           side_items: (form.side_items || []).map((s) => ({ name: s.name, price_usd: parseFloat(s.price_usd) || 0 })),
+          prep_time_minutes: form.prep_time_minutes === "" ? null : (parseInt(form.prep_time_minutes, 10) || null),
         };
         if (editing?.kind === "menu") await api.put(`/menu-items/${editing.id}`, payload);
         else await api.post("/menu-items", payload);
@@ -1157,6 +1160,7 @@ function ProductsTab({ currency, exchangeRate }) {
                   );
                 })()}
                 <Input label="Price (USD)" type="number" step="0.01" value={form.price_usd} onChange={(v) => setForm({ ...form, price_usd: v })} required testId="product-price-input" />
+                <Input label="Prep time (minutes)" type="number" min="1" step="1" value={form.prep_time_minutes} onChange={(v) => setForm({ ...form, prep_time_minutes: v })} testId="menu-prep-time-input" placeholder="e.g. 15" />
                 <ImageUpload label="Food photo" value={form.image_url} onChange={(v) => setForm({ ...form, image_url: v })} testId="product-image-upload" />
                 <Textarea label="Description" value={form.description} onChange={(v) => setForm({ ...form, description: v })} testId="product-desc-input" />
                 <SideItemsEditor sides={form.side_items} setSides={(s) => setForm({ ...form, side_items: s })} currency={currency} exchangeRate={rate} />
@@ -2004,11 +2008,11 @@ function SettingsTab() {
 }
 
 // Form helpers
-function Input({ label, type = "text", value, onChange, required = false, testId, step }) {
+function Input({ label, type = "text", value, onChange, required = false, testId, step, min, placeholder }) {
   return (
     <label className="block">
       <span className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">{label}</span>
-      <input type={type} step={step} value={value} required={required}
+      <input type={type} step={step} min={min} placeholder={placeholder} value={value} required={required}
         onChange={(e) => onChange(e.target.value)} data-testid={testId}
         className="js-input" />
     </label>

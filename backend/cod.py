@@ -1202,6 +1202,9 @@ def register_endpoints():
         if status:
             q["delivery_status"] = status
         rows = await db.seller_order_splits.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+        # Attach per-seller exchange_rate_ssp so wallet UI can render SSP totals
+        # with the seller's own rate, not the customer's global one.
+        await _enrich_rate(rows)
         # Determine per-shop whether the seller manages delivery. Batch-load
         # every referenced shop's `delivery_managed_by` in ONE query.
         shop_ids = list({r.get("shop_id") for r in rows if r.get("shop_id")})
@@ -1230,6 +1233,7 @@ def register_endpoints():
         rows = await db.restaurant_orders.find(
             {"seller_id": user["id"]}, {"_id": 0},
         ).sort("created_at", -1).to_list(500)
+        await _enrich_rate(rows)
         rest_ids = list({r.get("restaurant_id") for r in rows if r.get("restaurant_id")})
         rests_by_id = {}
         if rest_ids:
@@ -1344,6 +1348,18 @@ def register_endpoints():
         if bool(sysettings.get("admin_manages_delivery", False)):
             raise HTTPException(400, "Platform is currently in admin-managed delivery mode")
         return True
+
+    async def _assert_seller_manages_soft(shop=None, restaurant=None) -> bool:
+        """Non-raising variant used by cancel gating. Returns True when the
+        seller is authoritative for delivery on this entity."""
+        entity = shop or restaurant or {}
+        managed_by = entity.get("delivery_managed_by") or "default"
+        if managed_by == "seller":
+            return True
+        if managed_by == "admin":
+            return False
+        sysettings = await db.settings.find_one({"id": "system"}, {"_id": 0}) or {}
+        return not bool(sysettings.get("admin_manages_delivery", False))
 
     @new_router.post("/seller/splits/{split_id}/self-deliver-start")
     async def seller_self_deliver_start(split_id: str, user: dict = seller_dep):
@@ -2293,10 +2309,19 @@ def register_endpoints():
     async def _cancel_rest_order(o: dict, by_role: str, by_user_id: str, reason: str = "") -> dict:
         if o.get("delivery_status") in {"delivered", "returned_to_seller"}:
             raise HTTPException(400, "Order already finalized — cannot cancel")
-        if o.get("pickup_status") == "picked_up":
+        if o.get("pickup_status") == "picked_up" and not o.get("self_delivered_by_seller"):
             raise HTTPException(400, "Item already picked up by driver. Use the return-to-seller flow.")
+        # Sellers can normally only cancel while preparing (before ready_for_pickup),
+        # UNLESS they manage delivery themselves — in that case there's no
+        # platform driver to hand off to, so cancelling at ready_for_pickup
+        # is still safe.
         if by_role != "admin" and o.get("seller_preparation_status") not in CANCELLABLE_PREP_STATUSES:
-            raise HTTPException(400, "Too late to cancel — order is already past 'ready for pickup'. Contact admin.")
+            seller_managed = False
+            if by_role == "seller":
+                rest = await db.restaurants.find_one({"id": o.get("restaurant_id")}, {"_id": 0}) or {}
+                seller_managed = await _assert_seller_manages_soft(restaurant=rest)
+            if not (seller_managed and o.get("seller_preparation_status") == "ready_for_pickup"):
+                raise HTTPException(400, "Too late to cancel — order is already past 'ready for pickup'. Contact admin.")
         now = now_iso()
         update = {
             "seller_preparation_status": "cancelled",

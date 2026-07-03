@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 21 backend tests all pass (16/16 iter21 + 14/14 iter20 regression = 30/30). Verified per-seller exchange_rate_ssp enrichment on /seller/splits and /seller/restaurant-orders-cod, delivery_managed_by='default' resolution on POST /shops and POST /restaurants (both branches of platform admin_manages_delivery + explicit 'admin' preserved), soft cancel gating for ready_for_pickup restaurant orders (seller-managed OK / admin-managed 400), Restaurant opening_hours_by_day + auto_close_by_hours → is_open_effective (all-closed=False, all-day-open=True, default no-auto-close mirrors is_open), and MenuItem prep_time_minutes echo. Regression /api/health passes.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PUT /api/restaurants/{id}", "issue": "update_data omits `opening_hours_by_day` and `auto_close_by_hours` — these two new fields silently ignored on update. Tests happen to still pass because default all-day-open + auto_close=False both yield is_open_effective mirroring is_open, but sellers editing hours via PUT will see NO effect. Add these two keys to update_data (admin OR seller allowed since they're per-restaurant business config)."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter21_wallet_hours_prep_cancel.py",
+    "/app/test_reports/pytest/iter21_results.xml"
+  ],
+  "action_items": [
+    "PUT /api/restaurants/{id}: include `opening_hours_by_day` and `auto_close_by_hours` in update_data so seller/admin edits actually persist. Currently only CREATE persists these fields."
+  ],
+  "critical_code_review_comments": [
+    "server.py update_restaurant() ignores new RestaurantIn fields opening_hours_by_day + auto_close_by_hours — silent data loss on edit.",
+    "cod.py _cancel_rest_order still blocks cancel when pickup_status=='picked_up' AND self_delivered_by_seller falsy — this is correct for admin-managed but for seller-managed we may want the same relaxation. Not in scope for this iteration; flagging for future.",
+    "cod.py _enrich_rate uses global rate 600 when a seller has no exchange_rates doc — matches spec."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "n/a"},
+  "test_credentials": "Admin: admin@jubasquare.com / 1234",
+  "seed_data_creation": "Test fixtures create TEST_-prefixed seller/customer users, shops, restaurants, splits, restaurant_orders, exchange_rates docs; all cleaned up in session teardown. Test also creates admin shops/restaurants/menu-items via public API and tracks them for cleanup. Platform setting `admin_manages_delivery` toggled during tests and restored to original at teardown.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "New iter21 test file at /app/backend/tests/test_iter21_wallet_hours_prep_cancel.py. Category id used for menu-items seed: c78426ce-62cf-4573-bce4-e0148d873c5b (Fast Food, group=restaurant). GET /api/restaurants/{id} requires admin/owner header when verification!='Verified' (auto_approve_shops is currently False); newly-created restaurants come back 'Pending' — use admin_hdr when reading them back in tests."
+}

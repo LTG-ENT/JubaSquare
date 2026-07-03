@@ -87,6 +87,23 @@ function lineTotalUSD(it) {
   return (it.price_usd + sidesTotal) * (it.quantity || 1);
 }
 
+// Kitchen prep timer — computes elapsed minutes since the order was placed
+// and compares against the max `prep_time_minutes` across the items. Returns
+// {elapsed, target, late} where `late === true` means the order is overdue.
+// When no item defines prep_time_minutes we fall back to a 15-min soft target
+// so the badge is still useful (turns red past 15m).
+const DEFAULT_PREP_TARGET_MIN = 15;
+function orderPrepStatus(order) {
+  if (!order || !order.created_at) return { elapsed: 0, target: DEFAULT_PREP_TARGET_MIN, late: false };
+  const elapsed = Math.floor((Date.now() - new Date(order.created_at).getTime()) / 60000);
+  const items = order.items || order.items_secure || [];
+  const explicit = items
+    .map((it) => Number(it.prep_time_minutes))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  const target = explicit.length ? Math.max(...explicit) : DEFAULT_PREP_TARGET_MIN;
+  return { elapsed: Math.max(0, elapsed), target, late: elapsed > target };
+}
+
 // Items subtotal — sum of `lineTotalUSD` across all items. This is the
 // number the kitchen ticket cares about; delivery fee is handled by the
 // driver/admin flow and should NOT appear on the kitchen ticket.
@@ -421,7 +438,20 @@ ${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}<
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="font-mono text-[10px] text-[var(--js-text-secondary)]">#{o.id.slice(0,8)}</span>
-                        <span className="text-[10px] text-[var(--js-text-secondary)]">{ago(o.created_at)}</span>
+                        {(() => {
+                          const ps = orderPrepStatus(o);
+                          return (
+                            <span
+                              data-testid={`prep-timer-${o.id.slice(0,8)}`}
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                ps.late ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"
+                              }`}
+                              title={`${ps.elapsed} min elapsed · ${ps.target} min target`}
+                            >
+                              {ps.elapsed}m / {ps.target}m
+                            </span>
+                          );
+                        })()}
                       </div>
                       <p className="font-semibold text-sm flex items-center gap-1 truncate">
                         <User className="w-3 h-3 shrink-0" /> {o.customer_name || "—"}
@@ -687,8 +717,11 @@ ${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}<
                 </button>
               </div>
 
-              {/* Cancel — only when still cancellable */}
-              {["pending","accepted","preparing"].includes(selected.seller_preparation_status) ? (
+              {/* Cancel — cancellable while preparing; also while at
+                  ready_for_pickup when the seller manages delivery (their own
+                  driver hasn't picked up from the platform's perspective). */}
+              {(["pending","accepted","preparing"].includes(selected.seller_preparation_status)
+                || (sellerIsDriver && selected.seller_preparation_status === "ready_for_pickup" && selected.delivery_status !== "delivered")) ? (
                 <div className="border-t pt-3 space-y-2">
                   <p className="text-xs font-bold uppercase tracking-wider text-red-700 flex items-center gap-1">
                     <AlertTriangle className="w-3 h-3" /> Cancel this order
@@ -712,7 +745,7 @@ ${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}<
                 </div>
               ) : (
                 <p className="text-[11px] text-[var(--js-text-secondary)] italic border-t pt-3">
-                  This order is past <strong>ready for pickup</strong> — only admin can cancel it now.
+                  This order is past cancellation — only admin can cancel it now.
                 </p>
               )}
             </div>
