@@ -1363,16 +1363,32 @@ def register_endpoints():
 
     @new_router.post("/seller/splits/{split_id}/self-deliver-start")
     async def seller_self_deliver_start(split_id: str, user: dict = seller_dep):
-        """DEPRECATED but kept for backward compatibility. In the new
-        seller-managed delivery model, sellers use their OWN external driver;
-        the platform doesn't need a separate 'start' step. We keep this
-        endpoint as a no-op wrapper around `/self-deliver-complete` for any
-        existing clients pinned to the old flow."""
+        """Seller-managed: mark the order as handed off to the seller's own
+        external driver. No OTP handshake — the seller vouches. Moves to
+        seller_preparation_status='handed_to_driver' + delivery_status='out_for_delivery'
+        so it disappears from the kitchen's active queue while the external
+        driver is en-route."""
         s = await _find_split(split_id)
         _check_seller_owns(s, user)
         shop = await db.shops.find_one({"id": s.get("shop_id")}, {"_id": 0}) or {}
         await _assert_seller_manages(shop=shop)
-        return s  # No state change — completion is a single step now.
+        if s.get("seller_preparation_status") != "ready_for_pickup":
+            raise HTTPException(400, "Mark the order ready for pickup first")
+        now = now_iso()
+        await db.seller_order_splits.update_one(
+            {"id": split_id},
+            {"$set": {
+                "driver_id": user["id"],
+                "pickup_status": "picked_up",
+                "seller_handover_status": "handed_to_driver",
+                "seller_preparation_status": "handed_to_driver",
+                "delivery_status": "out_for_delivery",
+                "picked_up_at": now,
+                "self_delivered_by_seller": True,
+                "updated_at": now,
+            }},
+        )
+        return await _find_split(split_id)
 
     @new_router.post("/seller/splits/{split_id}/self-deliver-complete")
     async def seller_self_deliver_complete(split_id: str, user: dict = seller_dep):
@@ -1422,12 +1438,29 @@ def register_endpoints():
 
     @new_router.post("/seller/restaurant-orders/{order_id}/self-deliver-start")
     async def rest_self_deliver_start(order_id: str, user: dict = seller_dep):
-        """DEPRECATED wrapper — see docstring on splits variant above."""
+        """Restaurant twin of the splits endpoint above."""
         o = await _find_rest_order(order_id)
         _check_seller_owns(o, user)
         rest = await db.restaurants.find_one({"id": o.get("restaurant_id")}, {"_id": 0}) or {}
         await _assert_seller_manages(restaurant=rest)
-        return o
+        if o.get("seller_preparation_status") != "ready_for_pickup":
+            raise HTTPException(400, "Mark the order ready for pickup first")
+        now = now_iso()
+        await db.restaurant_orders.update_one(
+            {"id": order_id},
+            {"$set": {
+                "driver_id": user["id"],
+                "pickup_status": "picked_up",
+                "seller_handover_status": "handed_to_driver",
+                "seller_preparation_status": "handed_to_driver",
+                "delivery_status": "out_for_delivery",
+                "status": "out_for_delivery",
+                "picked_up_at": now,
+                "self_delivered_by_seller": True,
+                "updated_at": now,
+            }},
+        )
+        return await _find_rest_order(order_id)
 
     @new_router.post("/seller/restaurant-orders/{order_id}/self-deliver-complete")
     async def rest_self_deliver_complete(order_id: str, user: dict = seller_dep):

@@ -228,19 +228,44 @@ export default function KitchenDashboard() {
     }
   };
 
+  const handToDriver = async (order) => {
+    setBusy(true);
+    try {
+      await api.post(`/seller/restaurant-orders/${order.id}/self-deliver-start`);
+      toast.success("Marked as handed to your driver.");
+      await loadOrders();
+      const fresh = (await api.get(`/restaurant-orders/${order.id}`)).data;
+      setSelected(fresh);
+    } catch (e) {
+      toast.error(formatDetail(e.response?.data?.detail) || "Could not hand off");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // Customer receipt (separate from the kitchen ticket). Printable slip that
   // goes with the order to the customer — full breakdown, delivery address,
-  // total, thank-you note.
-  const printCustomerReceipt = (order) => {
+  // total, thank-you note. `curr` = 'USD' or 'SSP' — the seller picks when
+  // they hit the Print button; SSP conversion uses the order's own
+  // exchange_rate_ssp so the amount matches what the customer actually paid.
+  const printCustomerReceipt = (order, curr = "USD") => {
     if (!order) return;
     const w = window.open("", "_blank");
     if (!w) return;
     const dt = new Date(order.created_at || Date.now());
+    const rate = Number(order.exchange_rate_ssp) || 600;
+    const fmt = (usd) => {
+      const n = Number(usd) || 0;
+      if (curr === "SSP") {
+        return `SSP ${(n * rate).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+      }
+      return formatUSD(n);
+    };
     const items = (order.items || order.items_secure || []).map((it) => `
       <tr>
         <td>${it.quantity}×</td>
         <td>${it.name}${(it.sides || []).length ? '<br><small style="color:#666">' + it.sides.map((s) => `+ ${s.name}`).join(', ') + '</small>' : ''}</td>
-        <td style="text-align:right">${formatUSD(lineTotalUSD(it))}</td>
+        <td style="text-align:right">${fmt(lineTotalUSD(it))}</td>
       </tr>
     `).join('');
     const subtotal = itemsSubtotalUSD(order);
@@ -260,7 +285,7 @@ td{padding:3px 0;vertical-align:top}
 .muted{color:#666;font-size:11px}
 .thanks{text-align:center;margin-top:14px;font-weight:700;font-size:13px}
 </style></head><body>
-<div class="brand">Customer Receipt</div>
+<div class="brand">Customer Receipt · ${curr}</div>
 <h1>${restaurant?.name || 'Restaurant'}</h1>
 ${restaurant?.area ? `<div class="center muted">${restaurant.area}</div>` : ''}
 <div class="hr"></div>
@@ -276,10 +301,11 @@ ${order.customer_area ? `<div class="muted">Area: ${order.customer_area}</div>` 
 <table>${items}</table>
 <div class="hr"></div>
 <table class="totals">
-  <tr><td>Subtotal</td><td style="text-align:right">${formatUSD(subtotal)}</td></tr>
-  ${delivery > 0 ? `<tr><td>Delivery</td><td style="text-align:right">${formatUSD(delivery)}</td></tr>` : ''}
-  <tr class="big"><td>TOTAL</td><td style="text-align:right">${formatUSD(total)}</td></tr>
+  <tr><td>Subtotal</td><td style="text-align:right">${fmt(subtotal)}</td></tr>
+  ${delivery > 0 ? `<tr><td>Delivery</td><td style="text-align:right">${fmt(delivery)}</td></tr>` : ''}
+  <tr class="big"><td>TOTAL</td><td style="text-align:right">${fmt(total)}</td></tr>
   <tr><td class="muted">Payment</td><td class="muted" style="text-align:right">${(order.payment_method || 'cash_on_delivery').replaceAll('_', ' ')}</td></tr>
+  ${curr === "SSP" ? `<tr><td class="muted">Rate</td><td class="muted" style="text-align:right">1 USD = SSP ${rate.toLocaleString()}</td></tr>` : ''}
 </table>
 ${order.note ? `<div class="hr"></div><div><strong>Note</strong><br>${order.note}</div>` : ''}
 <div class="thanks">Thank you! 🙏</div>
@@ -634,8 +660,10 @@ ${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}<
                 )}
               </div>
 
-              {/* Pickup OTP — visible once ready_for_pickup */}
-              {["ready_for_pickup", "handed_to_driver"].includes(selected.seller_preparation_status) && selected.seller_pickup_otp && (
+              {/* Pickup OTP — only useful when a platform driver picks up.
+                  Hidden entirely when the seller manages delivery (their own
+                  external driver doesn't verify against the platform). */}
+              {!sellerIsDriver && ["ready_for_pickup", "handed_to_driver"].includes(selected.seller_preparation_status) && selected.seller_pickup_otp && (
                 <div className="border border-emerald-200 bg-emerald-50 rounded-xl p-3">
                   <p className="text-xs uppercase tracking-wider font-bold text-emerald-800 flex items-center gap-1">
                     <KeyRound className="w-3 h-3" /> Driver pickup OTP
@@ -683,15 +711,27 @@ ${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}<
                   <button onClick={() => move(selected, "ready-for-pickup")} disabled={busy} data-testid="kitchen-ready-btn" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2 rounded-full">Ready for pickup</button>
                 )}
 
-                {/* Seller-as-driver: one-click completion (cash received from own driver) */}
+                {/* Seller-as-driver: 2-step flow (matches user's mental model)
+                    ready_for_pickup → hand-to-driver
+                    handed_to_driver → confirm delivery (cash received) */}
                 {sellerIsDriver && selected.seller_preparation_status === "ready_for_pickup" && selected.delivery_status !== "delivered" && (
+                  <button
+                    onClick={() => handToDriver(selected)}
+                    disabled={busy}
+                    data-testid="self-deliver-start"
+                    className="bg-[#1A1A1A] hover:bg-black text-white text-xs font-semibold px-4 py-2 rounded-full"
+                  >
+                    🛵 Hand to driver
+                  </button>
+                )}
+                {sellerIsDriver && selected.seller_preparation_status === "handed_to_driver" && selected.delivery_status !== "delivered" && (
                   <button
                     onClick={() => completeSelfDeliver(selected)}
                     disabled={busy}
                     data-testid="self-deliver-complete"
                     className="bg-[#C84B31] hover:bg-[#A83A23] text-white text-xs font-semibold px-4 py-2 rounded-full"
                   >
-                    ✓ Complete order (cash received)
+                    ✓ Confirm delivery (cash received)
                   </button>
                 )}
 
@@ -700,16 +740,28 @@ ${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}<
                   <button onClick={() => move(selected, "handed-to-driver")} disabled={busy} className="bg-[#1A1A1A] hover:bg-black text-white text-xs font-semibold px-4 py-2 rounded-full">Confirm I handed it to driver</button>
                 )}
 
-                {/* Customer receipt — printable slip that goes with the order.
+                {/* Customer receipt with currency picker (USD / SSP).
                     Available from ready_for_pickup onward. */}
                 {["ready_for_pickup", "handed_to_driver"].includes(selected.seller_preparation_status) && (
-                  <button
-                    onClick={() => printCustomerReceipt(selected)}
-                    data-testid="print-customer-receipt"
-                    className="inline-flex items-center gap-1 bg-white border border-[var(--js-border)] hover:border-[#1A1A1A] text-[var(--js-text)] text-xs font-semibold px-4 py-2 rounded-full"
-                  >
-                    <Printer className="w-3 h-3" /> Customer receipt
-                  </button>
+                  <div className="inline-flex items-center gap-0.5 border border-[var(--js-border)] rounded-full overflow-hidden">
+                    <button
+                      onClick={() => printCustomerReceipt(selected, "USD")}
+                      data-testid="print-customer-receipt-usd"
+                      className="inline-flex items-center gap-1 bg-white hover:bg-[var(--js-subtle)] text-[var(--js-text)] text-xs font-semibold px-3 py-2"
+                      title="Print customer receipt in USD"
+                    >
+                      <Printer className="w-3 h-3" /> Receipt USD
+                    </button>
+                    <span className="w-px h-4 bg-[var(--js-border)]" />
+                    <button
+                      onClick={() => printCustomerReceipt(selected, "SSP")}
+                      data-testid="print-customer-receipt-ssp"
+                      className="inline-flex items-center gap-1 bg-white hover:bg-[var(--js-subtle)] text-[var(--js-text)] text-xs font-semibold px-3 py-2"
+                      title="Print customer receipt in SSP (converted at the order's exchange rate)"
+                    >
+                      <Printer className="w-3 h-3" /> SSP
+                    </button>
+                  </div>
                 )}
 
                 <button onClick={() => printTicket(selected)} className="ml-auto inline-flex items-center gap-1 bg-gray-100 hover:bg-gray-200 text-[var(--js-text)] text-xs font-semibold px-4 py-2 rounded-full">
