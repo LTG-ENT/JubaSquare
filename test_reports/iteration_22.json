@@ -1,0 +1,25 @@
+{
+  "summary": "Iter22 backend tests: 18/18 passed. Verified /api/odoo/health, admin login (returns 'token'), all /api/admin/odoo/*/pending endpoints (products, orders, delivery-updates, payout-summaries, driver-cash) return 200. Service-token flow: GET status requires admin (401 anon, 200 admin); POST generate returns raw_token once, second call 409, rotate issues a NEW token. /api/admin/odoo/orders/pending: seeded a TEST_ shop with odoo_connection.enabled=true+send_orders=true and a matching seller_order_split — verified the enriched envelope contains ALL required keys (sub_order_id, order_id, entity_type='shop_order_split', customer_*, delivery_area/address, payment_method, delivery_type, currency='USD', exchange_rate_ssp float, subtotal_usd, delivery_fee_usd, total_usd, items[{sku, odoo_product_id, name, quantity, price_usd, sides[]}], meta.source='jubasquare', meta.created_at). Also confirmed splits belonging to shops with odoo_connection.enabled=false are NOT returned. POST /api/odoo/orders/status-update: missing header→401, invalid token→403, admin-JWT-alone→401 (webhook auth is header-token only, as expected). With generated raw token: unmatched order_id → 200 {status:'success', matched:false, log_id} + odoo_sync_logs entry with entity_type='restaurant_order'; sub_order_id + real seller_order_split → 200 matched:true and split's odoo_sync_status='synced' + odoo_last_sync_at set. Missing status/order_id → 400. Iter21 regression (16/16) still passes.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter22_odoo_enriched.py",
+    "/app/test_reports/pytest/iter22_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "odoo_routes.py get_pending_order_syncs: exchange_rate_ssp is read from a top-level settings/site_config doc keyed by 'exchange_rate_ssp' but the rest of the codebase (per iter21) stores per-seller exchange_rates in db.exchange_rates. The pending endpoint uses a single global rate — confirm this matches Odoo team spec (probably OK since Odoo needs the marketplace-wide reference rate at export time, but if per-seller rate is expected, this needs revision).",
+    "odoo_routes.py odoo_order_status_update stores created_at as an ISO string while other log entries in the same collection (e.g. product_upsert) store datetime.utcnow() objects. Inconsistency will show up in downstream sync-logs queries/sorting.",
+    "verify_odoo_webhook returns 500 'Odoo webhook not configured' when no token exists — semantically this should probably be 503 or 401 (configuration issue vs auth failure). 500 makes ops alerts noisy.",
+    "test_admin_jwt_alone_rejected on the webhook returns 401 'Missing Odoo token' (verify_odoo_webhook doesn't even look at Authorization) — behaviour is correct, just note that the message could be clearer that admin JWT is never accepted here."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter22_odoo_enriched.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "n/a"},
+  "test_credentials": "Admin: admin@jubasquare.com / 1234 (login returns {token, user}; token used as Bearer)",
+  "seed_data_creation": "Tests seed TEST_-prefixed shop/product/seller_order_split docs directly in Mongo to validate enrichment shape, then delete them in the finally block. Also seeds a temporary seller_order_split for the webhook match test. All docs use TEST_ prefix on ids. Generated (and rotated) an Odoo service token — this remains in db.odoo_service_tokens after the run (rotated once). If main agent needs a pristine 'no token' state, drop db.odoo_service_tokens.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter22 test file at /app/backend/tests/test_iter22_odoo_enriched.py uses pymongo (sync) with MONGO_URL/DB_NAME from env. pytest-asyncio was installed but not needed after refactor. Note: the login endpoint sets an access_token cookie on the requests.Session — always use a fresh Session for unauth checks. Service token is DB-managed via odoo_token_manager; if a token already exists on a re-run, the test detects the 409 and rotates instead. odoo_sync_logs entries for the webhook are cleaned up per-test; the split_odoo_sync_status='synced' state on real splits is set by matched updates so seed docs are deleted in finally."
+}

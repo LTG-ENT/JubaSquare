@@ -275,24 +275,36 @@ export default function KitchenDashboard() {
       </tr>
     `).join("");
 
+    // Monochrome inline SVG icons (stroke=#111) — printer-friendly, no emoji.
+    const ICON_STORE = `<svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1.5-4.5h15L21 9"/><path d="M4 9v11h16V9"/><path d="M9 20v-6h6v6"/></svg>`;
+    const ICON_CLIPBOARD = `<svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="4" width="10" height="4" rx="1"/><path d="M5 6h2m10 0h2v14H5V6"/></svg>`;
+    const ICON_CLOCK = `<svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`;
+    const ICON_USER = `<svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>`;
+    const ICON_PHONE = `<svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h4l2 5-2.5 1.5a12 12 0 0 0 5 5L15 13l5 2v4a1 1 0 0 1-1 1A16 16 0 0 1 3 5a1 1 0 0 1 1-1z"/></svg>`;
+    const ICON_PIN = `<svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-7 7-12a7 7 0 1 0-14 0c0 5 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/></svg>`;
+    const ICON_CASH = `<svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="12" rx="1.5"/><circle cx="12" cy="13" r="2.5"/><path d="M5 10v6M19 10v6"/></svg>`;
+    const ICON_NOTE = `<svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="1.5"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>`;
+    const ICON_BAG = `<svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M5 8h14l-1 12H6L5 8z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/><circle cx="10" cy="13" r=".8" fill="#111"/><circle cx="14" cy="13" r=".8" fill="#111"/><path d="M9.5 15.5c.7.7 1.7 1 2.5 1s1.8-.3 2.5-1"/></svg>`;
+
     w.document.write(`<!doctype html><html><head><title>Customer Receipt ${order.id.slice(0,8)}</title>
 <style>
   * { box-sizing: border-box; }
   body { font-family: 'Helvetica Neue', Arial, sans-serif; width: 380px; margin: 20px auto; color: #111; font-size: 12px; line-height: 1.5; }
   .receipt { border: 1px dotted #888; padding: 22px; }
   h1 { text-align: center; font-size: 26px; letter-spacing: 4px; margin: 0 0 4px; font-weight: 800; }
-  .dots { text-align: center; letter-spacing: 6px; color: #333; margin: 0 0 8px; }
+  .dots { text-align: center; letter-spacing: 6px; color: #333; margin: 0 0 8px; font-size: 14px; }
   .badge { display: block; margin: 0 auto 14px; padding: 6px 22px; background: #111; color: #fff; text-align: center; font-weight: 700; letter-spacing: 3px; font-size: 12px; width: fit-content; }
   .divider { border-top: 1.5px dashed #888; margin: 12px 0; }
-  .from { background: #f0f0f0; padding: 10px 14px; border-radius: 3px; font-weight: 700; text-align: center; margin-bottom: 12px; font-size: 13px; letter-spacing: 1px; }
-  .from span { display: inline-block; margin-left: 6px; }
+  .from { background: #f0f0f0; padding: 10px 14px; border-radius: 3px; font-weight: 700; margin-bottom: 12px; font-size: 13px; letter-spacing: 1px; display: flex; align-items: center; gap: 10px; }
   .from .r { font-size: 15px; letter-spacing: 0; text-transform: none; }
   .meta { display: table; width: 100%; margin-bottom: 8px; }
-  .col { display: table-cell; width: 50%; vertical-align: top; padding: 0 8px; font-size: 11px; }
+  .col { display: table-cell; width: 50%; vertical-align: top; padding: 0 10px; font-size: 11px; }
   .col + .col { border-left: 1px solid #999; }
-  .row { margin: 6px 0; }
-  .lbl { font-weight: 700; letter-spacing: 1px; text-transform: uppercase; font-size: 10px; }
-  .val { padding-left: 6px; }
+  .row { margin: 8px 0; display: flex; align-items: flex-start; gap: 8px; }
+  .ico { flex: 0 0 14px; margin-top: 2px; }
+  .ico svg { width: 14px; height: 14px; display: block; }
+  .lbl { font-weight: 700; letter-spacing: 1px; text-transform: uppercase; font-size: 10px; display: block; }
+  .val { display: block; padding-top: 2px; }
   table.items { width: 100%; border-collapse: collapse; margin: 14px 0 8px; }
   table.items thead th { background: #111; color: #fff; padding: 8px 6px; text-align: left; font-size: 11px; letter-spacing: 2px; }
   table.items thead th.qty, table.items thead th.num { text-align: center; }
@@ -305,32 +317,39 @@ export default function KitchenDashboard() {
   .foot-box { display: table; width: 100%; border: 1px solid #333; border-radius: 8px; margin: 14px 0 6px; }
   .foot-col { display: table-cell; width: 50%; padding: 12px 14px; vertical-align: top; font-size: 11px; }
   .foot-col + .foot-col { border-left: 1px dashed #999; }
-  .foot-col .lbl { display: block; margin-bottom: 4px; }
+  .foot-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .foot-head .lbl { display: inline; margin: 0; }
   .totals { text-align: right; padding: 6px 6px 4px; font-size: 12px; }
   .totals .big { font-size: 16px; font-weight: 800; margin-top: 4px; }
   .thanks { text-align: center; font-family: 'Brush Script MT', 'Lucida Handwriting', cursive; font-size: 26px; margin: 14px 0 6px; }
   .footer { text-align: center; font-size: 11px; margin-top: 4px; }
-  .brand { font-weight: 800; font-size: 18px; letter-spacing: 1px; margin-top: 4px; }
+  .brand { display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 800; font-size: 18px; letter-spacing: 1px; margin-top: 4px; }
+  .brand .bar { flex: 0 0 40px; height: 1px; background: #111; }
   .bottom-dots { text-align: center; letter-spacing: 4px; margin-top: 10px; color: #999; }
+  @media print { body { margin: 0; } .receipt { border: none; } }
 </style></head><body>
 <div class="receipt">
   <h1>CUSTOMER RECEIPT</h1>
-  <div class="dots">•••</div>
+  <div class="dots">• • •</div>
   <div class="badge">${deliveryType}</div>
   <div class="divider"></div>
-  <div class="from">🏬 <span>FROM RESTAURANT:</span> <span class="r">${restaurant?.name || "Restaurant"}</span></div>
+  <div class="from">
+    <span class="ico">${ICON_STORE}</span>
+    <span>FROM ${order.delivery_type === "delivery" ? "RESTAURANT" : "PICKUP"}:</span>
+    <span class="r">${restaurant?.name || "Restaurant"}</span>
+  </div>
   <div class="divider"></div>
 
   <div class="meta">
     <div class="col">
-      <div class="row"><span class="lbl">📋 Order ID</span><br><span class="val">${orderShort}</span></div>
-      <div class="row"><span class="lbl">🕒 Order Time</span><br><span class="val">${dtStr}</span></div>
-      <div class="row"><span class="lbl">🏪 Restaurant Order No.</span><br><span class="val">${restShort}</span></div>
+      <div class="row"><span class="ico">${ICON_CLIPBOARD}</span><span><span class="lbl">Order ID</span><span class="val">${orderShort}</span></span></div>
+      <div class="row"><span class="ico">${ICON_CLOCK}</span><span><span class="lbl">Order Time</span><span class="val">${dtStr}</span></span></div>
+      <div class="row"><span class="ico">${ICON_STORE}</span><span><span class="lbl">Restaurant Order No.</span><span class="val">${restShort}</span></span></div>
     </div>
     <div class="col">
-      <div class="row"><span class="lbl">👤 Customer</span><br><span class="val">${order.customer_name || "—"}</span></div>
-      <div class="row"><span class="lbl">📞 Phone</span><br><span class="val">${order.customer_phone || "—"}</span></div>
-      ${order.customer_address ? `<div class="row"><span class="lbl">📍 Address</span><br><span class="val">${order.customer_address}${order.customer_area ? ", " + order.customer_area : ""}</span></div>` : ""}
+      <div class="row"><span class="ico">${ICON_USER}</span><span><span class="lbl">Customer</span><span class="val">${order.customer_name || "—"}</span></span></div>
+      <div class="row"><span class="ico">${ICON_PHONE}</span><span><span class="lbl">Phone</span><span class="val">${order.customer_phone || "—"}</span></span></div>
+      ${order.customer_address ? `<div class="row"><span class="ico">${ICON_PIN}</span><span><span class="lbl">Address</span><span class="val">${order.customer_address}${order.customer_area ? ", " + order.customer_area : ""}</span></span></div>` : ""}
     </div>
   </div>
 
@@ -348,18 +367,18 @@ export default function KitchenDashboard() {
 
   <div class="foot-box">
     <div class="foot-col">
-      <span class="lbl">💵 Payment Method</span>
+      <div class="foot-head"><span class="ico">${ICON_CASH}</span><span class="lbl">Payment Method</span></div>
       ${paymentLabel}
     </div>
     <div class="foot-col">
-      <span class="lbl">📝 Note to Driver</span>
+      <div class="foot-head"><span class="ico">${ICON_NOTE}</span><span class="lbl">Note to Driver</span></div>
       ${order.note ? order.note : "Please collect the full amount from the customer. Thank you!"}
     </div>
   </div>
 
   <div class="thanks">Thank You!</div>
   <div class="footer">This order is placed on</div>
-  <div class="brand">🛍 JubaSquare</div>
+  <div class="brand"><span class="bar"></span>${ICON_BAG}<span>JubaSquare</span><span class="bar"></span></div>
   <div class="bottom-dots">• • • • • • • • • • • • • • •</div>
 </div>
 </body></html>`);

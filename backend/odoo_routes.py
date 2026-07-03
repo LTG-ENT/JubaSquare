@@ -9,7 +9,7 @@ import uuid
 import logging
 from datetime import datetime, timezone
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Depends, Header, Request
+from fastapi import APIRouter, HTTPException, Depends, Header, Request, Body
 
 from odoo_schema import (
     OdooConnectionSettings,
@@ -676,11 +676,27 @@ def create_admin_odoo_routes(db, require_role, get_current_user=None):
     @router.get("/orders/pending")
     async def get_pending_order_syncs(user=Depends(verify_admin_or_service_token)):
         """
-        Get JubaSquare orders that need to be synced TO Odoo.
-        Filters: seller's shop OR restaurant has odoo_connection.enabled=true
-                 AND send_orders=true
-                 AND order's odoo_sync_status is missing / "pending" / "failed".
-        Returns a flat list of marketplace splits and restaurant orders.
+        Get JubaSquare orders that need to be synced TO Odoo, shaped for the
+        Odoo `jubasquare_orders` module (see §prompt payload). Each item is
+        an enriched envelope Odoo can consume directly:
+
+        {
+          "sub_order_id": "...",              # JubaSquare id to ack later
+          "order_id": "...",                  # parent order id (marketplace)
+          "entity_type": "shop_order_split" | "restaurant_order",
+          "odoo_order_ref": "SO-... or R-...",
+          "customer_name", "customer_phone", "customer_email",
+          "delivery_area", "delivery_address", "notes",
+          "payment_method", "delivery_type",
+          "currency": "USD", "exchange_rate_ssp": <float>,
+          "subtotal_usd", "delivery_fee_usd", "total_usd",
+          "items": [{"sku","odoo_product_id","name","quantity","price_usd","sides":[{name,price_usd}]}],
+          "meta": {"source":"jubasquare","created_at": iso}
+        }
+
+        Only orders whose shop/restaurant has odoo_connection.enabled = True
+        AND odoo_connection.send_orders = True are returned. Sync status
+        must be missing/pending/failed/not_required.
         """
         connected_shop_ids = await db.shops.distinct(
             "id",
@@ -691,7 +707,24 @@ def create_admin_odoo_routes(db, require_role, get_current_user=None):
             {"odoo_connection.enabled": True, "odoo_connection.send_orders": True}
         )
 
+        # Latest USD→SSP exchange rate, stored on site settings.
+        rate_doc = await db.settings.find_one({"key": "exchange_rate_ssp"}) or \
+                   await db.site_config.find_one({"key": "exchange_rate_ssp"})
+        exchange_rate_ssp = float((rate_doc or {}).get("value") or 600)
+
         pending = []
+
+        # Preload all product / menu_item SKUs referenced by pending orders so
+        # each line can carry the Odoo SKU + odoo_product_id without an
+        # extra round-trip per line.
+        async def _sku_map(collection, item_ids):
+            if not item_ids:
+                return {}
+            docs = await collection.find(
+                {"id": {"$in": list(item_ids)}},
+                {"_id": 0, "id": 1, "odoo_product_sku": 1, "odoo_product_id": 1, "sku": 1}
+            ).to_list(len(item_ids))
+            return {d["id"]: d for d in docs}
 
         if connected_shop_ids:
             splits = await db.seller_order_splits.find(
@@ -704,9 +737,54 @@ def create_admin_odoo_routes(db, require_role, get_current_user=None):
                 },
                 {"_id": 0}
             ).sort("created_at", -1).limit(500).to_list(500)
+
+            all_product_ids = {it.get("item_id") or it.get("product_id")
+                               for s in splits for it in (s.get("items") or [])
+                               if it.get("item_id") or it.get("product_id")}
+            products_by_id = await _sku_map(db.products, all_product_ids)
+
             for s in splits:
-                s["entity_type"] = "shop_order_split"
-            pending.extend(splits)
+                items_out = []
+                for it in (s.get("items") or []):
+                    pid = it.get("item_id") or it.get("product_id")
+                    p = products_by_id.get(pid, {}) if pid else {}
+                    items_out.append({
+                        "sku": p.get("odoo_product_sku") or p.get("sku") or "",
+                        "odoo_product_id": p.get("odoo_product_id"),
+                        "name": it.get("name"),
+                        "quantity": int(it.get("quantity") or 1),
+                        "price_usd": float(it.get("price_usd") or 0),
+                        "sides": [
+                            {"name": sd.get("name"), "price_usd": float(sd.get("price_usd") or 0)}
+                            for sd in (it.get("sides") or [])
+                        ],
+                    })
+                pending.append({
+                    "sub_order_id": s["id"],
+                    "order_id": s.get("order_id"),
+                    "entity_type": "shop_order_split",
+                    "shop_id": s.get("shop_id"),
+                    "odoo_order_ref": f"JS-SO-{s['id'][:8].upper()}",
+                    "customer_name": s.get("customer_name"),
+                    "customer_phone": s.get("customer_phone"),
+                    "customer_email": s.get("customer_email"),
+                    "delivery_area": s.get("delivery_area") or s.get("customer_area"),
+                    "delivery_address": s.get("customer_address"),
+                    "notes": s.get("note") or "",
+                    "payment_method": s.get("payment_method") or "cash_on_delivery",
+                    "delivery_type": s.get("delivery_type") or "delivery",
+                    "currency": "USD",
+                    "exchange_rate_ssp": exchange_rate_ssp,
+                    "subtotal_usd": float(s.get("product_subtotal_usd") or 0),
+                    "delivery_fee_usd": float(s.get("delivery_fee_usd") or 0),
+                    "total_usd": float(s.get("order_total_usd") or 0),
+                    "items": items_out,
+                    "meta": {
+                        "source": "jubasquare",
+                        "shop_name": s.get("shop_name"),
+                        "created_at": s.get("created_at"),
+                    },
+                })
 
         if connected_restaurant_ids:
             r_orders = await db.restaurant_orders.find(
@@ -719,9 +797,53 @@ def create_admin_odoo_routes(db, require_role, get_current_user=None):
                 },
                 {"_id": 0}
             ).sort("created_at", -1).limit(500).to_list(500)
+
+            all_item_ids = {it.get("item_id")
+                            for o in r_orders for it in (o.get("items") or [])
+                            if it.get("item_id")}
+            menu_by_id = await _sku_map(db.menu_items, all_item_ids)
+
             for o in r_orders:
-                o["entity_type"] = "restaurant_order"
-            pending.extend(r_orders)
+                items_out = []
+                for it in (o.get("items") or []):
+                    m = menu_by_id.get(it.get("item_id"), {}) if it.get("item_id") else {}
+                    items_out.append({
+                        "sku": m.get("odoo_product_sku") or m.get("sku") or "",
+                        "odoo_product_id": m.get("odoo_product_id"),
+                        "name": it.get("name"),
+                        "quantity": int(it.get("quantity") or 1),
+                        "price_usd": float(it.get("price_usd") or 0),
+                        "sides": [
+                            {"name": sd.get("name"), "price_usd": float(sd.get("price_usd") or 0)}
+                            for sd in (it.get("sides") or [])
+                        ],
+                    })
+                pending.append({
+                    "sub_order_id": o["id"],
+                    "order_id": o["id"],
+                    "entity_type": "restaurant_order",
+                    "restaurant_id": o.get("restaurant_id"),
+                    "odoo_order_ref": f"JS-R-{o['id'][:8].upper()}",
+                    "customer_name": o.get("customer_name"),
+                    "customer_phone": o.get("customer_phone"),
+                    "customer_email": o.get("customer_email"),
+                    "delivery_area": o.get("delivery_area") or o.get("customer_area"),
+                    "delivery_address": o.get("customer_address"),
+                    "notes": o.get("note") or "",
+                    "payment_method": o.get("payment_method") or "cash_on_delivery",
+                    "delivery_type": o.get("delivery_type") or "delivery",
+                    "currency": "USD",
+                    "exchange_rate_ssp": exchange_rate_ssp,
+                    "subtotal_usd": float(o.get("subtotal") or 0),
+                    "delivery_fee_usd": float(o.get("delivery_fee") or 0),
+                    "total_usd": float(o.get("total") or 0),
+                    "items": items_out,
+                    "meta": {
+                        "source": "jubasquare",
+                        "restaurant_name": o.get("restaurant_name"),
+                        "created_at": o.get("created_at"),
+                    },
+                })
 
         return pending
 
