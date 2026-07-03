@@ -77,6 +77,24 @@ function ago(iso) {
   return `${h}h ${m % 60}m`;
 }
 
+// Line total = (base price + Σ side prices) × qty. Matches the backend
+// `subtotal` computation in server.py:create_restaurant_order so what the
+// kitchen sees adds up correctly, including any side-options the customer
+// picked.
+function lineTotalUSD(it) {
+  if (typeof it.line_total_usd === "number") return it.line_total_usd;
+  const sidesTotal = (it.sides || []).reduce((a, s) => a + (s.price_usd || 0), 0);
+  return (it.price_usd + sidesTotal) * (it.quantity || 1);
+}
+
+// Items subtotal — sum of `lineTotalUSD` across all items. This is the
+// number the kitchen ticket cares about; delivery fee is handled by the
+// driver/admin flow and should NOT appear on the kitchen ticket.
+function itemsSubtotalUSD(order) {
+  if (typeof order.subtotal === "number") return order.subtotal;
+  return (order.items || order.items_secure || []).reduce((s, it) => s + lineTotalUSD(it), 0);
+}
+
 export default function KitchenDashboard() {
   const { restaurantId } = useParams();
   const navigate = useNavigate();
@@ -190,6 +208,9 @@ export default function KitchenDashboard() {
     if (!order) return;
     const w = window.open("", "_blank");
     if (!w) return;
+    // Kitchen ticket shows ITEMS TOTAL only (base prices + sides). Delivery
+    // fee is intentionally excluded — kitchen doesn't handle delivery, and
+    // showing it would confuse pack-out.
     w.document.write(`<!doctype html><html><head><title>Ticket ${order.id.slice(0,8)}</title>
 <style>body{font-family:monospace;width:300px;margin:20px auto;font-size:13px}h1{text-align:center;font-size:18px;margin:0}.hr{border-top:2px dashed #000;margin:8px 0}.row{display:flex;justify-content:space-between;margin:3px 0}.big{font-size:16px;font-weight:700}.center{text-align:center}</style>
 </head><body>
@@ -202,11 +223,11 @@ export default function KitchenDashboard() {
 <div class="hr"></div>
 <strong>ITEMS</strong>
 ${(order.items || order.items_secure || []).map(it => `
-  <div class="row"><span>${it.quantity}× ${it.name}</span><span>${formatUSD(it.line_total_usd || it.price_usd * it.quantity)}</span></div>
-  ${(it.sides || []).map(s => `<div class="row" style="margin-left:12px;font-size:11px"><span>+ ${s.name}</span><span></span></div>`).join('')}
+  <div class="row"><span>${it.quantity}× ${it.name}</span><span>${formatUSD(lineTotalUSD(it))}</span></div>
+  ${(it.sides || []).map(s => `<div class="row" style="margin-left:12px;font-size:11px"><span>+ ${s.name}</span><span>${formatUSD((s.price_usd || 0) * (it.quantity || 1))}</span></div>`).join('')}
 `).join('')}
 <div class="hr"></div>
-<div class="row big"><span>TOTAL</span><span>${formatUSD(order.order_total_usd || order.total)}</span></div>
+<div class="row big"><span>ITEMS TOTAL</span><span>${formatUSD(itemsSubtotalUSD(order))}</span></div>
 ${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}</div>` : ""}
 </body></html>`);
     w.document.close();
@@ -345,7 +366,7 @@ ${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}<
                             <Pill value={o.pickup_status} />
                           )}
                         </div>
-                        <span className="text-sm font-bold">{formatUSD(o.order_total_usd || o.total)}</span>
+                        <span className="text-sm font-bold">{formatUSD(itemsSubtotalUSD(o))}</span>
                       </div>
                     </button>
                   ))}
@@ -423,7 +444,7 @@ ${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}<
                         </div>
                       </div>
                       <div className="text-right shrink-0">
-                        <p className="text-sm font-bold">{formatUSD(o.order_total_usd || o.total)}</p>
+                        <p className="text-sm font-bold">{formatUSD(itemsSubtotalUSD(o))}</p>
                         <p className="text-[10px] text-[var(--js-text-secondary)]">{ago(o.updated_at || o.created_at)}</p>
                       </div>
                     </button>
@@ -475,14 +496,23 @@ ${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}<
                     <li key={i}>
                       <div className="flex justify-between">
                         <span><strong>{it.quantity}×</strong> {it.name}</span>
-                        <span className="font-medium">{formatUSD(it.line_total_usd || it.price_usd * it.quantity)}</span>
+                        <span className="font-medium">{formatUSD(lineTotalUSD(it))}</span>
                       </div>
                       {(it.sides || []).map((s, j) => (
-                        <div key={j} className="text-xs text-[var(--js-text-secondary)] ml-4">+ {s.name}</div>
+                        <div key={j} className="text-xs text-[var(--js-text-secondary)] ml-4 flex justify-between">
+                          <span>+ {s.name}</span>
+                          <span>{formatUSD((s.price_usd || 0) * (it.quantity || 1))}</span>
+                        </div>
                       ))}
                     </li>
                   ))}
                 </ul>
+                {/* Items subtotal — matches ticket. Delivery fee is intentionally NOT
+                    shown; the kitchen doesn't handle delivery. */}
+                <div className="mt-3 pt-3 border-t flex justify-between items-center text-sm font-bold">
+                  <span>Items total</span>
+                  <span>{formatUSD(itemsSubtotalUSD(selected))}</span>
+                </div>
                 {selected.note && (
                   <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-2 text-xs">
                     <strong>Note:</strong> {selected.note}

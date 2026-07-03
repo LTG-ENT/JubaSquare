@@ -1,0 +1,22 @@
+{
+  "summary": "Verified per-order redaction of customer contact info based on delivery_managed_by for shops/restaurants. 12/12 tests passed across /seller/restaurant-orders-cod, /restaurant-orders/restaurant/{id}, /restaurant-orders/{id}, /orders/seller, /seller/splits, admin regression, name-never-redacted, and platform toggle for 'default' entities.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter17_redaction_and_delivery.py",
+    "/app/test_reports/pytest/iter17_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Note: problem statement references endpoint `/api/restaurants/{id}/orders` but actual endpoint in server.py is `/api/restaurant-orders/restaurant/{id}` (line 3353). Tests use the real endpoint. If E1 intended a new path, it does not exist — pls confirm.",
+    "SELLER_PRIVATE_KEYS tuple includes both new fields (customer_phone/area/address) and legacy (phone/area/address). All six are verified redacted on the /orders/seller and /seller/splits marketplace paths where legacy fields exist."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter17_redaction_and_delivery.py (new)"],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "N/A (skipped per request)"},
+  "test_credentials": "admin@jubasquare.com / 1234",
+  "seed_data_creation": "Session fixture seeds 1 seller + 3 restaurants (A=seller, B=admin, D=default) + 3 shops (S=seller, T=admin, U=default) + 3 products + 3 restaurant_orders + 2 orders + 2 seller_order_splits. All cleaned up post-session; settings.admin_manages_delivery restored to False.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "iter17 fully green. redact_for_seller now correctly EXPOSES customer_name/phone/area/address (and legacy phone/area/address for marketplace docs) when the seller manages delivery for that entity, and NULLs them out otherwise. customer_name is always visible. Admin path bypasses redaction. Platform toggle admin_manages_delivery correctly controls 'default' entities.",
+  "rca of the issue": "N/A — feature verification, no regressions found."
+}

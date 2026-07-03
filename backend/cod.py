@@ -182,20 +182,32 @@ CUSTOMER_PRIVATE_KEYS = (
 )
 
 
-def redact_for_seller(doc: dict) -> dict:
+def redact_for_seller(doc: dict, seller_manages_delivery: bool = False) -> dict:
     """Remove customer phone / area / address from a doc before returning to seller.
-    Returns the same dict (mutated). Keep customer_name intact."""
+
+    When the seller is *also* the driver for this order (i.e. delivery is
+    seller-managed for the shop/restaurant, either via per-entity override
+    or the platform default), the seller LEGITIMATELY needs customer
+    contact info to deliver — so we keep those fields intact.
+
+    Returns the same dict (mutated). `customer_name` is never stripped."""
     if not doc:
         return doc
+    if seller_manages_delivery:
+        return doc  # seller is the driver → they need phone/address/area
     for k in SELLER_PRIVATE_KEYS:
         if k in doc:
             doc[k] = None
     return doc
 
 
-def redact_many_for_seller(rows: list) -> list:
+def redact_many_for_seller(rows: list, per_row_seller_manages=None) -> list:
+    """Batch-redact for seller. `per_row_seller_manages` is an optional
+    callable `row -> bool` that decides whether the seller manages delivery
+    for that row; if omitted, everything is redacted (safe default)."""
     for r in rows:
-        redact_for_seller(r)
+        smd = bool(per_row_seller_manages(r)) if per_row_seller_manages else False
+        redact_for_seller(r, seller_manages_delivery=smd)
     return rows
 
 
@@ -1164,14 +1176,54 @@ def register_endpoints():
         if status:
             q["delivery_status"] = status
         rows = await db.seller_order_splits.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
-        return redact_many_for_seller(rows)
+        # Determine per-shop whether the seller manages delivery. Batch-load
+        # every referenced shop's `delivery_managed_by` in ONE query.
+        shop_ids = list({r.get("shop_id") for r in rows if r.get("shop_id")})
+        shops_by_id = {}
+        if shop_ids:
+            async for sh in db.shops.find(
+                {"id": {"$in": shop_ids}},
+                {"_id": 0, "id": 1, "delivery_managed_by": 1},
+            ):
+                shops_by_id[sh["id"]] = sh
+        sysettings = await db.settings.find_one({"id": "system"}, {"_id": 0}) or {}
+        global_admin_manages = bool(sysettings.get("admin_manages_delivery", False))
+
+        def _seller_manages(row):
+            sh = shops_by_id.get(row.get("shop_id")) or {}
+            managed_by = sh.get("delivery_managed_by") or "default"
+            if managed_by == "seller":
+                return True
+            if managed_by == "admin":
+                return False
+            return not global_admin_manages  # default → follows platform toggle
+        return redact_many_for_seller(rows, per_row_seller_manages=_seller_manages)
 
     @new_router.get("/seller/restaurant-orders-cod")
     async def seller_rest_cod(user: dict = seller_dep):
         rows = await db.restaurant_orders.find(
             {"seller_id": user["id"]}, {"_id": 0},
         ).sort("created_at", -1).to_list(500)
-        return redact_many_for_seller(rows)
+        rest_ids = list({r.get("restaurant_id") for r in rows if r.get("restaurant_id")})
+        rests_by_id = {}
+        if rest_ids:
+            async for rr in db.restaurants.find(
+                {"id": {"$in": rest_ids}},
+                {"_id": 0, "id": 1, "delivery_managed_by": 1},
+            ):
+                rests_by_id[rr["id"]] = rr
+        sysettings = await db.settings.find_one({"id": "system"}, {"_id": 0}) or {}
+        global_admin_manages = bool(sysettings.get("admin_manages_delivery", False))
+
+        def _seller_manages(row):
+            r = rests_by_id.get(row.get("restaurant_id")) or {}
+            managed_by = r.get("delivery_managed_by") or "default"
+            if managed_by == "seller":
+                return True
+            if managed_by == "admin":
+                return False
+            return not global_admin_manages
+        return redact_many_for_seller(rows, per_row_seller_manages=_seller_manages)
 
     @new_router.post("/seller/splits/{split_id}/accept")
     async def seller_accept(split_id: str, user: dict = seller_dep):

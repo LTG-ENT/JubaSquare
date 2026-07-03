@@ -24,6 +24,22 @@ from pydantic import BaseModel, Field, EmailStr
 
 import email_service
 import cod
+
+# Given a shop OR restaurant dict, decide whether the seller (who owns it)
+# also handles delivery. When True, the seller IS the driver for orders on
+# this entity and must see customer phone/address/area to deliver.
+# When False, the platform's driver pool handles delivery and customer
+# contact info stays redacted from the seller for privacy.
+async def _seller_manages_delivery_for(shop=None, restaurant=None) -> bool:
+    entity = shop or restaurant or {}
+    managed_by = entity.get("delivery_managed_by") or "default"
+    if managed_by == "seller":
+        return True
+    if managed_by == "admin":
+        return False
+    # "default" — follow the platform-wide toggle.
+    sysettings = await db.settings.find_one({"id": "system"}, {"_id": 0}) or {}
+    return not bool(sysettings.get("admin_manages_delivery", False))
 import odoo_routes
 import storage
 from pages_seed import PAGES_DEFAULT, PAGE_SLUGS
@@ -3370,10 +3386,12 @@ async def list_restaurant_orders_by_restaurant(
         query,
         {"_id": 0}
     ).sort("created_at", -1).to_list(200)
-    # Sellers must not see customer phone/area/address. Admins see all.
+    # Sellers must not see customer phone/area/address UNLESS they manage
+    # delivery for this restaurant (in that case, they ARE the driver).
     if user["role"] != "admin":
+        seller_manages = await _seller_manages_delivery_for(restaurant=restaurant)
         for o in orders:
-            cod.redact_for_seller(o)
+            cod.redact_for_seller(o, seller_manages_delivery=seller_manages)
     return orders
 
 
@@ -3391,7 +3409,8 @@ async def get_restaurant_order(order_id: str, user: dict = Depends(get_current_u
         restaurant = await db.restaurants.find_one({"id": order["restaurant_id"]})
         if restaurant and restaurant["seller_id"] != user["id"]:
             raise HTTPException(403, "Forbidden")
-        cod.redact_for_seller(order)
+        seller_manages = await _seller_manages_delivery_for(restaurant=restaurant)
+        cod.redact_for_seller(order, seller_manages_delivery=seller_manages)
     
     return order
 
@@ -4103,10 +4122,47 @@ async def seller_orders(
     if not ids:
         return []
     rows = await db.orders.find({"items.item_id": {"$in": list(ids)}}, {"_id": 0}).sort("created_at", -1).skip(off).to_list(lim)
-    # Sellers must not see customer phone/area/address (privacy). Admins see everything.
+    # Sellers must not see customer phone/area/address (privacy). Admins see
+    # everything. Exception: when the seller is the driver for THIS order's
+    # shop (delivery_managed_by=seller), they need customer contact info.
     if user["role"] != "admin":
+        # Batch-load seller's shops with delivery config.
+        seller_shops = {
+            sh["id"]: sh
+            async for sh in db.shops.find(
+                {"seller_id": user["id"]},
+                {"_id": 0, "id": 1, "delivery_managed_by": 1},
+            )
+        }
+        sysettings = await db.settings.find_one({"id": "system"}, {"_id": 0}) or {}
+        global_admin_manages = bool(sysettings.get("admin_manages_delivery", False))
+        # For each order, resolve the shop(s) via product → shop_id lookup.
+        prod_ids = {it["item_id"] for r in rows for it in (r.get("items") or []) if it.get("item_id") in ids}
+        prod_to_shop = {
+            p["id"]: p.get("shop_id")
+            async for p in db.products.find(
+                {"id": {"$in": list(prod_ids)}}, {"_id": 0, "id": 1, "shop_id": 1}
+            )
+        }
+
+        def _order_seller_manages(order):
+            for it in order.get("items") or []:
+                sid = prod_to_shop.get(it.get("item_id"))
+                sh = seller_shops.get(sid)
+                if not sh:
+                    continue
+                mb = sh.get("delivery_managed_by") or "default"
+                if mb == "seller":
+                    return True
+                if mb == "admin":
+                    continue  # look at other items
+                # "default" — follow platform toggle
+                if not global_admin_manages:
+                    return True
+            return False
+
         for r in rows:
-            cod.redact_for_seller(r)
+            cod.redact_for_seller(r, seller_manages_delivery=_order_seller_manages(r))
     return rows
 
 
