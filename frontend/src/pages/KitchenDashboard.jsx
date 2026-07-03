@@ -15,8 +15,6 @@ import api, { formatUSD, formatDetail } from "@/lib/api";
 import { toast } from "sonner";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import SignaturePad from "@/components/SignaturePad";
-import DriverGeoBeacon from "@/components/DriverGeoBeacon";
 import {
   ChefHat,
   Clock,
@@ -191,51 +189,87 @@ export default function KitchenDashboard() {
   };
 
   // Seller-as-driver flow — only enabled when the restaurant explicitly
-  // opts into seller-managed delivery. When true, the seller can skip the
-  // driver handshake and self-deliver.
+  // opts into seller-managed delivery. The seller's OWN external driver
+  // handles the trip; the platform does not track OTPs, signatures, or GPS
+  // for these deliveries. The seller confirms completion when the driver
+  // returns with the cash — one click.
   const sellerIsDriver = restaurant?.delivery_managed_by === "seller";
-  const [deliverOtp, setDeliverOtp] = useState("");
-  const [deliverSig, setDeliverSig] = useState("");
-  const [deliverReceiver, setDeliverReceiver] = useState("");
 
-  const startSelfDeliver = async (order) => {
+  const completeSelfDeliver = async (order) => {
+    if (!window.confirm("Confirm order delivered and cash received from your driver?")) return;
     setBusy(true);
     try {
-      await api.post(`/seller/restaurant-orders/${order.id}/self-deliver-start`);
-      toast.success("You're on the way — the customer sees your live location.");
+      await api.post(`/seller/restaurant-orders/${order.id}/self-deliver-complete`, {});
+      toast.success("Order completed. Cash recorded.");
       await loadOrders();
       const fresh = (await api.get(`/restaurant-orders/${order.id}`)).data;
       setSelected(fresh);
     } catch (e) {
-      toast.error(formatDetail(e.response?.data?.detail) || "Could not start delivery");
+      toast.error(formatDetail(e.response?.data?.detail) || "Could not complete order");
     } finally {
       setBusy(false);
     }
   };
 
-  const completeSelfDeliver = async (order) => {
-    if (!deliverOtp.trim()) return toast.error("Enter the customer's delivery OTP");
-    if (!deliverSig || deliverSig.length < 10) return toast.error("Customer signature is required");
-    if (!deliverReceiver.trim()) return toast.error("Receiver name is required");
-    setBusy(true);
-    try {
-      await api.post(`/seller/restaurant-orders/${order.id}/self-deliver-complete`, {
-        otp: deliverOtp.trim(),
-        signature_b64: deliverSig,
-        receiver_name: deliverReceiver.trim(),
-      });
-      toast.success("Delivered! Cash is yours.");
-      setDeliverOtp("");
-      setDeliverSig("");
-      setDeliverReceiver("");
-      await loadOrders();
-      const fresh = (await api.get(`/restaurant-orders/${order.id}`)).data;
-      setSelected(fresh);
-    } catch (e) {
-      toast.error(formatDetail(e.response?.data?.detail) || "Could not complete delivery");
-    } finally {
-      setBusy(false);
-    }
+  // Customer receipt (separate from the kitchen ticket). Printable slip that
+  // goes with the order to the customer — full breakdown, delivery address,
+  // total, thank-you note.
+  const printCustomerReceipt = (order) => {
+    if (!order) return;
+    const w = window.open("", "_blank");
+    if (!w) return;
+    const dt = new Date(order.created_at || Date.now());
+    const items = (order.items || order.items_secure || []).map((it) => `
+      <tr>
+        <td>${it.quantity}×</td>
+        <td>${it.name}${(it.sides || []).length ? '<br><small style="color:#666">' + it.sides.map((s) => `+ ${s.name}`).join(', ') + '</small>' : ''}</td>
+        <td style="text-align:right">${formatUSD(lineTotalUSD(it))}</td>
+      </tr>
+    `).join('');
+    const subtotal = itemsSubtotalUSD(order);
+    const delivery = Number(order.delivery_fee || order.delivery_fee_usd || 0);
+    const total = subtotal + delivery;
+    w.document.write(`<!doctype html><html><head><title>Receipt ${order.id.slice(0, 8)}</title>
+<style>
+body{font-family:'Helvetica Neue',Arial,sans-serif;width:320px;margin:16px auto;font-size:12px;color:#111}
+h1{text-align:center;font-size:20px;margin:4px 0}
+.brand{text-align:center;font-size:11px;color:#666;letter-spacing:2px;text-transform:uppercase}
+.hr{border-top:1px dashed #999;margin:10px 0}
+table{width:100%;border-collapse:collapse}
+td{padding:3px 0;vertical-align:top}
+.totals td{padding:4px 0;font-weight:600}
+.big{font-size:15px;font-weight:800}
+.center{text-align:center}
+.muted{color:#666;font-size:11px}
+.thanks{text-align:center;margin-top:14px;font-weight:700;font-size:13px}
+</style></head><body>
+<div class="brand">Customer Receipt</div>
+<h1>${restaurant?.name || 'Restaurant'}</h1>
+${restaurant?.area ? `<div class="center muted">${restaurant.area}</div>` : ''}
+<div class="hr"></div>
+<div><strong>Order #</strong> ${order.id.slice(0, 8)}</div>
+<div><strong>Date</strong> ${dt.toLocaleString()}</div>
+<div><strong>Type</strong> ${order.delivery_type === 'delivery' ? 'Delivery' : 'Pickup'}</div>
+<div class="hr"></div>
+<div><strong>Customer</strong> ${order.customer_name || '—'}</div>
+${order.customer_phone ? `<div class="muted">${order.customer_phone}</div>` : ''}
+${order.customer_address ? `<div class="muted">${order.customer_address}</div>` : ''}
+${order.customer_area ? `<div class="muted">Area: ${order.customer_area}</div>` : ''}
+<div class="hr"></div>
+<table>${items}</table>
+<div class="hr"></div>
+<table class="totals">
+  <tr><td>Subtotal</td><td style="text-align:right">${formatUSD(subtotal)}</td></tr>
+  ${delivery > 0 ? `<tr><td>Delivery</td><td style="text-align:right">${formatUSD(delivery)}</td></tr>` : ''}
+  <tr class="big"><td>TOTAL</td><td style="text-align:right">${formatUSD(total)}</td></tr>
+  <tr><td class="muted">Payment</td><td class="muted" style="text-align:right">${(order.payment_method || 'cash_on_delivery').replaceAll('_', ' ')}</td></tr>
+</table>
+${order.note ? `<div class="hr"></div><div><strong>Note</strong><br>${order.note}</div>` : ''}
+<div class="thanks">Thank you! 🙏</div>
+<div class="center muted" style="margin-top:6px">Powered by JubaSquare</div>
+</body></html>`);
+    w.document.close();
+    setTimeout(() => w.print(), 300);
   };
 
   const cancelOrder = async (order) => {
@@ -346,13 +380,6 @@ ${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}<
             <p className="text-xs text-[var(--js-text-secondary)]">
               {totals.inFlight} active · {totals.handed} handed to driver
             </p>
-            {/* Live GPS beacon: only active when the seller is self-delivering
-                one or more orders. Silent when idle. */}
-            {sellerIsDriver && (
-              <div className="mt-2">
-                <DriverGeoBeacon active={orders.some((o) => o.delivery_status === "out_for_delivery")} />
-              </div>
-            )}
           </div>
           <button
             onClick={toggleOpen}
@@ -598,16 +625,19 @@ ${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}<
                 </div>
               )}
 
-              {/* Seller-as-driver: customer contact info (seller-managed delivery). */}
-              {sellerIsDriver && ["ready_for_pickup", "handed_to_driver"].includes(selected.seller_preparation_status) && (
-                <div className="border border-[#C84B31]/30 bg-[#C84B31]/5 rounded-xl p-3 space-y-1" data-testid="self-deliver-contact">
-                  <p className="text-xs uppercase tracking-wider font-bold text-[#C84B31]">🛵 You&apos;re the driver</p>
+              {/* Seller-as-driver: quick reminder that the seller's own external driver handles delivery.
+                  Customer contact info is visible because delivery is seller-managed (already handled
+                  by backend redaction). */}
+              {sellerIsDriver && ["ready_for_pickup", "handed_to_driver"].includes(selected.seller_preparation_status) && selected.delivery_status !== "delivered" && (
+                <div className="border border-[#C84B31]/30 bg-[#C84B31]/5 rounded-xl p-3 space-y-1" data-testid="seller-driver-info">
+                  <p className="text-xs uppercase tracking-wider font-bold text-[#C84B31]">🛵 Hand off to your driver</p>
                   <div className="text-sm space-y-0.5">
                     <p><strong>To:</strong> {selected.customer_name || "—"}</p>
                     <p><strong>Phone:</strong> {selected.customer_phone ? <a className="text-[#C84B31] underline" href={`tel:${selected.customer_phone}`}>{selected.customer_phone}</a> : "—"}</p>
                     <p><strong>Address:</strong> {selected.customer_address || "—"}</p>
                     <p><strong>Area:</strong> {selected.customer_area || "—"}</p>
                   </div>
+                  <p className="text-[10px] text-[var(--js-text-secondary)] pt-1">Print the customer receipt below and hand it to your driver along with the order.</p>
                 </div>
               )}
 
@@ -623,63 +653,39 @@ ${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}<
                   <button onClick={() => move(selected, "ready-for-pickup")} disabled={busy} data-testid="kitchen-ready-btn" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2 rounded-full">Ready for pickup</button>
                 )}
 
-                {/* Seller-as-driver: skip the OTP handshake and self-deliver */}
-                {sellerIsDriver && selected.seller_preparation_status === "ready_for_pickup" && selected.delivery_status !== "out_for_delivery" && (
-                  <button onClick={() => startSelfDeliver(selected)} disabled={busy} data-testid="self-deliver-start" className="bg-[#C84B31] hover:bg-[#A83A23] text-white text-xs font-semibold px-4 py-2 rounded-full">🛵 Start delivery</button>
+                {/* Seller-as-driver: one-click completion (cash received from own driver) */}
+                {sellerIsDriver && selected.seller_preparation_status === "ready_for_pickup" && selected.delivery_status !== "delivered" && (
+                  <button
+                    onClick={() => completeSelfDeliver(selected)}
+                    disabled={busy}
+                    data-testid="self-deliver-complete"
+                    className="bg-[#C84B31] hover:bg-[#A83A23] text-white text-xs font-semibold px-4 py-2 rounded-full"
+                  >
+                    ✓ Complete order (cash received)
+                  </button>
                 )}
 
                 {/* Separate-driver path: only show handover button when NOT self-delivering */}
                 {!sellerIsDriver && selected.pickup_status === "picked_up" && selected.seller_handover_status !== "handed_to_driver" && (
                   <button onClick={() => move(selected, "handed-to-driver")} disabled={busy} className="bg-[#1A1A1A] hover:bg-black text-white text-xs font-semibold px-4 py-2 rounded-full">Confirm I handed it to driver</button>
                 )}
+
+                {/* Customer receipt — printable slip that goes with the order.
+                    Available from ready_for_pickup onward. */}
+                {["ready_for_pickup", "handed_to_driver"].includes(selected.seller_preparation_status) && (
+                  <button
+                    onClick={() => printCustomerReceipt(selected)}
+                    data-testid="print-customer-receipt"
+                    className="inline-flex items-center gap-1 bg-white border border-[var(--js-border)] hover:border-[#1A1A1A] text-[var(--js-text)] text-xs font-semibold px-4 py-2 rounded-full"
+                  >
+                    <Printer className="w-3 h-3" /> Customer receipt
+                  </button>
+                )}
+
                 <button onClick={() => printTicket(selected)} className="ml-auto inline-flex items-center gap-1 bg-gray-100 hover:bg-gray-200 text-[var(--js-text)] text-xs font-semibold px-4 py-2 rounded-full">
-                  <Printer className="w-3 h-3" /> Print ticket
+                  <Printer className="w-3 h-3" /> Kitchen ticket
                 </button>
               </div>
-
-              {/* Seller-as-driver: complete-delivery form (OTP + signature + receiver) */}
-              {sellerIsDriver && selected.delivery_status === "out_for_delivery" && (
-                <div className="border-2 border-[#C84B31] bg-white rounded-xl p-4 space-y-3" data-testid="self-deliver-form">
-                  <p className="font-display font-bold text-sm text-[#C84B31]">Complete delivery</p>
-                  <p className="text-xs text-[var(--js-text-secondary)]">Ask the customer for their 4-digit delivery OTP, capture their signature and name.</p>
-                  <div>
-                    <label className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)] block mb-1">Customer delivery OTP</label>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={deliverOtp}
-                      onChange={(e) => setDeliverOtp(e.target.value)}
-                      placeholder="e.g. 4321"
-                      className="js-input"
-                      data-testid="self-deliver-otp"
-                      maxLength={12}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)] block mb-1">Receiver name</label>
-                    <input
-                      type="text"
-                      value={deliverReceiver}
-                      onChange={(e) => setDeliverReceiver(e.target.value)}
-                      placeholder="Full name of whoever received the order"
-                      className="js-input"
-                      data-testid="self-deliver-receiver"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)] block mb-1">Customer signature</label>
-                    <SignaturePad onChange={setDeliverSig} />
-                  </div>
-                  <button
-                    onClick={() => completeSelfDeliver(selected)}
-                    disabled={busy}
-                    data-testid="self-deliver-complete"
-                    className="w-full bg-[#C84B31] hover:bg-[#A83A23] text-white text-sm font-bold py-3 rounded-full disabled:bg-gray-400"
-                  >
-                    ✓ Mark as delivered
-                  </button>
-                </div>
-              )}
 
               {/* Cancel — only when still cancellable */}
               {["pending","accepted","preparing"].includes(selected.seller_preparation_status) ? (
