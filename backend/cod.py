@@ -65,21 +65,59 @@ hash_password: Any = None
 async def _enrich_rate(rows: list[dict]) -> list[dict]:
     """Attach `exchange_rate_ssp` to each row using its seller_id.
     Used for splits / restaurant-orders responses so the driver and admin UIs
-    can format totals with the right seller-specific rate."""
+    can format totals with the right seller-specific rate.
+
+    Also back-fills `delivery_managed_by` on rows where the field is missing
+    (legacy splits created before we started persisting it). Uses the parent
+    shop or restaurant's current setting; falls back to the platform default
+    ("seller" unless admin_manages_delivery is turned on). This is what
+    drives the wallet's `sellerIsDriver` flag → hides the Driver Pickup OTP
+    when the seller IS the delivery."""
     if not rows:
         return rows
     seller_ids = list({r.get("seller_id") for r in rows if r.get("seller_id")})
     settings = await get_settings()
     global_rate = float(settings.get("global_rate", 600.0))
+    admin_default = bool(settings.get("admin_manages_delivery", False))
+    fallback_managed = "admin" if admin_default else "seller"
+
     rates: dict[str, float] = {}
     if seller_ids:
         recs = await db.exchange_rates.find(
             {"seller_id": {"$in": seller_ids}}, {"_id": 0},
         ).to_list(2000)
         rates = {r["seller_id"]: float(r.get("rate", global_rate)) for r in recs}
+
+    # Which rows are missing delivery_managed_by? Look up the parent shop /
+    # restaurant in ONE batched query per side.
+    missing_shop_ids = list({r.get("shop_id") for r in rows if r.get("shop_id") and not r.get("delivery_managed_by")})
+    missing_rest_ids = list({r.get("restaurant_id") for r in rows if r.get("restaurant_id") and not r.get("delivery_managed_by")})
+    shop_flags: dict[str, str] = {}
+    rest_flags: dict[str, str] = {}
+    if missing_shop_ids:
+        recs = await db.shops.find(
+            {"id": {"$in": missing_shop_ids}}, {"_id": 0, "id": 1, "delivery_managed_by": 1},
+        ).to_list(2000)
+        shop_flags = {s["id"]: (s.get("delivery_managed_by") or "").lower() for s in recs}
+    if missing_rest_ids:
+        recs = await db.restaurants.find(
+            {"id": {"$in": missing_rest_ids}}, {"_id": 0, "id": 1, "delivery_managed_by": 1},
+        ).to_list(2000)
+        rest_flags = {r["id"]: (r.get("delivery_managed_by") or "").lower() for r in recs}
+
     for r in rows:
         sid = r.get("seller_id")
         r["exchange_rate_ssp"] = rates.get(sid, global_rate) if sid else global_rate
+        if not r.get("delivery_managed_by"):
+            entity_flag = ""
+            if r.get("shop_id"):
+                entity_flag = shop_flags.get(r["shop_id"], "")
+            elif r.get("restaurant_id"):
+                entity_flag = rest_flags.get(r["restaurant_id"], "")
+            if entity_flag in ("seller", "admin"):
+                r["delivery_managed_by"] = entity_flag
+            else:
+                r["delivery_managed_by"] = fallback_managed
     return rows
 
 
@@ -582,6 +620,10 @@ async def initialize_restaurant_order_cod(order: dict) -> dict:
         "commission_rate": rate,
         "platform_commission_usd": platform_commission,
         "seller_earning_usd": seller_earning,
+        # Persist delivery ownership snapshot (see splits equivalent). Drives
+        # the wallet's `sellerIsDriver` flag — hides Driver Pickup OTP when
+        # the seller is the delivery.
+        "delivery_managed_by": "seller" if _seller_keeps_delivery else "admin",
         "seller_pickup_otp": gen_otp(),
         "customer_delivery_otp": gen_otp(),
         "return_otp": gen_otp(),

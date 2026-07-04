@@ -4286,9 +4286,15 @@ async def seller_analytics(user: dict = Depends(require_role("seller", "admin"))
         pid_index[m["id"]] = m
     ids = list(pid_index.keys())
     if not ids:
+        empty_totals = {"today": {"revenue": 0, "orders": 0}, "week": {"revenue": 0, "orders": 0}, "month": {"revenue": 0, "orders": 0}, "all_time": {"revenue": 0, "orders": 0}}
         return {
-            "totals": {"today": {"revenue": 0, "orders": 0}, "week": {"revenue": 0, "orders": 0}, "month": {"revenue": 0, "orders": 0}, "all_time": {"revenue": 0, "orders": 0}},
+            "totals": empty_totals,
             "revenue_series": [],
+            "by_channel": {
+                "combined": {"totals": empty_totals, "revenue_series": []},
+                "marketplace": {"totals": empty_totals, "revenue_series": []},
+                "restaurant": {"totals": empty_totals, "revenue_series": []},
+            },
             "top_products": [],
             "low_performers": [],
             "low_stock": [],
@@ -4323,35 +4329,61 @@ async def seller_analytics(user: dict = Depends(require_role("seller", "admin"))
         except Exception:
             return 0.0, qty
 
-    totals = {"today": {"revenue": 0.0, "orders": 0}, "week": {"revenue": 0.0, "orders": 0}, "month": {"revenue": 0.0, "orders": 0}, "all_time": {"revenue": 0.0, "orders": 0}}
+    def _empty_totals():
+        return {
+            "today": {"revenue": 0.0, "orders": 0},
+            "week": {"revenue": 0.0, "orders": 0},
+            "month": {"revenue": 0.0, "orders": 0},
+            "all_time": {"revenue": 0.0, "orders": 0},
+        }
+
+    # by_channel tracks: combined (both), marketplace (shop splits), restaurant.
+    by_channel = {
+        "combined": _empty_totals(),
+        "marketplace": _empty_totals(),
+        "restaurant": _empty_totals(),
+    }
     per_product = {}  # id -> {qty, revenue}
-    days_bucket = {}  # 'YYYY-MM-DD' -> {revenue, orders}
+    days_bucket = {"combined": {}, "marketplace": {}, "restaurant": {}}
     for d in range(30):
         key = (now - timedelta(days=d)).date().isoformat()
-        days_bucket[key] = {"revenue": 0.0, "orders": 0}
+        for ch in days_bucket:
+            days_bucket[ch][key] = {"revenue": 0.0, "orders": 0}
+
+    def _bump(channel: str, earning: float, created: str):
+        bucket = by_channel[channel]
+        bucket["all_time"]["revenue"] += earning
+        bucket["all_time"]["orders"] += 1
+        if created >= today_iso:
+            bucket["today"]["revenue"] += earning
+            bucket["today"]["orders"] += 1
+        if created >= week_start:
+            bucket["week"]["revenue"] += earning
+            bucket["week"]["orders"] += 1
+        if created >= month_start:
+            bucket["month"]["revenue"] += earning
+            bucket["month"]["orders"] += 1
+            day_key = created[:10]
+            if day_key in days_bucket[channel]:
+                days_bucket[channel][day_key]["revenue"] += earning
+                days_bucket[channel][day_key]["orders"] += 1
 
     # --- Earning aggregation: iterate splits + restaurant orders. Only
     # count DELIVERED rows so aborted/pending orders don't inflate totals.
-    for row in splits + rest_orders:
+    for row in splits:
         if row.get("delivery_status") != "delivered":
             continue
-        created = row.get("created_at") or ""
         earning = float(row.get("seller_earning_usd") or 0)
-        totals["all_time"]["revenue"] += earning
-        totals["all_time"]["orders"] += 1
-        if created >= today_iso:
-            totals["today"]["revenue"] += earning
-            totals["today"]["orders"] += 1
-        if created >= week_start:
-            totals["week"]["revenue"] += earning
-            totals["week"]["orders"] += 1
-        if created >= month_start:
-            totals["month"]["revenue"] += earning
-            totals["month"]["orders"] += 1
-            day_key = created[:10]
-            if day_key in days_bucket:
-                days_bucket[day_key]["revenue"] += earning
-                days_bucket[day_key]["orders"] += 1
+        created = row.get("created_at") or ""
+        _bump("marketplace", earning, created)
+        _bump("combined", earning, created)
+    for row in rest_orders:
+        if row.get("delivery_status") != "delivered":
+            continue
+        earning = float(row.get("seller_earning_usd") or 0)
+        created = row.get("created_at") or ""
+        _bump("restaurant", earning, created)
+        _bump("combined", earning, created)
 
     # --- Per-product qty / gross-revenue (used for top/low product cards).
     for o in orders_marketplace:
@@ -4363,10 +4395,16 @@ async def seller_analytics(user: dict = Depends(require_role("seller", "admin"))
                 pp["revenue"] += r
 
     # Round money for cleanliness
-    for k in totals:
-        totals[k]["revenue"] = round(totals[k]["revenue"], 2)
+    for ch, tot in by_channel.items():
+        for k in tot:
+            tot[k]["revenue"] = round(tot[k]["revenue"], 2)
 
-    revenue_series = [{"date": d, "revenue": round(v["revenue"], 2), "orders": v["orders"]} for d, v in sorted(days_bucket.items())]
+    # Combined series (default view) + per-channel series
+    revenue_series = {
+        ch: [{"date": d, "revenue": round(v["revenue"], 2), "orders": v["orders"]}
+             for d, v in sorted(days_bucket[ch].items())]
+        for ch in ("combined", "marketplace", "restaurant")
+    }
 
     # Top products
     top_sorted = sorted(per_product.items(), key=lambda kv: kv[1]["revenue"], reverse=True)[:5]
@@ -4404,8 +4442,15 @@ async def seller_analytics(user: dict = Depends(require_role("seller", "admin"))
     low_stock = sorted(low_stock, key=lambda x: x["stock"])[:10]
 
     return {
-        "totals": totals,
-        "revenue_series": revenue_series,
+        # New shape: per-channel breakdown. `totals` retained at top level =
+        # combined so existing UIs don't break.
+        "totals": by_channel["combined"],
+        "revenue_series": revenue_series["combined"],
+        "by_channel": {
+            "combined": {"totals": by_channel["combined"], "revenue_series": revenue_series["combined"]},
+            "marketplace": {"totals": by_channel["marketplace"], "revenue_series": revenue_series["marketplace"]},
+            "restaurant": {"totals": by_channel["restaurant"], "revenue_series": revenue_series["restaurant"]},
+        },
         "top_products": top_products,
         "low_performers": low_performers,
         "low_stock": low_stock,

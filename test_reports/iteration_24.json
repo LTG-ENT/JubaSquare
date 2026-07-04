@@ -1,0 +1,22 @@
+{
+  "summary": "Iter24 backend testing — validated analytics by_channel shape+math, _enrich_rate delivery_managed_by back-fill (3 scenarios), POST /api/restaurant-orders persisting delivery_managed_by, and regression on /api/orders/mine + /api/admin/odoo/orders/pending + admin login. All 8 pytest cases pass.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter24_analytics_channels.py",
+    "/app/test_reports/pytest/iter24_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "cod._enrich_rate: back-fill logic is correct and batched (one shops query + one restaurants query). Falls back to platform default via settings.admin_manages_delivery. Field is mutated in the returned rows only — not persisted to Mongo, so legacy docs stay legacy on disk. That's fine for the wallet-UI use case described here, but if any other code path reads the split directly from Mongo it will still see the missing field. Consider a one-shot migration if this becomes an issue.",
+    "server.py seller_analytics: only counts delivered rows for earnings (good). Uses row['created_at'] string prefix compare for the 30-day bucket — safe because ISO 8601 strings are lexicographically comparable when in UTC. Note: today/week/month all use `_bump` cumulative buckets, so 'today' will also count into 'week' and 'month' — that appears intentional (nested time windows).",
+    "cod.initialize_restaurant_order_cod: delivery_managed_by is resolved (not stored as 'default'), matching splits behaviour — consistent."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "not tested (per request)"},
+  "test_credentials": "admin@jubasquare.com / 1234 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "All seeded docs are RUN_TAG-prefixed (TEST_iter24_<hex>_...) and cleaned in module-scoped fixture teardown across users/shops/restaurants/products/menu_items/orders/restaurant_orders/seller_order_splits/exchange_rates.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Reusable test fixture pattern: BlockingJar cookie jar prevents /auth/login session cookies leaking into subsequent requests (Authorization: Bearer only). Env: pytest run requires REACT_APP_BACKEND_URL, MONGO_URL, DB_NAME exported inline (do NOT `export $(cat .env)` because the SSH key contains '=' and breaks). Iter24 test file: /app/backend/tests/test_iter24_analytics_channels.py."
+}

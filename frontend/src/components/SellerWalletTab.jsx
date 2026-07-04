@@ -15,6 +15,7 @@ import {
   X,
   KeyRound,
   PackageCheck,
+  Printer,
 } from "lucide-react";
 
 const STATUS_PILL = {
@@ -125,6 +126,102 @@ export default function SellerWalletTab() {
 
   // Optimized auto-refresh with visibility detection
   useOptimizedPolling(silentRefresh, 12000, { runOnMount: false });
+
+  // Customer/order receipt printer for completed orders. Opens a new tab
+  // with a clean thermal-friendly HTML template mirroring KitchenDashboard's
+  // customer receipt. Works for both marketplace splits and restaurant orders.
+  const printReceipt = (row) => {
+    if (!row) return;
+    const w = window.open("", "_blank");
+    if (!w) return;
+    const isRest = row._kind === "rest";
+    const items = row.items || row.items_secure || [];
+    const rate = row.exchange_rate_ssp || exchangeRate;
+    const fmt = (usd) => formatPrice(usd, rate, currency);
+    const dtStr = (row.delivered_at || row.created_at || "").slice(0, 16).replace("T", " ");
+    const short = (id) => (id || "").slice(0, 8).toUpperCase();
+    const rows = items.map((it, idx) => `
+      <tr>
+        <td class="num">${idx + 1}</td>
+        <td>${it.name}${(it.sides || []).length ? '<div class="sides">' + it.sides.map((s) => `+ ${s.name}${s.price_usd ? ` (${fmt(s.price_usd)})` : ""}`).join("<br>") + "</div>" : ""}</td>
+        <td class="qty">${it.quantity}</td>
+      </tr>`).join("");
+    const subtotal = row.product_subtotal_usd || row.subtotal || 0;
+    const delivery = row.delivery_fee_usd || row.delivery_fee || 0;
+    const total = row.order_total_usd || row.total || (subtotal + delivery);
+    const paymentLabel = (row.payment_method || "cash_on_delivery").replace(/_/g, " ").toUpperCase();
+    const driverLine = row.seller_driver_name || row.seller_driver_phone
+      ? `${row.seller_driver_name || "Driver"}${row.seller_driver_phone ? ` · ${row.seller_driver_phone}` : ""}`
+      : (row.driver_name || "");
+    w.document.write(`<!doctype html><html><head><title>Receipt ${short(row.id)}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: 'Helvetica Neue', Arial, sans-serif; width: 380px; margin: 20px auto; color: #111; font-size: 12px; line-height: 1.5; }
+  .receipt { border: 1px dotted #888; padding: 22px; }
+  h1 { text-align: center; font-size: 24px; letter-spacing: 4px; margin: 0 0 4px; font-weight: 800; }
+  .dots { text-align: center; letter-spacing: 6px; margin: 0 0 8px; font-size: 14px; }
+  .badge { display: block; margin: 0 auto 14px; padding: 6px 22px; background: #111; color: #fff; text-align: center; font-weight: 700; letter-spacing: 3px; font-size: 12px; width: fit-content; }
+  .divider { border-top: 1.5px dashed #888; margin: 12px 0; }
+  .from { background: #f0f0f0; padding: 10px 14px; border-radius: 3px; font-weight: 700; margin-bottom: 12px; font-size: 13px; letter-spacing: 1px; }
+  .meta { display: table; width: 100%; }
+  .col { display: table-cell; width: 50%; vertical-align: top; padding: 0 10px; font-size: 11px; }
+  .col + .col { border-left: 1px solid #999; }
+  .row { margin: 8px 0; }
+  .lbl { font-weight: 700; letter-spacing: 1px; text-transform: uppercase; font-size: 10px; }
+  table.items { width: 100%; border-collapse: collapse; margin: 14px 0 8px; }
+  table.items thead th { background: #111; color: #fff; padding: 8px 6px; text-align: left; font-size: 11px; letter-spacing: 2px; }
+  table.items thead th.qty { text-align: right; }
+  table.items tbody td { padding: 8px 6px; border-bottom: 1px dashed #bbb; }
+  table.items tbody tr:last-child td { border-bottom: 1.5px solid #111; }
+  td.num { width: 30px; text-align: center; color: #555; }
+  td.qty { width: 40px; text-align: right; font-weight: 700; }
+  .sides { color: #666; font-size: 10px; margin-top: 2px; }
+  .totals { text-align: right; padding: 6px 6px 4px; font-size: 12px; }
+  .totals .big { font-size: 16px; font-weight: 800; margin-top: 4px; }
+  .foot-box { border: 1px solid #333; border-radius: 8px; padding: 10px 14px; margin-top: 12px; font-size: 11px; }
+  .thanks { text-align: center; font-family: 'Brush Script MT', cursive; font-size: 24px; margin: 14px 0 6px; }
+  .brand { text-align: center; font-weight: 800; font-size: 16px; letter-spacing: 1px; margin-top: 4px; }
+  @media print { body { margin: 0; } .receipt { border: none; } }
+</style></head><body>
+<div class="receipt">
+  <h1>CUSTOMER RECEIPT</h1>
+  <div class="dots">• • •</div>
+  <div class="badge">${isRest ? "RESTAURANT" : "SHOP"} · ${(row.delivery_type || "delivery").toUpperCase()}</div>
+  <div class="from">FROM: ${row.shop_name || "Seller"}</div>
+  <div class="meta">
+    <div class="col">
+      <div class="row"><span class="lbl">Order ID</span><br>${short(row.id)}</div>
+      <div class="row"><span class="lbl">Delivered</span><br>${dtStr || "—"}</div>
+      ${driverLine ? `<div class="row"><span class="lbl">Driver</span><br>${driverLine}</div>` : ""}
+    </div>
+    <div class="col">
+      <div class="row"><span class="lbl">Customer</span><br>${row.customer_name || "—"}</div>
+      ${row.customer_phone ? `<div class="row"><span class="lbl">Phone</span><br>${row.customer_phone}</div>` : ""}
+      ${row.customer_address ? `<div class="row"><span class="lbl">Address</span><br>${row.customer_address}${row.customer_area ? ", " + row.customer_area : ""}</div>` : ""}
+    </div>
+  </div>
+  <table class="items">
+    <thead><tr><th class="num">#</th><th>ITEMS</th><th class="qty">QTY</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="totals">
+    <div>Subtotal: <strong>${fmt(subtotal)}</strong></div>
+    ${delivery > 0 ? `<div>Delivery: <strong>${fmt(delivery)}</strong></div>` : ""}
+    <div class="big">TOTAL: ${fmt(total)}</div>
+    ${currency === "SSP" ? `<div style="font-size:10px;color:#666">Rate: 1 USD = SSP ${rate.toLocaleString()}</div>` : ""}
+  </div>
+  <div class="foot-box">
+    <div><span class="lbl">Payment</span> ${paymentLabel}</div>
+    ${row.note ? `<div style="margin-top:6px"><span class="lbl">Note</span> ${row.note}</div>` : ""}
+  </div>
+  <div class="thanks">Thank You!</div>
+  <div class="brand">— JubaSquare —</div>
+</div>
+</body></html>`);
+    w.document.close();
+    setTimeout(() => { try { w.focus(); w.print(); } catch (_) { /* popup blocked */ } }, 400);
+  };
+
 
   const act = async (split, action) => {
     const isRest = split._kind === "rest";
@@ -396,13 +493,22 @@ export default function SellerWalletTab() {
                       <td className="px-3 py-2 text-xs text-[var(--js-text-secondary)]">{s.delivered_at ? s.delivered_at.slice(0, 16).replace("T", " ") : "—"}</td>
                       <td className="px-3 py-2"><Pill value={s.payout_status || "not_ready"} mapping={PAYOUT_PILL} /></td>
                       <td className="px-3 py-2 text-right">
-                        <button
-                          onClick={() => setDetail(s)}
-                          data-testid={`open-completed-${s.id.slice(0,8)}`}
-                          className="inline-flex items-center gap-1 text-xs bg-[#1A1A1A] hover:bg-black text-white font-semibold px-3 py-1.5 rounded-full"
-                        >
-                          <Eye className="w-3 h-3" /> View
-                        </button>
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            onClick={() => printReceipt(s)}
+                            data-testid={`print-completed-${s.id.slice(0,8)}`}
+                            className="inline-flex items-center gap-1 text-xs bg-emerald-700 hover:bg-emerald-800 text-white font-semibold px-3 py-1.5 rounded-full"
+                          >
+                            <Printer className="w-3 h-3" /> Print
+                          </button>
+                          <button
+                            onClick={() => setDetail(s)}
+                            data-testid={`open-completed-${s.id.slice(0,8)}`}
+                            className="inline-flex items-center gap-1 text-xs bg-[#1A1A1A] hover:bg-black text-white font-semibold px-3 py-1.5 rounded-full"
+                          >
+                            <Eye className="w-3 h-3" /> View
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -671,6 +777,13 @@ export default function SellerWalletTab() {
                     data-testid="wallet-self-deliver-complete"
                     className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold px-4 py-2 rounded-full"
                   >Cash collected from driver</button>
+                )}
+                {detail.delivery_status === "delivered" && (
+                  <button
+                    onClick={() => printReceipt(detail)}
+                    data-testid="wallet-print-receipt"
+                    className="inline-flex items-center gap-1 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold px-4 py-2 rounded-full"
+                  ><Printer className="w-3 h-3" /> Print Receipt</button>
                 )}
                 {/* Admin-driver flow: legacy "handed to driver" only for platform drivers */}
                 {!sellerIsDriver && detail.pickup_status === "picked_up" && detail.seller_handover_status !== "handed_to_driver" && (
