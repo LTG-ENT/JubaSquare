@@ -511,11 +511,12 @@ export default function SellerWalletTab() {
 
       {/* DETAIL MODAL */}
       {detail && (() => {
-        // Seller-managed delivery? Split now carries `delivery_managed_by`
-        // resolved at creation (marketplace) or the restaurant's own flag.
-        const sellerIsDriver = (detail._kind === "rest"
-          ? (detail.delivery_managed_by === "seller" || detail.self_delivered_by_seller)
-          : (detail.delivery_managed_by === "seller" || detail.self_delivered_by_seller));
+        // Seller-managed delivery? Both marketplace and restaurant paths
+        // carry the same fields on the row (delivery_managed_by resolved at
+        // creation, self_delivered_by_seller set once self-deliver starts).
+        const sellerIsDriver =
+          detail.delivery_managed_by === "seller" ||
+          detail.self_delivered_by_seller;
         // Seller-managed self-deliver endpoints:
         const selfBase = detail._kind === "rest"
           ? `/seller/restaurant-orders/${detail.id}`

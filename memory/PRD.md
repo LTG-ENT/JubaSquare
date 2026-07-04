@@ -21,6 +21,20 @@ A multilingual (English/Arabic RTL) Juba-focused marketplace connecting shops, r
 
 ## Completed (Feb 2026, this fork)
 
+### Iter 23 — Shop-flow currency/timeline/self-deliver bug batch (Feb 4, 2026)
+Reported by user; all 11/11 backend tests pass (`/app/test_reports/iteration_23.json`).
+
+- ✅ **Wallet item price SSP 372 → 4,030 bug** — root cause was a misplaced paren in `SellerWalletTab.jsx` (`formatPrice(a || (b, c, d))` — the comma operator collapsed to just `currency`, so `formatPrice` ran with rate=undefined → default 600 fallback). Fixed to `formatPrice(line_total_usd ?? price*qty, detail.exchange_rate_ssp || exchangeRate, currency)`.
+- ✅ **Sales Analytics $0.62 → $5.38** — `/api/seller/analytics` now sums `seller_earning_usd` from delivered `seller_order_splits` + `restaurant_orders` (what the seller actually pockets) instead of raw item revenue from `db.orders`. Per-product cards still use gross for the top/low-product breakdown, documented in the endpoint docstring.
+- ✅ **Customer sees 1,200 SSP delivery instead of 13,000** — `enrich_marketplace_orders` now attaches an **order-level** `exchange_rate_ssp` (from the primary seller), and `Orders.jsx` uses `o.exchange_rate_ssp` (not the global `exchangeRate`) for delivery-fee + total SSP conversion. Same fix applied to the restaurant order section.
+- ✅ **Customer timeline never advances past 'Placed'** — `OrderStatusTimeline` now accepts a `preparationStatus` prop. `Orders.jsx` computes `maxPrep` across splits and passes it: `accepted`/`preparing` → step 1, `ready_for_pickup`/`handed_to_driver` → step 2, `delivered` → step 3. Same wiring for restaurant orders using `o.seller_preparation_status`.
+- ✅ **Customer sees own phone instead of driver's** — computed `driverContact` from splits (`seller_driver_phone` || `driver_phone`) and displays it prefixed with `Driver ·`. Falls back to customer phone only when no driver assigned.
+- ✅ **Split stays in 'Active' after cash collected** — new "Completed" sub-tab in `SellerWalletTab.jsx` between "Active Orders" and "Cancelled Orders". Active filter excludes rows where `delivery_status === 'delivered'`. Completed table shows delivery time + payout status + View action.
+- ✅ **Driver Pickup OTP visible when seller = driver** — hidden entirely when `delivery_managed_by === 'seller'`. Replaced by two buttons: `Send for delivery` (data-testid `wallet-self-deliver-start`) and `Cash collected from driver` (`wallet-self-deliver-complete`). No admin driver user is required for the seller-managed path.
+- ✅ **Seller-driver contact persistence** — `POST /seller/splits/{id}/self-deliver-start` (and restaurant twin) now accept optional Body `{driver_name, driver_phone}` and persist as `seller_driver_name` / `seller_driver_phone` on the split — surfaced to the customer via the driver-contact chip.
+- ✅ **Split creation persists `delivery_managed_by`** — resolved value ('seller' or 'admin') is stored on the split at creation for downstream UIs to read without re-consulting shop settings.
+- ✅ **Targeted dark-mode patch** — outer `bg-white` containers in `Orders.jsx` + wallet detail modal now have `dark:bg-[var(--js-panel)]` + `dark:border-[var(--js-border)]`. Full sweep still pending (see backlog).
+
 ### Iter 22 — Odoo pull-sync enrichment + Customer Receipt polish (Feb 3, 2026)
 - ✅ **Missing `Body` import** — `odoo_routes.py` was crashing on startup with `NameError: name 'Body' is not defined` (imported in fix). Backend now boots clean.
 - ✅ **GET /api/admin/odoo/orders/pending** — now returns the enriched Odoo-consumable envelope per shop split / restaurant order: `{sub_order_id, order_id, entity_type, odoo_order_ref, customer_*, delivery_area/address, payment_method, delivery_type, currency='USD', exchange_rate_ssp, subtotal_usd, delivery_fee_usd, total_usd, items[{sku, odoo_product_id, name, quantity, price_usd, sides[]}], meta.source='jubasquare'}`. SKU/`odoo_product_id` are resolved via a batched product/menu-item lookup. Only orders with `odoo_connection.enabled=true AND send_orders=true` are exposed.
