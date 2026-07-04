@@ -21,6 +21,17 @@ A multilingual (English/Arabic RTL) Juba-focused marketplace connecting shops, r
 
 ## Completed (Feb 2026, this fork)
 
+### Iter 24 — Analytics by channel + wallet print receipts + OTP back-fill (Feb 4, 2026)
+Reported by user; 8/8 backend tests pass (`/app/test_reports/iteration_24.json`).
+
+- ✅ **Leftover Driver Pickup OTP on legacy splits** — `_enrich_rate` in `cod.py` now back-fills `delivery_managed_by` at read time (one batched query per side; falls back to platform default via `settings.admin_manages_delivery`). Legacy splits created before the field was persisted now correctly report `sellerIsDriver=true` → OTP hides. Admin-driver flow still shows OTP.
+- ✅ **Restaurant orders persist delivery_managed_by** — `initialize_restaurant_order_cod` now stores the resolved 'seller'/'admin' value at creation, matching splits.
+- ✅ **Sales Analytics split by channel** — `/api/seller/analytics` returns `by_channel: {combined, marketplace, restaurant}` with each carrying its own `totals` + `revenue_series`. Backwards-compatible top-level `totals` still equals combined.
+- ✅ **Analytics currency toggle** — `SellerAnalyticsTab.jsx` now respects `useCart().currency` + `exchangeRate`. Stat cards, chart Y-axis, and tooltips all reflect the toggle.
+- ✅ **Analytics channel selector** — segmented control (All / Shops / Restaurants) drives the stat cards + revenue chart.
+- ✅ **Analytics Print** — dedicated print view lists all three channels + top products + low stock; SSP/USD-aware with the seller's rate.
+- ✅ **Wallet: Print Receipt on Completed orders** — `SellerWalletTab.jsx` adds a Print button (data-testid `print-completed-<id>`) on each Completed row and inside the detail modal (data-testid `wallet-print-receipt`). Thermal-friendly HTML template mirrors the Kitchen Dashboard customer receipt style; works for both marketplace splits and restaurant orders.
+
 ### Iter 23 — Shop-flow currency/timeline/self-deliver bug batch (Feb 4, 2026)
 Reported by user; all 11/11 backend tests pass (`/app/test_reports/iteration_23.json`).
 
