@@ -469,6 +469,13 @@ async def create_marketplace_splits(order: dict) -> List[dict]:
             "commission_rate": rate,
             "platform_commission_usd": platform_commission,
             "seller_earning_usd": seller_earning,
+            # Persist the DELIVERY OWNERSHIP snapshot on the split. The
+            # frontend uses this to know whether to show the "Driver Pickup
+            # OTP" (admin-driver flow) or the seller self-deliver buttons
+            # ("Send for delivery" / "Cash collected from driver"). We store
+            # the RESOLVED value (not "default") so downstream code doesn't
+            # need to re-consult platform settings.
+            "delivery_managed_by": "seller" if _seller_keeps_delivery else "admin",
             "seller_pickup_otp": gen_otp(),
             "customer_delivery_otp": gen_otp(),
             "return_otp": gen_otp(),
@@ -1362,12 +1369,14 @@ def register_endpoints():
         return not bool(sysettings.get("admin_manages_delivery", False))
 
     @new_router.post("/seller/splits/{split_id}/self-deliver-start")
-    async def seller_self_deliver_start(split_id: str, user: dict = seller_dep):
+    async def seller_self_deliver_start(split_id: str, body: dict = Body(default_factory=dict), user: dict = seller_dep):
         """Seller-managed: mark the order as handed off to the seller's own
         external driver. No OTP handshake — the seller vouches. Moves to
         seller_preparation_status='handed_to_driver' + delivery_status='out_for_delivery'
         so it disappears from the kitchen's active queue while the external
-        driver is en-route."""
+        driver is en-route. Optional body: {driver_name, driver_phone} — the
+        seller can attach their driver's contact so the CUSTOMER order page
+        can display it instead of the customer's own phone."""
         s = await _find_split(split_id)
         _check_seller_owns(s, user)
         shop = await db.shops.find_one({"id": s.get("shop_id")}, {"_id": 0}) or {}
@@ -1375,19 +1384,21 @@ def register_endpoints():
         if s.get("seller_preparation_status") != "ready_for_pickup":
             raise HTTPException(400, "Mark the order ready for pickup first")
         now = now_iso()
-        await db.seller_order_splits.update_one(
-            {"id": split_id},
-            {"$set": {
-                "driver_id": user["id"],
-                "pickup_status": "picked_up",
-                "seller_handover_status": "handed_to_driver",
-                "seller_preparation_status": "handed_to_driver",
-                "delivery_status": "out_for_delivery",
-                "picked_up_at": now,
-                "self_delivered_by_seller": True,
-                "updated_at": now,
-            }},
-        )
+        set_fields = {
+            "driver_id": user["id"],
+            "pickup_status": "picked_up",
+            "seller_handover_status": "handed_to_driver",
+            "seller_preparation_status": "handed_to_driver",
+            "delivery_status": "out_for_delivery",
+            "picked_up_at": now,
+            "self_delivered_by_seller": True,
+            "updated_at": now,
+        }
+        driver_name = (body or {}).get("driver_name")
+        driver_phone = (body or {}).get("driver_phone")
+        if driver_name: set_fields["seller_driver_name"] = str(driver_name).strip()[:80]
+        if driver_phone: set_fields["seller_driver_phone"] = str(driver_phone).strip()[:32]
+        await db.seller_order_splits.update_one({"id": split_id}, {"$set": set_fields})
         return await _find_split(split_id)
 
     @new_router.post("/seller/splits/{split_id}/self-deliver-complete")
@@ -1437,7 +1448,7 @@ def register_endpoints():
         return await _find_split(split_id)
 
     @new_router.post("/seller/restaurant-orders/{order_id}/self-deliver-start")
-    async def rest_self_deliver_start(order_id: str, user: dict = seller_dep):
+    async def rest_self_deliver_start(order_id: str, body: dict = Body(default_factory=dict), user: dict = seller_dep):
         """Restaurant twin of the splits endpoint above."""
         o = await _find_rest_order(order_id)
         _check_seller_owns(o, user)
@@ -1446,20 +1457,22 @@ def register_endpoints():
         if o.get("seller_preparation_status") != "ready_for_pickup":
             raise HTTPException(400, "Mark the order ready for pickup first")
         now = now_iso()
-        await db.restaurant_orders.update_one(
-            {"id": order_id},
-            {"$set": {
-                "driver_id": user["id"],
-                "pickup_status": "picked_up",
-                "seller_handover_status": "handed_to_driver",
-                "seller_preparation_status": "handed_to_driver",
-                "delivery_status": "out_for_delivery",
-                "status": "out_for_delivery",
-                "picked_up_at": now,
-                "self_delivered_by_seller": True,
-                "updated_at": now,
-            }},
-        )
+        set_fields = {
+            "driver_id": user["id"],
+            "pickup_status": "picked_up",
+            "seller_handover_status": "handed_to_driver",
+            "seller_preparation_status": "handed_to_driver",
+            "delivery_status": "out_for_delivery",
+            "status": "out_for_delivery",
+            "picked_up_at": now,
+            "self_delivered_by_seller": True,
+            "updated_at": now,
+        }
+        driver_name = (body or {}).get("driver_name")
+        driver_phone = (body or {}).get("driver_phone")
+        if driver_name: set_fields["seller_driver_name"] = str(driver_name).strip()[:80]
+        if driver_phone: set_fields["seller_driver_phone"] = str(driver_phone).strip()[:32]
+        await db.restaurant_orders.update_one({"id": order_id}, {"$set": set_fields})
         return await _find_rest_order(order_id)
 
     @new_router.post("/seller/restaurant-orders/{order_id}/self-deliver-complete")

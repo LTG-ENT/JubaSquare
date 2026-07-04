@@ -9,7 +9,7 @@ import { Package, ChefHat, Truck, CheckCircle2, XCircle, Clock } from "lucide-re
  *  - deliveryStatus: optional driver-side status (out_for_delivery, picked_up, delivered, …)
  *  - cancelled: boolean — overrides everything with a cancelled state
  */
-export default function OrderStatusTimeline({ kind, status, deliveryStatus, cancelled }) {
+export default function OrderStatusTimeline({ kind, status, deliveryStatus, preparationStatus, cancelled }) {
   // Build the 4 steps we want the customer to see.
   const steps =
     kind === "restaurant"
@@ -33,19 +33,25 @@ export default function OrderStatusTimeline({ kind, status, deliveryStatus, canc
   } else if (kind === "restaurant") {
     const s = (status || "").toLowerCase();
     const d = (deliveryStatus || "").toLowerCase();
+    const p = (preparationStatus || "").toLowerCase();
     if (d === "delivered" || s === "completed") activeIndex = 3;
     else if (d === "out_for_delivery") activeIndex = 2;
-    else if (s === "ready" || d === "picked_up") activeIndex = 2;
-    else if (s === "accepted" || s === "cooking") activeIndex = 1;
+    else if (s === "ready" || d === "picked_up" || p === "ready_for_pickup" || p === "handed_to_driver") activeIndex = 2;
+    else if (s === "accepted" || s === "cooking" || p === "accepted" || p === "preparing") activeIndex = 1;
     else if (s === "pending") activeIndex = 0;
     else activeIndex = 0;
   } else {
-    // marketplace parent status
+    // marketplace parent status. Prefer split-level signals (delivery_status
+    // + seller_preparation_status from the sub-order) because the parent
+    // db.orders.status stays "Pending" for the whole lifetime — sellers
+    // update the SPLIT, not the parent.
     const s = (status || "").toLowerCase();
     const d = (deliveryStatus || "").toLowerCase();
+    const p = (preparationStatus || "").toLowerCase();
     if (s === "delivered" || d === "delivered") activeIndex = 3;
     else if (d === "out_for_delivery") activeIndex = 2;
-    else if (d === "picked_up" || s === "in progress") activeIndex = 1;
+    else if (p === "ready_for_pickup" || p === "handed_to_driver" || d === "picked_up") activeIndex = 2;
+    else if (p === "accepted" || p === "preparing" || s === "in progress") activeIndex = 1;
     else activeIndex = 0;
   }
 

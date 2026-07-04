@@ -175,15 +175,29 @@ export default function SellerWalletTab() {
     }
   };
 
-  // Active orders excludes anything already paid out OR cancelled
-  // Paid out orders live in "Payout History", cancelled orders in "Cancelled Orders"
+  // Active orders excludes anything already paid out OR cancelled OR delivered.
+  // Delivered orders live in the new "Completed" tab so sellers see a clean
+  // active board (nothing they can act on) once cash has been collected.
   const allItems = [
     ...splits.map((s) => ({ ...s, _kind: "split" })),
     ...restOrders.map((r) => ({ ...r, _kind: "rest" })),
   ].filter((row) => 
     row.payout_status !== "paid" && 
     row.seller_preparation_status !== "cancelled" &&
-    !["cancel_approved", "cancelled"].includes(row.status)
+    !["cancel_approved", "cancelled"].includes(row.status) &&
+    row.delivery_status !== "delivered"
+  );
+
+  // Completed orders — delivered (cash collected) but not yet paid out.
+  // Sit here until admin generates & pays the payout, at which point they
+  // graduate to "Payout History".
+  const completedItems = [
+    ...splits.map((s) => ({ ...s, _kind: "split" })),
+    ...restOrders.map((r) => ({ ...r, _kind: "rest" })),
+  ].filter((row) =>
+    row.delivery_status === "delivered" &&
+    row.payout_status !== "paid" &&
+    row.seller_preparation_status !== "cancelled"
   );
 
   // Cancelled orders
@@ -208,6 +222,7 @@ export default function SellerWalletTab() {
         {[
           { id: "overview", label: "Overview" },
           { id: "splits", label: "Active Orders" },
+          { id: "completed", label: "Completed" },
           { id: "cancelled", label: "Cancelled Orders" },
           { id: "payouts", label: "Payout History" },
         ].map((s) => (
@@ -347,6 +362,57 @@ export default function SellerWalletTab() {
         </div>
       )}
 
+      {view === "completed" && (
+        <div data-testid="wallet-completed-view">
+          {completedItems.length === 0 ? (
+            <div className="text-center py-12 text-[var(--js-text-secondary)] border border-dashed border-[var(--js-border)] rounded-2xl">
+              No completed orders yet.
+            </div>
+          ) : (
+            <div className="overflow-x-auto border border-[var(--js-border)] rounded-2xl bg-white dark:bg-[var(--js-panel)]">
+              <table className="min-w-full text-sm">
+                <thead className="bg-[var(--js-bg)] text-xs uppercase tracking-wide text-[var(--js-text-secondary)]">
+                  <tr>
+                    <th className="text-left px-3 py-3">Order</th>
+                    <th className="text-left px-3 py-3">Customer</th>
+                    <th className="text-left px-3 py-3">Total</th>
+                    <th className="text-left px-3 py-3">Your earning</th>
+                    <th className="text-left px-3 py-3">Delivered</th>
+                    <th className="text-left px-3 py-3">Payout</th>
+                    <th className="text-right px-3 py-3">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {completedItems.map((s) => (
+                    <tr key={s.id} className="border-t border-[var(--js-border)]">
+                      <td className="px-3 py-2 font-mono text-xs text-[var(--js-text)]">
+                        {s._kind === "rest" ? "R:" : ""}{s.id.slice(0, 8)}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="font-medium text-[var(--js-text)]">{s.customer_name}</div>
+                      </td>
+                      <td className="px-3 py-2 font-semibold text-[var(--js-text)]">{formatPrice(s.order_total_usd, s.exchange_rate_ssp || exchangeRate, currency)}</td>
+                      <td className="px-3 py-2 font-semibold text-emerald-700 dark:text-emerald-400">{formatPrice(s.seller_earning_usd, s.exchange_rate_ssp || exchangeRate, currency)}</td>
+                      <td className="px-3 py-2 text-xs text-[var(--js-text-secondary)]">{s.delivered_at ? s.delivered_at.slice(0, 16).replace("T", " ") : "—"}</td>
+                      <td className="px-3 py-2"><Pill value={s.payout_status || "not_ready"} mapping={PAYOUT_PILL} /></td>
+                      <td className="px-3 py-2 text-right">
+                        <button
+                          onClick={() => setDetail(s)}
+                          data-testid={`open-completed-${s.id.slice(0,8)}`}
+                          className="inline-flex items-center gap-1 text-xs bg-[#1A1A1A] hover:bg-black text-white font-semibold px-3 py-1.5 rounded-full"
+                        >
+                          <Eye className="w-3 h-3" /> View
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {view === "cancelled" && (
         <div>
           {cancelledItems.length === 0 ? (
@@ -444,14 +510,49 @@ export default function SellerWalletTab() {
       )}
 
       {/* DETAIL MODAL */}
-      {detail && (
+      {detail && (() => {
+        // Seller-managed delivery? Split now carries `delivery_managed_by`
+        // resolved at creation (marketplace) or the restaurant's own flag.
+        const sellerIsDriver = (detail._kind === "rest"
+          ? (detail.delivery_managed_by === "seller" || detail.self_delivered_by_seller)
+          : (detail.delivery_managed_by === "seller" || detail.self_delivered_by_seller));
+        // Seller-managed self-deliver endpoints:
+        const selfBase = detail._kind === "rest"
+          ? `/seller/restaurant-orders/${detail.id}`
+          : `/seller/splits/${detail.id}`;
+        const callSelfDeliver = async (action) => {
+          try {
+            await api.post(`${selfBase}/${action}`);
+            toast.success(action === "self-deliver-complete" ? "Order completed" : "Sent for delivery");
+            load();
+            // refresh detail
+            setTimeout(async () => {
+              try {
+                const [s, r] = await Promise.all([
+                  api.get("/seller/splits"),
+                  api.get("/seller/restaurant-orders-cod"),
+                ]);
+                const allItems = [
+                  ...(s.data || []).map((x) => ({ ...x, _kind: "split" })),
+                  ...(r.data || []).map((x) => ({ ...x, _kind: "rest" })),
+                ];
+                const updated = allItems.find((x) => x.id === detail.id);
+                if (updated) setDetail(updated);
+                else setDetail(null);  // was completed & filtered out
+              } catch (e) { /* silent */ }
+            }, 500);
+          } catch (e) {
+            toast.error(formatDetail(e.response?.data?.detail) || "Action failed");
+          }
+        };
+        return (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-white dark:bg-[var(--js-panel)] rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-5 border-b border-[var(--js-border)]">
-              <h3 className="font-bold text-lg">
+              <h3 className="font-bold text-lg text-[var(--js-text)]">
                 {detail._kind === "rest" ? "Restaurant Order" : "Order Split"} {detail.id.slice(0, 8)}
               </h3>
-              <button onClick={() => setDetail(null)} className="p-2 hover:bg-gray-100 rounded-full">
+              <button onClick={() => setDetail(null)} className="p-2 hover:bg-gray-100 dark:hover:bg-white/10 rounded-full text-[var(--js-text)]">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -459,16 +560,25 @@ export default function SellerWalletTab() {
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
                   <p className="text-xs text-[var(--js-text-secondary)]">Customer</p>
-                  <p className="font-semibold">{detail.customer_name}</p>
-                  <p className="text-[10px] text-[var(--js-text-secondary)] italic">Phone & address hidden — driver has them.</p>
+                  <p className="font-semibold text-[var(--js-text)]">{detail.customer_name}</p>
+                  <p className="text-[10px] text-[var(--js-text-secondary)] italic">
+                    {sellerIsDriver ? "Contact visible on delivery card." : "Phone & address hidden — driver has them."}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs text-[var(--js-text-secondary)]">Driver</p>
-                  <p className="font-semibold">{detail.driver_name || "Not assigned"}</p>
+                  <p className="font-semibold text-[var(--js-text)]">
+                    {sellerIsDriver
+                      ? (detail.seller_driver_name || "Your driver")
+                      : (detail.driver_name || "Not assigned")}
+                  </p>
+                  {sellerIsDriver && detail.seller_driver_phone && (
+                    <p className="text-[10px] text-[var(--js-text-secondary)]">{detail.seller_driver_phone}</p>
+                  )}
                 </div>
                 <div>
                   <p className="text-xs text-[var(--js-text-secondary)]">Order total</p>
-                  <p className="font-semibold">{formatPrice(detail.order_total_usd, detail.exchange_rate_ssp || exchangeRate, currency)}</p>
+                  <p className="font-semibold text-[var(--js-text)]">{formatPrice(detail.order_total_usd, detail.exchange_rate_ssp || exchangeRate, currency)}</p>
                   <p className="text-[10px] text-[var(--js-text-secondary)]">
                     Items {formatPrice(detail.product_subtotal_usd || 0, detail.exchange_rate_ssp || exchangeRate, currency)}
                     {(detail.delivery_fee_usd || 0) > 0 && <> · Delivery {formatPrice(detail.delivery_fee_usd, detail.exchange_rate_ssp || exchangeRate, currency)}</>}
@@ -476,7 +586,7 @@ export default function SellerWalletTab() {
                 </div>
                 <div>
                   <p className="text-xs text-[var(--js-text-secondary)]">Your earning</p>
-                  <p className="font-semibold text-emerald-700">{formatPrice(detail.seller_earning_usd, detail.exchange_rate_ssp || exchangeRate, currency)}</p>
+                  <p className="font-semibold text-emerald-700 dark:text-emerald-400">{formatPrice(detail.seller_earning_usd, detail.exchange_rate_ssp || exchangeRate, currency)}</p>
                   <p className="text-[10px] text-[var(--js-text-secondary)]">
                     Commission {Math.round((detail.commission_rate || 0) * 100)}%
                     {(detail.seller_earning_usd || 0) > ((detail.product_subtotal_usd || 0) - (detail.platform_commission_usd || 0)) + 0.005 && (
@@ -494,13 +604,17 @@ export default function SellerWalletTab() {
               </div>
 
               {/* Items */}
-              <div className="border-t pt-3">
+              <div className="border-t border-[var(--js-border)] pt-3">
                 <p className="text-xs font-bold uppercase tracking-wide text-[var(--js-text-secondary)] mb-2">Items</p>
                 <ul className="space-y-1 text-sm">
                   {(detail.items || detail.items_secure || []).map((it, i) => (
-                    <li key={i} className="flex justify-between">
+                    <li key={i} className="flex justify-between text-[var(--js-text)]">
                       <span>{it.name} × {it.quantity}</span>
-                      <span className="font-medium">{formatPrice(it.line_total_usd || (it.price_usd * it.quantity, exchangeRate, currency))}</span>
+                      <span className="font-medium">{formatPrice(
+                        it.line_total_usd != null ? it.line_total_usd : ((it.price_usd || 0) * (it.quantity || 0)),
+                        detail.exchange_rate_ssp || exchangeRate,
+                        currency
+                      )}</span>
                     </li>
                   ))}
                 </ul>
@@ -515,8 +629,10 @@ export default function SellerWalletTab() {
                 )}
               </div>
 
-              {/* Pickup OTP — only visible once we're ready_for_pickup */}
-              {["ready_for_pickup", "handed_to_driver"].includes(detail.seller_preparation_status) && detail.seller_pickup_otp && (
+              {/* Driver Pickup OTP — ONLY when platform (admin) driver is used.
+                  For seller-managed delivery, the seller IS the delivery so
+                  no OTP handshake is needed. */}
+              {!sellerIsDriver && ["ready_for_pickup", "handed_to_driver"].includes(detail.seller_preparation_status) && detail.seller_pickup_otp && (
                 <div className="border border-emerald-200 bg-emerald-50 rounded-xl p-3">
                   <p className="text-xs uppercase tracking-wide text-emerald-800 font-bold flex items-center gap-1">
                     <KeyRound className="w-3 h-3" /> Driver Pickup OTP
@@ -529,17 +645,34 @@ export default function SellerWalletTab() {
               )}
 
               {/* Action buttons */}
-              <div className="flex flex-wrap gap-2 pt-3 border-t">
+              <div className="flex flex-wrap gap-2 pt-3 border-t border-[var(--js-border)]">
                 {detail.seller_preparation_status === "pending" && (
-                  <button onClick={() => act(detail, "accept")} className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-full">Accept order</button>
+                  <button onClick={() => act(detail, "accept")} data-testid="wallet-accept" className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-full">Accept order</button>
                 )}
                 {["pending", "accepted"].includes(detail.seller_preparation_status) && (
-                  <button onClick={() => act(detail, "preparing")} className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-4 py-2 rounded-full">Mark preparing</button>
+                  <button onClick={() => act(detail, "preparing")} data-testid="wallet-preparing" className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-4 py-2 rounded-full">Mark preparing</button>
                 )}
                 {["pending", "accepted", "preparing"].includes(detail.seller_preparation_status) && (
-                  <button onClick={() => act(detail, "ready-for-pickup")} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2 rounded-full">Ready for pickup</button>
+                  <button onClick={() => act(detail, "ready-for-pickup")} data-testid="wallet-ready" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2 rounded-full">Ready for pickup</button>
                 )}
-                {detail.pickup_status === "picked_up" && detail.seller_handover_status !== "handed_to_driver" && (
+                {/* Seller-managed delivery: "Send for delivery" → out_for_delivery,
+                    then "Cash collected from driver" → delivered + completed. No OTP. */}
+                {sellerIsDriver && detail.seller_preparation_status === "ready_for_pickup" && detail.delivery_status !== "out_for_delivery" && detail.delivery_status !== "delivered" && (
+                  <button
+                    onClick={() => callSelfDeliver("self-deliver-start")}
+                    data-testid="wallet-self-deliver-start"
+                    className="bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold px-4 py-2 rounded-full"
+                  >Send for delivery</button>
+                )}
+                {sellerIsDriver && detail.delivery_status !== "delivered" && ["ready_for_pickup", "handed_to_driver"].includes(detail.seller_preparation_status) && (
+                  <button
+                    onClick={() => callSelfDeliver("self-deliver-complete")}
+                    data-testid="wallet-self-deliver-complete"
+                    className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold px-4 py-2 rounded-full"
+                  >Cash collected from driver</button>
+                )}
+                {/* Admin-driver flow: legacy "handed to driver" only for platform drivers */}
+                {!sellerIsDriver && detail.pickup_status === "picked_up" && detail.seller_handover_status !== "handed_to_driver" && (
                   <button onClick={() => act(detail, "handed-to-driver")} className="bg-[#1A1A1A] hover:bg-black text-white text-xs font-semibold px-4 py-2 rounded-full">Confirm I handed it to driver</button>
                 )}
               </div>
@@ -605,7 +738,8 @@ export default function SellerWalletTab() {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

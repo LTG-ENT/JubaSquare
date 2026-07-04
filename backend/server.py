@@ -220,7 +220,9 @@ async def _rate_by_seller(seller_ids: list[str]) -> tuple[dict[str, float], floa
 async def enrich_marketplace_orders(orders: list[dict]) -> list[dict]:
     """Attach per-item `exchange_rate_ssp` (seller-specific) to each item so the
     customer/driver/seller UIs can format line totals using the right rate.
-    Falls back to the global rate when the seller has no override."""
+    Falls back to the global rate when the seller has no override.
+    Also attaches `exchange_rate_ssp` to the ORDER itself using the primary
+    (first) seller's rate — used by frontend to convert delivery fee + totals."""
     if not orders:
         return orders
     all_item_ids = {it.get("item_id") for o in orders for it in (o.get("items") or []) if it.get("item_id")}
@@ -233,9 +235,17 @@ async def enrich_marketplace_orders(orders: list[dict]) -> list[dict]:
     seller_by_item = {p["id"]: p.get("seller_id") for p in products}
     rates, global_rate = await _rate_by_seller(list({sid for sid in seller_by_item.values() if sid}))
     for o in orders:
+        primary_rate = None
         for it in (o.get("items") or []):
             seller_id = seller_by_item.get(it.get("item_id"))
-            it["exchange_rate_ssp"] = rates.get(seller_id, global_rate) if seller_id else global_rate
+            rate = rates.get(seller_id, global_rate) if seller_id else global_rate
+            it["exchange_rate_ssp"] = rate
+            if primary_rate is None:
+                primary_rate = rate
+        # Order-level rate = the first item's seller rate (typical single-shop
+        # flow). Multi-seller orders share one delivery display; the primary
+        # rate is a reasonable default for the aggregate delivery/total.
+        o["exchange_rate_ssp"] = primary_rate if primary_rate is not None else global_rate
     return orders
 
 
@@ -4245,19 +4255,23 @@ async def seller_orders(
 
         for r in rows:
             cod.redact_for_seller(r, seller_manages_delivery=_order_seller_manages(r))
-    return rows
+    return await enrich_marketplace_orders(rows)
 
 
 @api.get("/seller/analytics")
 async def seller_analytics(user: dict = Depends(require_role("seller", "admin"))):
     """Sales analytics for a seller.
     Returns:
-      - totals: {today, week, month, all_time} for revenue (USD) + order count
+      - totals: {today, week, month, all_time} for EARNING (USD, seller_earning_usd
+        i.e. what the seller actually pockets after commission and any
+        seller-kept delivery fee) + order count
       - revenue_series: last 30 days [{date:'YYYY-MM-DD', revenue, orders}]
       - top_products: [{id, name, image_url, quantity, revenue}] top 5
       - low_performers: 5 products with <=2 orders in last 30 days
       - low_stock: [{id, name, stock}] up to 10 with stock<5
-    Money reported in USD (based on price_usd × quantity when available).
+    Money reported in USD. "Revenue" totals are seller EARNINGS (what they
+    receive) — matches the "Your earning" chip shown on completed orders.
+    Per-product breakdowns still use item.price_usd × qty (gross).
     """
     from datetime import timedelta
     now = datetime.now(timezone.utc)
@@ -4280,10 +4294,25 @@ async def seller_analytics(user: dict = Depends(require_role("seller", "admin"))
             "low_stock": [],
         }
 
-    orders = await db.orders.find({"items.item_id": {"$in": ids}}, {"_id": 0}).sort("created_at", -1).to_list(5000)
+    # Pull the seller's own splits + restaurant orders — these are the
+    # single-source-of-truth for "what the seller earns". Analytics used to
+    # sum item.price_usd × qty from db.orders which is GROSS revenue, not
+    # earnings, and drifted from the "Your earning" chip shown on the
+    # completed order in the wallet. Splits carry `seller_earning_usd`
+    # already computed (subtotal − commission + delivery-if-self-managed).
+    splits = await db.seller_order_splits.find(
+        {"seller_id": user["id"]}, {"_id": 0}
+    ).sort("created_at", -1).to_list(5000)
+    rest_orders = await db.restaurant_orders.find(
+        {"seller_id": user["id"]}, {"_id": 0}
+    ).sort("created_at", -1).to_list(5000)
+
+    # Also fetch original db.orders for the top-products / low-performers
+    # breakdown (which is per-product gross qty × price — earnings do not
+    # attribute per-product).
+    orders_marketplace = await db.orders.find({"items.item_id": {"$in": ids}}, {"_id": 0}).sort("created_at", -1).to_list(5000)
 
     def item_revenue_usd(item):
-        # Prefer price_usd on item, else fall back to product price
         p = pid_index.get(item.get("item_id"))
         qty = int(item.get("quantity") or 1)
         unit = item.get("price_usd")
@@ -4301,35 +4330,37 @@ async def seller_analytics(user: dict = Depends(require_role("seller", "admin"))
         key = (now - timedelta(days=d)).date().isoformat()
         days_bucket[key] = {"revenue": 0.0, "orders": 0}
 
-    for o in orders:
-        created = o.get("created_at") or ""
-        rev = 0.0
-        counted_products = set()
-        for it in (o.get("items") or []):
-            if it.get("item_id") in pid_index:
-                r, q = item_revenue_usd(it)
-                rev += r
-                pp = per_product.setdefault(it["item_id"], {"qty": 0, "revenue": 0.0})
-                pp["qty"] += q
-                pp["revenue"] += r
-                counted_products.add(it["item_id"])
-        if rev == 0 and not counted_products:
+    # --- Earning aggregation: iterate splits + restaurant orders. Only
+    # count DELIVERED rows so aborted/pending orders don't inflate totals.
+    for row in splits + rest_orders:
+        if row.get("delivery_status") != "delivered":
             continue
-        totals["all_time"]["revenue"] += rev
+        created = row.get("created_at") or ""
+        earning = float(row.get("seller_earning_usd") or 0)
+        totals["all_time"]["revenue"] += earning
         totals["all_time"]["orders"] += 1
         if created >= today_iso:
-            totals["today"]["revenue"] += rev
+            totals["today"]["revenue"] += earning
             totals["today"]["orders"] += 1
         if created >= week_start:
-            totals["week"]["revenue"] += rev
+            totals["week"]["revenue"] += earning
             totals["week"]["orders"] += 1
         if created >= month_start:
-            totals["month"]["revenue"] += rev
+            totals["month"]["revenue"] += earning
             totals["month"]["orders"] += 1
             day_key = created[:10]
             if day_key in days_bucket:
-                days_bucket[day_key]["revenue"] += rev
+                days_bucket[day_key]["revenue"] += earning
                 days_bucket[day_key]["orders"] += 1
+
+    # --- Per-product qty / gross-revenue (used for top/low product cards).
+    for o in orders_marketplace:
+        for it in (o.get("items") or []):
+            if it.get("item_id") in pid_index:
+                r, q = item_revenue_usd(it)
+                pp = per_product.setdefault(it["item_id"], {"qty": 0, "revenue": 0.0})
+                pp["qty"] += q
+                pp["revenue"] += r
 
     # Round money for cleanliness
     for k in totals:

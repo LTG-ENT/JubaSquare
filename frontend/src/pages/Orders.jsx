@@ -497,7 +497,7 @@ export default function Orders() {
                   <div
                     key={o.id}
                     data-testid={`restaurant-order-${o.id}`}
-                    className="bg-white border border-[#E2E2D9] rounded-3xl p-5 sm:p-6"
+                    className="bg-white dark:bg-[var(--js-panel)] border border-[#E2E2D9] dark:border-[var(--js-border)] rounded-3xl p-5 sm:p-6"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
                       <div>
@@ -518,6 +518,7 @@ export default function Orders() {
                         kind="restaurant"
                         status={o.status}
                         deliveryStatus={o.delivery_status}
+                        preparationStatus={o.seller_preparation_status}
                         cancelled={o.status === "cancel_approved" || o.status === "cancelled"}
                       />
                     </div>
@@ -573,9 +574,7 @@ export default function Orders() {
                       const subtotal = typeof o.subtotal === "number" ? o.subtotal : (o.items || []).reduce((s, it) => s + (it.price_usd || 0) * (it.quantity || 0), 0);
                       const deliveryFee = typeof o.delivery_fee === "number" ? o.delivery_fee : 0;
                       const orderTotal = typeof o.total === "number" ? o.total : (subtotal + deliveryFee);
-                      const totalDisplay = currency === "USD"
-                        ? formatPrice(orderTotal, restRate, currency)
-                        : `${currency} ${Math.round((subtotal * restRate) + (deliveryFee * exchangeRate)).toLocaleString("en-US")}`;
+                      const totalDisplay = formatPrice(orderTotal, restRate, currency);
                       return (
                         <div className="mt-4 pt-3 border-t border-[#E2E2D9] space-y-1.5 text-sm" data-testid={`rest-order-summary-${o.id}`}>
                           <div className="flex justify-between text-[#5C5C5C]">
@@ -584,7 +583,7 @@ export default function Orders() {
                           </div>
                           <div className="flex justify-between text-[#5C5C5C]">
                             <span>Delivery fee</span>
-                            <span className="font-medium text-[#1A1A1A]">{deliveryFee === 0 ? "FREE" : formatPrice(deliveryFee, exchangeRate, currency)}</span>
+                            <span className="font-medium text-[#1A1A1A]">{deliveryFee === 0 ? "FREE" : formatPrice(deliveryFee, restRate, currency)}</span>
                           </div>
                           <div className="flex justify-between pt-1.5 border-t border-[#E2E2D9]">
                             <span className="font-bold text-[#1A1A1A]">Total</span>
@@ -648,13 +647,25 @@ export default function Orders() {
               const isDelivered = o.status === "Delivered" || allSplitsDelivered;
               const canCancelMp = CUSTOMER_CANCELLABLE_MP_STATUSES.has(o.status) && !allSplitsDelivered;
               const splitsOutForDelivery = splits.filter(split => split.delivery_status === "out_for_delivery");
+              // Compute the FURTHEST-progressed split so the timeline reflects
+              // real progress. Prep is only "on the split", not on the parent.
+              const PREP_RANK = { pending: 0, accepted: 1, preparing: 2, ready_for_pickup: 3, handed_to_driver: 4 };
+              const DELV_RANK = { unassigned: 0, assigned: 1, pending_pickup: 1, picked_up: 2, out_for_delivery: 3, delivered: 4 };
+              const maxPrep = splits.reduce((m, sp) => (PREP_RANK[sp.seller_preparation_status] || 0) > (PREP_RANK[m] || 0) ? sp.seller_preparation_status : m, "pending");
+              const maxDelv = splits.reduce((m, sp) => (DELV_RANK[sp.delivery_status] || 0) > (DELV_RANK[m] || 0) ? sp.delivery_status : m, undefined);
+              // Driver phone to display: seller's own driver (self-managed) or the platform driver
+              const driverContactSplit = splits.find(sp => sp.driver_phone || sp.seller_driver_phone);
+              const driverContact = driverContactSplit ? {
+                name: driverContactSplit.seller_driver_name || driverContactSplit.driver_name,
+                phone: driverContactSplit.seller_driver_phone || driverContactSplit.driver_phone,
+              } : null;
 
               return (
                 <div
                   key={o.id}
                   data-testid={`order-${o.id}`}
-                  className={`bg-white border rounded-3xl p-5 sm:p-6 ${
-                    isNew ? "border-[#C84B31] shadow-[0_8px_24px_rgba(200,75,49,0.15)]" : "border-[#E2E2D9]"
+                  className={`bg-white dark:bg-[var(--js-panel)] border rounded-3xl p-5 sm:p-6 ${
+                    isNew ? "border-[#C84B31] shadow-[0_8px_24px_rgba(200,75,49,0.15)]" : "border-[#E2E2D9] dark:border-[var(--js-border)]"
                   }`}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
@@ -672,7 +683,8 @@ export default function Orders() {
                     <OrderStatusTimeline
                       kind="marketplace"
                       status={o.status}
-                      deliveryStatus={splitsOutForDelivery.length > 0 ? "out_for_delivery" : (splits[0]?.delivery_status)}
+                      deliveryStatus={splitsOutForDelivery.length > 0 ? "out_for_delivery" : maxDelv}
+                      preparationStatus={maxPrep}
                       cancelled={o.status === "Cancelled"}
                     />
                   </div>
@@ -753,13 +765,16 @@ export default function Orders() {
                     const subtotal = typeof o.subtotal_usd === "number" ? o.subtotal_usd : 0;
                     const deliveryFee = typeof o.delivery_fee_usd === "number" ? o.delivery_fee_usd : 0;
                     const orderTotal = typeof o.total_usd === "number" ? o.total_usd : (subtotal + deliveryFee);
-                    // Per-seller subtotal in SSP (each item uses its own seller rate)
-                    const subtotalSSP = (o.items || []).reduce((sum, it) => sum + (it.price_usd || 0) * (it.quantity || 0) * (it.exchange_rate_ssp || exchangeRate), 0);
+                    // Use the order's own seller rate (enriched by backend)
+                    // for delivery + parent total. Per-item lines still use
+                    // each item's own rate for multi-seller correctness.
+                    const orderRate = o.exchange_rate_ssp || exchangeRate;
+                    const subtotalSSP = (o.items || []).reduce((sum, it) => sum + (it.price_usd || 0) * (it.quantity || 0) * (it.exchange_rate_ssp || orderRate), 0);
                     const totalDisplay = currency === "USD"
-                      ? formatPrice(orderTotal, exchangeRate, currency)
-                      : `${currency} ${Math.round(subtotalSSP + (deliveryFee * exchangeRate)).toLocaleString("en-US")}`;
+                      ? formatPrice(orderTotal, orderRate, currency)
+                      : `${currency} ${Math.round(subtotalSSP + (deliveryFee * orderRate)).toLocaleString("en-US")}`;
                     const subtotalDisplay = currency === "USD"
-                      ? formatPrice(subtotal, exchangeRate, currency)
+                      ? formatPrice(subtotal, orderRate, currency)
                       : `${currency} ${Math.round(subtotalSSP).toLocaleString("en-US")}`;
                     return (
                       <div className="mb-4 pt-3 border-t border-[#E2E2D9] space-y-1.5 text-sm" data-testid={`mp-order-summary-${o.id}`}>
@@ -769,7 +784,7 @@ export default function Orders() {
                         </div>
                         <div className="flex justify-between text-[#5C5C5C]">
                           <span>Delivery fee</span>
-                          <span className="font-medium text-[#1A1A1A]">{deliveryFee === 0 ? "FREE" : formatPrice(deliveryFee, exchangeRate, currency)}</span>
+                          <span className="font-medium text-[#1A1A1A]">{deliveryFee === 0 ? "FREE" : formatPrice(deliveryFee, orderRate, currency)}</span>
                         </div>
                         <div className="flex justify-between pt-1.5 border-t border-[#E2E2D9]">
                           <span className="font-bold text-[#1A1A1A]">Total</span>
@@ -782,7 +797,18 @@ export default function Orders() {
                   <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-[#E2E2D9]">
                     <div className="flex flex-wrap gap-3 text-xs text-[#5C5C5C]">
                       <span className="inline-flex items-center gap-1"><MapPin className="w-3 h-3" /> {o.area}</span>
-                      {o.phone && <span className="inline-flex items-center gap-1"><Phone className="w-3 h-3" /> {o.phone}</span>}
+                      {/* Show the DRIVER's phone (set by the seller before
+                          shipping) rather than the customer's own phone — the
+                          customer already knows their own number. Falls back
+                          to the customer phone only if no driver has been
+                          assigned yet. */}
+                      {driverContact?.phone ? (
+                        <span className="inline-flex items-center gap-1" data-testid={`order-${o.id}-driver-contact`}>
+                          <Phone className="w-3 h-3" /> {driverContact.name ? `${driverContact.name} · ` : "Driver · "}{driverContact.phone}
+                        </span>
+                      ) : o.phone ? (
+                        <span className="inline-flex items-center gap-1"><Phone className="w-3 h-3" /> {o.phone}</span>
+                      ) : null}
                     </div>
                     <div className="flex items-center gap-3">
                       {canCancelMp && (
