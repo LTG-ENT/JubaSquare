@@ -521,6 +521,18 @@ export default function Orders() {
                         preparationStatus={o.seller_preparation_status}
                         cancelled={o.status === "cancel_approved" || o.status === "cancelled"}
                       />
+                      {o.restaurant?.eta_mode && o.restaurant.eta_mode !== "off" && !["delivered","cancelled","cancel_approved"].includes(o.status) && (() => {
+                        const label = o.restaurant.eta_mode === "fixed" && o.restaurant.eta_fixed_minutes
+                          ? `≈ ${o.restaurant.eta_fixed_minutes} min`
+                          : o.restaurant.eta_mode === "range" && o.restaurant.eta_min_minutes != null && o.restaurant.eta_max_minutes != null
+                            ? `${o.restaurant.eta_min_minutes}–${o.restaurant.eta_max_minutes} min`
+                            : null;
+                        return label ? (
+                          <p className="mt-2 text-xs text-emerald-800 dark:text-emerald-300 font-medium">
+                            Estimated delivery: {label}
+                          </p>
+                        ) : null;
+                      })()}
                     </div>
 
                     {updateBanner && (

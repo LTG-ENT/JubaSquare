@@ -34,6 +34,7 @@ import {
   ChevronDown,
   ChevronUp,
   History,
+  Download,
 } from "lucide-react";
 
 // Columns shown on the kitchen board, in left-to-right flow order.
@@ -123,6 +124,51 @@ export default function KitchenDashboard() {
   const [busy, setBusy] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyOrders, setHistoryOrders] = useState([]);
+  // PWA install prompt — captured from window's beforeinstallprompt event.
+  // Kitchen Dashboard is the ONLY page that surfaces this so restaurant staff
+  // can install the app on a tablet at the pass without cluttering other UIs.
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [installed, setInstalled] = useState(false);
+
+  useEffect(() => {
+    // Detect if we're already running as an installed PWA
+    const isStandalone = window.matchMedia("(display-mode: standalone)").matches ||
+      window.navigator.standalone === true;
+    setInstalled(isStandalone);
+
+    const onBeforeInstall = (e) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+    const onInstalled = () => {
+      setInstalled(true);
+      setInstallPrompt(null);
+    };
+    window.addEventListener("beforeinstallprompt", onBeforeInstall);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBeforeInstall);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
+
+  const doInstall = async () => {
+    if (!installPrompt) {
+      toast.info("Install prompt not available — use your browser menu → 'Install app'");
+      return;
+    }
+    try {
+      installPrompt.prompt();
+      const choice = await installPrompt.userChoice;
+      if (choice.outcome === "accepted") {
+        toast.success("App installing…");
+        setInstalled(true);
+      }
+      setInstallPrompt(null);
+    } catch (e) {
+      toast.error("Install failed — try your browser menu");
+    }
+  };
 
   const loadRestaurant = useCallback(async () => {
     try {
@@ -331,6 +377,9 @@ export default function KitchenDashboard() {
 <div class="receipt">
   <h1>CUSTOMER RECEIPT</h1>
   <div class="dots">• • •</div>
+  ${restaurant?.receipt_show_logo && (restaurant?.receipt_logo_url || restaurant?.image_url)
+    ? `<div style="text-align:center;margin:8px 0 12px"><img src="${restaurant.receipt_logo_url || restaurant.image_url}" alt="${restaurant?.name || 'Logo'}" style="max-height:70px;max-width:220px;object-fit:contain"/></div>`
+    : ""}
   <div class="badge">${deliveryType}</div>
   <div class="divider"></div>
   <div class="from">
@@ -495,18 +544,39 @@ ${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}<
               {totals.inFlight} active · {totals.handed} handed to driver
             </p>
           </div>
-          <button
-            onClick={toggleOpen}
-            data-testid="kitchen-toggle-open"
-            className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold ${
-              restaurant?.is_open
-                ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
-                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-            }`}
-          >
-            <Power className="w-4 h-4" />
-            {restaurant?.is_open ? "OPEN" : "CLOSED"} — click to toggle
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {!installed && (
+              <button
+                onClick={doInstall}
+                data-testid="kitchen-install-pwa"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-semibold bg-[#0E1A2B] hover:bg-black text-white"
+                title={installPrompt ? "Install this dashboard as an app on this device" : "Open your browser menu to install"}
+              >
+                <Download className="w-3.5 h-3.5" />
+                {installPrompt ? "Install App" : "Install (browser menu)"}
+              </button>
+            )}
+            {installed && (
+              <span
+                data-testid="kitchen-install-installed"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" /> Installed
+              </span>
+            )}
+            <button
+              onClick={toggleOpen}
+              data-testid="kitchen-toggle-open"
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold ${
+                restaurant?.is_open
+                  ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              <Power className="w-4 h-4" />
+              {restaurant?.is_open ? "OPEN" : "CLOSED"} — click to toggle
+            </button>
+          </div>
         </div>
 
         {/* Lanes */}
@@ -533,8 +603,14 @@ ${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}<
                       data-testid={`kitchen-card-${o.id.slice(0,8)}`}
                       className="w-full text-left bg-[var(--js-bg)] hover:bg-white hover:shadow-sm border border-[var(--js-border)] rounded-xl p-3 transition"
                     >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-mono text-[10px] text-[var(--js-text-secondary)]">#{o.id.slice(0,8)}</span>
+                      <div className="flex items-center justify-between mb-1 gap-2">
+                        <span
+                          className="font-mono text-[10px] font-bold text-[var(--js-text)] bg-slate-100 rounded px-1.5 py-0.5"
+                          data-testid={`kitchen-order-no-${o.id.slice(0,8)}`}
+                          title="Restaurant order number"
+                        >
+                          O-{(o.created_at || "").slice(2,10).replaceAll("-","")}-{o.id.slice(-5).toUpperCase()}
+                        </span>
                         {(() => {
                           const ps = orderPrepStatus(o);
                           return (
@@ -672,7 +748,15 @@ ${order.note ? `<div class="hr"></div><div><strong>Note:</strong> ${order.note}<
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-5 border-b border-[var(--js-border)]">
-              <h3 className="font-bold text-lg">Order #{selected.id.slice(0,8)}</h3>
+              <div>
+                <h3 className="font-bold text-lg">Order #{selected.id.slice(0,8)}</h3>
+                <p
+                  className="font-mono text-[11px] font-bold text-[var(--js-text)] mt-0.5"
+                  data-testid={`kitchen-detail-order-no-${selected.id.slice(0,8)}`}
+                >
+                  Restaurant Order No.: O-{(selected.created_at || "").slice(2,10).replaceAll("-","")}-{selected.id.slice(-5).toUpperCase()}
+                </p>
+              </div>
               <button onClick={() => setSelected(null)} className="p-2 hover:bg-gray-100 rounded-full">
                 <XCircle className="w-5 h-5" />
               </button>

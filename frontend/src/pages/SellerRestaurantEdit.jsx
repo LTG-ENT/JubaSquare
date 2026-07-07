@@ -29,6 +29,13 @@ export default function SellerRestaurantEdit() {
     delivery_per_area: [],
     opening_hours_by_day: {},
     auto_close_by_hours: false,
+    // Round 11: printable receipt logo + ETA
+    receipt_show_logo: false,
+    receipt_logo_url: "",
+    eta_mode: "off",
+    eta_fixed_minutes: 30,
+    eta_min_minutes: 25,
+    eta_max_minutes: 45,
   });
 
   useEffect(() => {
@@ -50,6 +57,12 @@ export default function SellerRestaurantEdit() {
           delivery_per_area: s.delivery_per_area || [],
           opening_hours_by_day: s.opening_hours_by_day || {},
           auto_close_by_hours: !!s.auto_close_by_hours,
+          receipt_show_logo: !!s.receipt_show_logo,
+          receipt_logo_url: s.receipt_logo_url || "",
+          eta_mode: s.eta_mode || "off",
+          eta_fixed_minutes: s.eta_fixed_minutes ?? 30,
+          eta_min_minutes: s.eta_min_minutes ?? 25,
+          eta_max_minutes: s.eta_max_minutes ?? 45,
         });
       })
       .catch((err) => {
@@ -86,6 +99,12 @@ export default function SellerRestaurantEdit() {
           : [],
         opening_hours_by_day: form.opening_hours_by_day || {},
         auto_close_by_hours: !!form.auto_close_by_hours,
+        receipt_show_logo: !!form.receipt_show_logo,
+        receipt_logo_url: (form.receipt_logo_url || "").trim(),
+        eta_mode: form.eta_mode || "off",
+        eta_fixed_minutes: form.eta_mode === "fixed" ? (parseInt(form.eta_fixed_minutes, 10) || null) : null,
+        eta_min_minutes: form.eta_mode === "range" ? (parseInt(form.eta_min_minutes, 10) || null) : null,
+        eta_max_minutes: form.eta_mode === "range" ? (parseInt(form.eta_max_minutes, 10) || null) : null,
       };
       const { data } = await api.put(`/restaurants/${restaurant_id}`, payload);
       setRestaurant(data);
@@ -238,6 +257,22 @@ export default function SellerRestaurantEdit() {
           {/* Opening hours */}
           <Section title="Opening hours" subtitle="Set the hours you're open each day. Optionally auto-close outside those hours so customers can't place orders while you're closed.">
             <OpeningHoursEditor form={form} setForm={setForm} />
+          </Section>
+
+          {/* Estimated delivery */}
+          <Section
+            title="Estimated delivery time"
+            subtitle="Shown on the customer's checkout and order-tracking page. Set a fixed value or a range — leave off to hide."
+          >
+            <EtaEditor form={form} setForm={setForm} />
+          </Section>
+
+          {/* Customer receipt logo */}
+          <Section
+            title="Customer receipt logo"
+            subtitle="Turn this on to print your restaurant's logo at the top of every customer receipt."
+          >
+            <ReceiptLogoEditor form={form} setForm={setForm} />
           </Section>
 
           <div className="flex items-center justify-end gap-2 pt-2">
@@ -486,6 +521,103 @@ function OpeningHoursEditor({ form, setForm }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+
+function EtaEditor({ form, setForm }) {
+  return (
+    <div className="space-y-3">
+      <div className="inline-flex bg-[var(--js-subtle)] rounded-full p-1">
+        {[
+          { id: "off", label: "Off" },
+          { id: "fixed", label: "Fixed" },
+          { id: "range", label: "Range" },
+        ].map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            onClick={() => setForm({ ...form, eta_mode: opt.id })}
+            data-testid={`restaurant-edit-eta-mode-${opt.id}`}
+            className={`px-4 py-1.5 rounded-full text-xs font-semibold ${
+              form.eta_mode === opt.id ? "bg-[#C84B31] text-white shadow" : "text-[var(--js-text-secondary)]"
+            }`}
+          >{opt.label}</button>
+        ))}
+      </div>
+      {form.eta_mode === "fixed" && (
+        <div>
+          <label className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">Delivery in (minutes)</label>
+          <input
+            type="number"
+            min={1}
+            max={240}
+            value={form.eta_fixed_minutes}
+            onChange={(e) => setForm({ ...form, eta_fixed_minutes: e.target.value })}
+            data-testid="restaurant-edit-eta-fixed"
+            className="w-32 px-3 py-2 rounded-lg border border-[var(--js-border)] bg-[var(--js-bg)] text-[var(--js-text)] text-sm"
+          />
+        </div>
+      )}
+      {form.eta_mode === "range" && (
+        <div className="flex items-end gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">Min minutes</label>
+            <input
+              type="number" min={1} max={240}
+              value={form.eta_min_minutes}
+              onChange={(e) => setForm({ ...form, eta_min_minutes: e.target.value })}
+              data-testid="restaurant-edit-eta-min"
+              className="w-28 px-3 py-2 rounded-lg border border-[var(--js-border)] bg-[var(--js-bg)] text-[var(--js-text)] text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">Max minutes</label>
+            <input
+              type="number" min={1} max={240}
+              value={form.eta_max_minutes}
+              onChange={(e) => setForm({ ...form, eta_max_minutes: e.target.value })}
+              data-testid="restaurant-edit-eta-max"
+              className="w-28 px-3 py-2 rounded-lg border border-[var(--js-border)] bg-[var(--js-bg)] text-[var(--js-text)] text-sm"
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReceiptLogoEditor({ form, setForm }) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3 bg-[var(--js-subtle)] border border-[var(--js-border)] rounded-2xl p-4">
+        <input
+          id="receipt_show_logo"
+          type="checkbox"
+          checked={!!form.receipt_show_logo}
+          onChange={(e) => setForm({ ...form, receipt_show_logo: e.target.checked })}
+          className="w-5 h-5 accent-[#C84B31]"
+          data-testid="restaurant-edit-receipt-logo-toggle"
+        />
+        <label htmlFor="receipt_show_logo" className="flex-1 cursor-pointer">
+          <p className="font-display font-semibold text-sm text-[var(--js-text)]">Print my logo on customer receipts</p>
+          <p className="text-xs text-[var(--js-text-secondary)]">Shows above the CUSTOMER RECEIPT header. Falls back to your restaurant photo if no logo URL is set.</p>
+        </label>
+      </div>
+      {form.receipt_show_logo && (
+        <div>
+          <label className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">Logo image URL</label>
+          <input
+            type="url"
+            placeholder="https://…/logo.png (leave blank to use restaurant photo)"
+            value={form.receipt_logo_url}
+            onChange={(e) => setForm({ ...form, receipt_logo_url: e.target.value })}
+            data-testid="restaurant-edit-receipt-logo-url"
+            className="w-full px-3 py-2 rounded-lg border border-[var(--js-border)] bg-[var(--js-bg)] text-[var(--js-text)] text-sm"
+          />
+        </div>
+      )}
     </div>
   );
 }

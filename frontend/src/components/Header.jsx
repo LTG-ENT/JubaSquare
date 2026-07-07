@@ -4,7 +4,7 @@ import { useCart } from "@/context/CartContext";
 import { useSystem } from "@/context/SystemContext";
 import {
   ShoppingCart, LogOut, Home as HomeIcon, LayoutGrid, Store, UtensilsCrossed,
-  LayoutDashboard, Menu, X, User as UserIcon, Settings as SettingsIcon, Package,
+  LayoutDashboard, Menu, X, User as UserIcon, Settings as SettingsIcon, Package, Heart,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -80,6 +80,7 @@ function ProfileQuickMenu({ user }) {
   const items = [];
   if (role === "customer") {
     items.push({ key: "orders", label: t("orders"), to: "/orders", Icon: Package });
+    items.push({ key: "favorites", label: t("favorites") || "Favorites", to: "/favorites", Icon: Heart });
     items.push({ key: "settings", label: t("settings"), to: "/settings", Icon: SettingsIcon });
   } else if (role === "seller") {
     items.push({ key: "dashboard", label: t("dashboard"), to: "/seller", Icon: LayoutDashboard });

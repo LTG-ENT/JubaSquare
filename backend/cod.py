@@ -90,34 +90,59 @@ async def _enrich_rate(rows: list[dict]) -> list[dict]:
 
     # Which rows are missing delivery_managed_by? Look up the parent shop /
     # restaurant in ONE batched query per side.
-    missing_shop_ids = list({r.get("shop_id") for r in rows if r.get("shop_id") and not r.get("delivery_managed_by")})
-    missing_rest_ids = list({r.get("restaurant_id") for r in rows if r.get("restaurant_id") and not r.get("delivery_managed_by")})
-    shop_flags: dict[str, str] = {}
-    rest_flags: dict[str, str] = {}
-    if missing_shop_ids:
+    all_shop_ids = list({r.get("shop_id") for r in rows if r.get("shop_id")})
+    all_rest_ids = list({r.get("restaurant_id") for r in rows if r.get("restaurant_id")})
+    shop_docs: dict[str, dict] = {}
+    rest_docs: dict[str, dict] = {}
+    if all_shop_ids:
         recs = await db.shops.find(
-            {"id": {"$in": missing_shop_ids}}, {"_id": 0, "id": 1, "delivery_managed_by": 1},
+            {"id": {"$in": all_shop_ids}},
+            {"_id": 0, "id": 1, "delivery_managed_by": 1, "receipt_show_logo": 1,
+             "receipt_logo_url": 1, "logo_url": 1, "image_url": 1,
+             "eta_mode": 1, "eta_fixed_minutes": 1, "eta_min_minutes": 1, "eta_max_minutes": 1},
         ).to_list(2000)
-        shop_flags = {s["id"]: (s.get("delivery_managed_by") or "").lower() for s in recs}
-    if missing_rest_ids:
+        shop_docs = {s["id"]: s for s in recs}
+    if all_rest_ids:
         recs = await db.restaurants.find(
-            {"id": {"$in": missing_rest_ids}}, {"_id": 0, "id": 1, "delivery_managed_by": 1},
+            {"id": {"$in": all_rest_ids}},
+            {"_id": 0, "id": 1, "delivery_managed_by": 1, "receipt_show_logo": 1,
+             "receipt_logo_url": 1, "image_url": 1,
+             "eta_mode": 1, "eta_fixed_minutes": 1, "eta_min_minutes": 1, "eta_max_minutes": 1},
         ).to_list(2000)
-        rest_flags = {r["id"]: (r.get("delivery_managed_by") or "").lower() for r in recs}
+        rest_docs = {r["id"]: r for r in recs}
 
     for r in rows:
         sid = r.get("seller_id")
         r["exchange_rate_ssp"] = rates.get(sid, global_rate) if sid else global_rate
+        entity = None
+        if r.get("shop_id"):
+            entity = shop_docs.get(r["shop_id"])
+        elif r.get("restaurant_id"):
+            entity = rest_docs.get(r["restaurant_id"])
+        # Back-fill delivery_managed_by
         if not r.get("delivery_managed_by"):
-            entity_flag = ""
-            if r.get("shop_id"):
-                entity_flag = shop_flags.get(r["shop_id"], "")
-            elif r.get("restaurant_id"):
-                entity_flag = rest_flags.get(r["restaurant_id"], "")
+            entity_flag = ((entity or {}).get("delivery_managed_by") or "").lower()
             if entity_flag in ("seller", "admin"):
                 r["delivery_managed_by"] = entity_flag
             else:
                 r["delivery_managed_by"] = fallback_managed
+        # Receipt-logo snapshot (used by seller wallet's Print Receipt)
+        if entity and entity.get("receipt_show_logo"):
+            r["receipt_show_logo"] = True
+            r["receipt_logo_url"] = (
+                entity.get("receipt_logo_url")
+                or entity.get("logo_url")
+                or entity.get("image_url")
+                or ""
+            )
+        # ETA snapshot (rendered on customer order card via /orders/mine
+        # and /restaurant-orders — the customer sees the seller's promise
+        # even after the shop later changes it).
+        if entity and entity.get("eta_mode") and entity["eta_mode"] != "off":
+            r["eta_mode"] = entity["eta_mode"]
+            r["eta_fixed_minutes"] = entity.get("eta_fixed_minutes")
+            r["eta_min_minutes"] = entity.get("eta_min_minutes")
+            r["eta_max_minutes"] = entity.get("eta_max_minutes")
     return rows
 
 

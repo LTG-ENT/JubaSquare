@@ -186,6 +186,7 @@ export default function SellerWalletTab() {
 <div class="receipt">
   <h1>CUSTOMER RECEIPT</h1>
   <div class="dots">• • •</div>
+  ${row.receipt_show_logo && row.receipt_logo_url ? `<div style="text-align:center;margin:6px 0 12px"><img src="${row.receipt_logo_url}" alt="${row.shop_name || 'Logo'}" style="max-height:64px;max-width:200px;object-fit:contain"/></div>` : ""}
   <div class="badge">${isRest ? "RESTAURANT" : "SHOP"} · ${(row.delivery_type || "delivery").toUpperCase()}</div>
   <div class="from">FROM: ${row.shop_name || "Seller"}</div>
   <div class="meta">

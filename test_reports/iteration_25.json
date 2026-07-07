@@ -1,0 +1,35 @@
+{
+  "summary": "Iter25 backend tests: 20/22 passed. Kitchen action state machine (accept/preparing/ready/complete/cancel), auth/validation (401/403/400/404), sub-order targeting, ShopIn new-field persistence, _enrich_rate snapshots on splits + restaurant-orders-cod, in-stock-first product sort, and regressions (analytics.by_channel, orders/mine.exchange_rate_ssp, admin/odoo/orders/pending) all pass. Confirmed BUG: PUT /api/restaurants/{id} does NOT persist the new receipt_show_logo, receipt_logo_url, eta_mode, eta_fixed_minutes, eta_min_minutes, eta_max_minutes fields.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "PUT /api/restaurants/{restaurant_id}",
+        "issue": "New RestaurantIn fields (receipt_show_logo, receipt_logo_url, eta_mode, eta_fixed_minutes, eta_min_minutes, eta_max_minutes) are NOT persisted. update_restaurant in /app/backend/server.py (~line 3159) builds update_data via an explicit whitelist that omits these fields. POST /api/restaurants (create_restaurant) uses body.model_dump() so it DOES persist them, but PUT drops them. update_shop uses body.model_dump() so shops work correctly.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter25_kitchen_eta_logo.py",
+    "/app/test_reports/pytest/iter25_results.xml"
+  ],
+  "action_items": [
+    "Fix update_restaurant PUT to persist receipt_show_logo, receipt_logo_url, eta_mode, eta_fixed_minutes, eta_min_minutes, eta_max_minutes. Simplest fix: add these keys to update_data dict (mirror the ShopIn approach), or switch to body.model_dump() like create_restaurant. Location: /app/backend/server.py update_restaurant (~L3159)."
+  ],
+  "critical_code_review_comments": [
+    "update_restaurant uses an explicit-whitelist update pattern while create_restaurant uses **body.model_dump(). This asymmetry has already caused data-loss for iter25 receipt/ETA fields and will continue to bite on every future RestaurantIn addition. Prefer body.model_dump() with explicit exclusions (like the seller/admin delivery_managed_by guard) for consistency.",
+    "verify_odoo_webhook returns 401 for missing token and 403 for invalid token, but the review request mentions 401 for both. The current behaviour (401/403 split) is correct HTTP semantics — no change needed, but note if the Odoo client expects a single code."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter25_kitchen_eta_logo.py (new)"
+  ],
+  "success_rate": {"backend": "91%", "frontend": "n/a (backend-only iter)"},
+  "test_credentials": "Admin: admin@jubasquare.com / 1234",
+  "seed_data_creation": "Per-test RUN_TAG prefix (TEST_iter25_*). Fixture teardown deletes users/shops/restaurants/products/menu_items/orders/restaurant_orders/seller_order_splits/exchange_rates by id/email/seller_id/shop_id/restaurant_id prefix, plus wipes odoo_service_tokens and odoo_sync_logs(kind=kitchen_action).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_iter25_kitchen_eta_logo.py is comprehensive (22 tests). Kitchen actions + enrich + product sort + shop PUT all green. Only restaurant PUT persistence 2 tests fail — after main agent fix, rerun those two. Uses BlockingJar cookie pattern from iter22-24. Requires MONGO_URL/DB_NAME/REACT_APP_BACKEND_URL in env when running via pytest CLI.",
+  "rca of the issue": "In /app/backend/server.py update_restaurant (@api.put('/restaurants/{restaurant_id}')), update_data is built by hand and only includes name/category/description/image_url/area/is_open/delivery_pricing/delivery_mode/delivery_fee_usd/delivery_per_area/opening_hours_by_day/auto_close_by_hours (and conditionally delivery_managed_by for admins). The new iter25 fields on RestaurantIn (receipt_show_logo, receipt_logo_url, eta_mode, eta_fixed_minutes, eta_min_minutes, eta_max_minutes) are dropped on PUT even though the pydantic model accepts them. Reproduction: PUT /api/restaurants/{id} with any of these fields → 200; then GET /api/restaurants/{id} (owner auth) → those fields are absent. Mitigation: add the six keys into update_data, or refactor to `update_data = body.model_dump()` preserving the admin-only delivery_managed_by check (mirroring the shop endpoint)."
+}

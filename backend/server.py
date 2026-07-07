@@ -592,6 +592,13 @@ class ShopIn(BaseModel):
     is_open: bool = True
     # Round 8 — published/public visibility (sellers can hide their shop without deleting)
     is_public: bool = True
+    # Round 11 — receipt logo + estimated delivery. Same fields as Restaurant.
+    receipt_show_logo: bool = False
+    receipt_logo_url: Optional[str] = ""
+    eta_mode: Literal["off", "fixed", "range"] = "off"
+    eta_fixed_minutes: Optional[int] = None
+    eta_min_minutes: Optional[int] = None
+    eta_max_minutes: Optional[int] = None
 
 
 class ShopMessageIn(BaseModel):
@@ -677,6 +684,18 @@ class RestaurantIn(BaseModel):
     # window for the current day.
     opening_hours_by_day: Optional[Dict[str, OpeningHours]] = None
     auto_close_by_hours: bool = False
+    # Round 11 seller polish — customer-visible logo on the printed receipt
+    # (toggle + URL). When `receipt_show_logo=True` the receipt template
+    # renders `receipt_logo_url` (falls back to image_url) at the top.
+    receipt_show_logo: bool = False
+    receipt_logo_url: Optional[str] = ""
+    # Estimated delivery time in minutes — surfaced on the customer's
+    # checkout + order tracking pages. Either a fixed value or a range.
+    # `eta_fixed_minutes` is used when set; otherwise the range is used.
+    eta_mode: Literal["off", "fixed", "range"] = "off"
+    eta_fixed_minutes: Optional[int] = None
+    eta_min_minutes: Optional[int] = None
+    eta_max_minutes: Optional[int] = None
 
 
 class MenuItemIn(BaseModel):
@@ -2376,10 +2395,19 @@ async def list_products(category_id: Optional[str] = None, category: Optional[st
         p["exchange_rate_ssp"] = rate_by_seller.get(p["seller_id"], global_rate)
         p["shop_verification"] = verif_by_shop.get(p["shop_id"], "Pending")
 
+    # In-stock first: within the same verification tier, products WITH stock
+    # come before out-of-stock products. Sellers can still choose to auto-hide
+    # zero-stock items via their settings; when kept visible, they now sink
+    # to the bottom so customers see purchasable items first.
+    def _stock_key(p):
+        return 0 if int(p.get("stock", 0) or 0) > 0 else 1
+
     # Verified-first sort if enabled
     if s.get("verified_first", True):
         order = {"Verified": 0, "Pending": 1, "Rejected": 2}
-        products.sort(key=lambda p: order.get(p.get("shop_verification", "Pending"), 1))
+        products.sort(key=lambda p: (order.get(p.get("shop_verification", "Pending"), 1), _stock_key(p)))
+    else:
+        products.sort(key=_stock_key)
     # Final pagination slice
     return products[off : off + lim]
 

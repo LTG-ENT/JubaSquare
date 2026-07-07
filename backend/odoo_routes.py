@@ -464,6 +464,120 @@ def create_odoo_routes(db, require_role):
             "created_at": now,
         })
         return {"status": "success", "log_id": log_id, "matched": bool(updated)}
+
+    # ========================================================================
+    # Odoo → JubaSquare: KITCHEN CONTROL (Odoo staff can drive the state
+    # machine of a restaurant order without going into the Kitchen Dashboard).
+    # Actions: accept, preparing, ready, complete, cancel. All require the
+    # X-Jubasquare-Odoo-Token service token header (verify_odoo_webhook).
+    # ========================================================================
+    _KITCHEN_ACTION_TO_STATES = {
+        # action -> {seller_preparation_status, status?}
+        "accept": {"seller_preparation_status": "accepted", "status": "accepted"},
+        "preparing": {"seller_preparation_status": "preparing", "status": "cooking"},
+        "ready": {"seller_preparation_status": "ready_for_pickup", "status": "ready"},
+        # 'complete' is a shortcut for "delivered" — used when Odoo confirms
+        # the order was handed over AND delivered outside JubaSquare's
+        # tracking (e.g. Odoo-managed courier). Also sets cash-collected.
+        "complete": {
+            "seller_preparation_status": "handed_to_driver",
+            "delivery_status": "delivered",
+            "status": "delivered",
+            "payment_status": "collected_by_seller",
+        },
+    }
+
+    @router.post("/kitchen/{action}")
+    async def odoo_kitchen_action(
+        action: str,
+        payload: dict = Body(default_factory=dict),
+        _verified: bool = Depends(verify_odoo_webhook),
+    ):
+        """Odoo drives the restaurant order state machine.
+
+        Body: {order_id} — required. Optional {sub_order_id} to target a
+        marketplace seller_order_split rather than a restaurant_order.
+        For action='cancel' also send {reason} — persisted as
+        `cancellation_reason` on the doc; sets seller_preparation_status
+        + status = 'cancelled'.
+
+        Auth: X-Jubasquare-Odoo-Token service token header (same as other
+        Odoo webhooks). Returns 404 when no matching order exists.
+        """
+        action = (action or "").lower().strip()
+        order_id = (payload or {}).get("order_id")
+        sub_order_id = (payload or {}).get("sub_order_id")
+        if not order_id:
+            raise HTTPException(400, "order_id is required")
+
+        # Build the $set based on action
+        now = datetime.now(timezone.utc)
+        now_iso = now.isoformat()
+        set_fields: dict = {"updated_at": now_iso}
+        if action == "cancel":
+            reason = (payload or {}).get("reason") or "Cancelled via Odoo"
+            set_fields.update({
+                "seller_preparation_status": "cancelled",
+                "status": "cancelled",
+                "cancellation_reason": str(reason)[:500],
+                "cancelled_at": now_iso,
+                "cancelled_by": "odoo",
+            })
+        elif action in _KITCHEN_ACTION_TO_STATES:
+            set_fields.update(_KITCHEN_ACTION_TO_STATES[action])
+            # Extra timestamp markers so the frontend / analytics can render
+            # elapsed times per stage.
+            if action == "accept":
+                set_fields["accepted_at"] = now_iso
+            elif action == "preparing":
+                set_fields["preparing_started_at"] = now_iso
+            elif action == "ready":
+                set_fields["ready_at"] = now_iso
+            elif action == "complete":
+                set_fields["delivered_at"] = now_iso
+                set_fields["cash_collected_at"] = now_iso
+        else:
+            raise HTTPException(
+                400,
+                f"Unknown kitchen action '{action}'. Valid: accept, preparing, ready, complete, cancel",
+            )
+
+        entity_type: str
+        matched = 0
+        if sub_order_id:
+            res = await db.seller_order_splits.update_one(
+                {"id": sub_order_id, "order_id": order_id},
+                {"$set": set_fields},
+            )
+            entity_type = "seller_order_split"
+            matched = res.modified_count
+        else:
+            res = await db.restaurant_orders.update_one(
+                {"id": order_id}, {"$set": set_fields}
+            )
+            entity_type = "restaurant_order"
+            matched = res.modified_count
+
+        # Log every kitchen action from Odoo for auditability
+        log_id = str(uuid.uuid4())
+        await db.odoo_sync_logs.insert_one({
+            "id": log_id,
+            "kind": "kitchen_action",
+            "action": action,
+            "entity_type": entity_type,
+            "order_id": order_id,
+            "sub_order_id": sub_order_id,
+            "matched": bool(matched),
+            "reason": set_fields.get("cancellation_reason"),
+            "created_at": now,
+        })
+
+        if not matched:
+            raise HTTPException(404, f"Order not found: order_id={order_id} sub_order_id={sub_order_id}")
+
+        return {"status": "success", "action": action, "log_id": log_id, "entity_type": entity_type}
+
+
     
     @router.post("/delivery/status-update")
     async def odoo_delivery_status_update(

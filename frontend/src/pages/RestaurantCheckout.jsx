@@ -393,6 +393,22 @@ export default function RestaurantCheckout() {
                     }
                   </span>
                 </div>
+                {restaurant?.eta_mode && restaurant.eta_mode !== "off" && (() => {
+                  const label = restaurant.eta_mode === "fixed" && restaurant.eta_fixed_minutes
+                    ? `≈ ${restaurant.eta_fixed_minutes} min`
+                    : restaurant.eta_mode === "range" && restaurant.eta_min_minutes != null && restaurant.eta_max_minutes != null
+                      ? `${restaurant.eta_min_minutes}–${restaurant.eta_max_minutes} min`
+                      : null;
+                  return label ? (
+                    <div
+                      data-testid="checkout-eta"
+                      className="mt-2 text-xs bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-lg px-3 py-2 flex items-center gap-2"
+                    >
+                      <Clock className="w-3.5 h-3.5" />
+                      <span className="font-semibold">Estimated delivery:</span> {label}
+                    </div>
+                  ) : null;
+                })()}
               </div>
               
               <button
