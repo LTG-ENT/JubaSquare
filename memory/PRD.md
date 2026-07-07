@@ -21,6 +21,18 @@ A multilingual (English/Arabic RTL) Juba-focused marketplace connecting shops, r
 
 ## Completed (Feb 2026, this fork)
 
+### Iter 25 — Kitchen PWA install + Odoo control + receipt logo + ETA + in-stock sort + favorites (Feb 7, 2026)
+22/22 backend tests pass (`/app/test_reports/iteration_25.json`).
+
+- ✅ **Kitchen Dashboard PWA install** — `beforeinstallprompt` captured on the Kitchen page only (`kitchen-install-pwa` testid). "Installed" chip when already running as PWA. Manifest already existed.
+- ✅ **Restaurant order number** — prominent badge (`O-YYMMDD-XXXXX` format matching receipt) on every kitchen lane card + detail modal.
+- ✅ **Odoo controls Kitchen state machine** — `POST /api/odoo/kitchen/{accept|preparing|ready|complete|cancel}` with body `{order_id, sub_order_id?, reason?}` — auth via existing `X-Jubasquare-Odoo-Token`. Updates the doc's `seller_preparation_status`, `status`, stage timestamps (accepted_at/preparing_started_at/ready_at/delivered_at/cash_collected_at) and writes to `odoo_sync_logs`. Complete also sets `delivery_status=delivered` + `payment_status=collected_by_seller`. Cancel accepts reason, sets `cancellation_reason` + `cancelled_by='odoo'`.
+- ✅ **Customer receipt logo (toggle + URL)** — new `receipt_show_logo` + `receipt_logo_url` fields on Shop & Restaurant. Rendered in Kitchen Dashboard receipt AND SellerWalletTab print receipt. Fields also enriched onto splits/restaurant-orders via `_enrich_rate` so the wallet doesn't need a shop lookup.
+- ✅ **Estimated delivery time** — `eta_mode` (off | fixed | range) + minute fields on Shop & Restaurant. New UI editors on both edit pages. Shown as an emerald chip on Restaurant Checkout + on Orders (customer). Snapshot enriched onto splits/orders.
+- ✅ **`PUT /api/restaurants/{id}` persistence bug** — explicit whitelist was dropping the new iter25 fields; added all six. Shop PUT already used `body.model_dump()`.
+- ✅ **Marketplace in-stock sort** — `/api/products` sorts products with stock>0 before out-of-stock (within same verification tier).
+- ✅ **Favorites link in Header** — customer role now sees a Favorites entry in the quick menu → routes to the existing `/favorites` page.
+
 ### Iter 24 — Analytics by channel + wallet print receipts + OTP back-fill (Feb 4, 2026)
 Reported by user; 8/8 backend tests pass (`/app/test_reports/iteration_24.json`).
 

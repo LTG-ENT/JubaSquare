@@ -3177,6 +3177,13 @@ async def update_restaurant(restaurant_id: str, body: RestaurantIn, user: dict =
             for k, v in (body.opening_hours_by_day or {}).items()
         },
         "auto_close_by_hours": bool(body.auto_close_by_hours),
+        # Iter 25 additions — customer receipt logo + estimated delivery.
+        "receipt_show_logo": bool(body.receipt_show_logo),
+        "receipt_logo_url": (body.receipt_logo_url or "").strip(),
+        "eta_mode": body.eta_mode or "off",
+        "eta_fixed_minutes": body.eta_fixed_minutes,
+        "eta_min_minutes": body.eta_min_minutes,
+        "eta_max_minutes": body.eta_max_minutes,
     }
     if user["role"] == "admin":
         update_data["delivery_managed_by"] = body.delivery_managed_by
