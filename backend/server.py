@@ -6132,7 +6132,15 @@ async def admin_delete_user(user_id: str, admin: dict = Depends(require_role("ad
     if user_id == admin["id"]:
         raise HTTPException(400, "You cannot delete your own account")
 
-    await _cascade_delete_user(user, admin_id=admin["id"])
+    if user.get("is_deleted"):
+        # Idempotent — already soft-deleted.
+        return {"ok": True, "soft_deleted": True, "user_id": user_id, "already": True}
+
+    try:
+        await _cascade_delete_user(user, admin_id=admin["id"])
+    except Exception as exc:
+        logging.exception("Soft-cascade delete failed for user %s", user_id)
+        raise HTTPException(500, f"Soft delete failed: {exc}")
     return {"ok": True, "soft_deleted": True, "user_id": user_id}
 
 
@@ -6161,26 +6169,32 @@ async def _cascade_delete_user(user: dict, admin_id: Optional[str] = None) -> No
     original_email = (user.get("email") or "").lower()
 
     # 1. Anonymize the user record — keep it so foreign keys stay valid.
+    #    `username` and `avatar_url` are $unset instead of $set:null so they
+    #    don't collide with the unique-sparse indexes on those fields.
     anon_email = f"deleted+{user_id}@removed.local"
     await db.users.update_one(
         {"id": user_id},
-        {"$set": {
-            "is_deleted": True,
-            "is_active": False,
-            "deleted_at": now,
-            "deleted_by": admin_id,
-            "email": anon_email,
-            "original_email_hash": original_email and str(hash(original_email)),
-            "name": "[Deleted user]",
-            "phone": None,
-            "avatar_url": None,
-            "username": None,
-            "email_verified": False,
-            "must_change_password": True,
-            "password_hash": "!disabled!",
-            "settings": {},
-            "updated_at": now,
-        }},
+        {
+            "$set": {
+                "is_deleted": True,
+                "is_active": False,
+                "deleted_at": now,
+                "deleted_by": admin_id,
+                "email": anon_email,
+                "original_email_hash": original_email and str(hash(original_email)),
+                "name": "[Deleted user]",
+                "phone": None,
+                "email_verified": False,
+                "must_change_password": True,
+                "password_hash": "!disabled!",
+                "settings": {},
+                "updated_at": now,
+            },
+            "$unset": {
+                "username": "",
+                "avatar_url": "",
+            },
+        },
     )
 
     # 2. Wipe personal-only collections (safe to lose).
@@ -6236,13 +6250,17 @@ async def _cascade_delete_user(user: dict, admin_id: Optional[str] = None) -> No
 
 @api.post("/admin/users/bulk-delete")
 async def admin_bulk_delete_users(body: AdminBulkDeleteUsersIn, admin: dict = Depends(require_role("admin"))):
-    """Soft-delete multiple user accounts at once (Iter 29 soft cascade)."""
+    """Soft-delete multiple user accounts at once (Iter 29 soft cascade).
+
+    Per-user errors are caught so a single bad user does not abort the
+    whole batch. Response returns both the succeeded count and any
+    failures for admin visibility."""
     user_ids = body.user_ids
-    
+
     # Prevent admin from deleting themselves
     if admin["id"] in user_ids:
         raise HTTPException(400, "You cannot delete your own account")
-    
+
     users = await db.users.find(
         {"id": {"$in": user_ids}, "is_deleted": {"$ne": True}},
         {"_id": 0},
@@ -6250,10 +6268,22 @@ async def admin_bulk_delete_users(body: AdminBulkDeleteUsersIn, admin: dict = De
     if not users:
         raise HTTPException(404, "No users found to delete")
 
+    succeeded: list[str] = []
+    failed: list[dict] = []
     for u in users:
-        await _cascade_delete_user(u, admin_id=admin["id"])
+        try:
+            await _cascade_delete_user(u, admin_id=admin["id"])
+            succeeded.append(u["id"])
+        except Exception as exc:
+            logging.exception("Bulk soft-delete failed for user %s", u["id"])
+            failed.append({"user_id": u["id"], "error": str(exc)})
 
-    return {"deleted": len(users), "soft_deleted": True}
+    return {
+        "deleted": len(succeeded),
+        "soft_deleted": True,
+        "succeeded": succeeded,
+        "failed": failed,
+    }
 
 
 @api.post("/admin/areas")

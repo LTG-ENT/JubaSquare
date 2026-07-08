@@ -1,0 +1,16 @@
+{
+  "summary": "Re-ran /app/backend/tests/test_iter29_soft_cascade_delete.py after the $unset fix to _cascade_delete_user. All 19 tests PASSED (previously 10 failing due to E11000 DuplicateKeyError on username_1 sparse index). Soft cascade delete, bulk delete response shape (deleted/soft_deleted/succeeded/failed), idempotent delete, favorites wipe, and public listing exclusion all verified.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_iter29_soft_cascade_delete.py", "/app/test_reports/pytest/iter29_retest.xml"],
+  "action_items": [],
+  "critical_code_review_comments": ["Fix using $unset on username/avatar_url correctly avoids sparse unique index collision. Consider adding the same pattern for any other unique-sparse fields that may be introduced later."],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (19/19)", "frontend": "n/a"},
+  "test_credentials": "admin@jubasquare.com / 1234",
+  "seed_data_creation": "Tests create ephemeral seller/customer users via public signup; cleanup handled by soft delete under test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "iter29 fix is verified. Full test file passes in ~48s. Any future auth/user-deletion regression tests can reuse this file.",
+  "rca of the issue": "Previous iter29 failed because _cascade_delete_user used $set:{username:null,avatar_url:null}. The `username_1` index is unique+sparse; sparse skips only when field is missing, not when it's explicitly null. Second delete triggered E11000. Fix: use $unset:{username:'',avatar_url:''} which removes the fields entirely, letting the sparse index skip them. Verified fix: 19/19 tests pass."
+}
