@@ -19,6 +19,20 @@ A multilingual (English/Arabic RTL) Juba-focused marketplace connecting shops, r
 - Cascade deletes on user removal.
 - Multilingual UI + Arabic RTL support.
 
+### Iter 28 — LTG partner, BOGO promo, favorites fixes, section limit → 10 (Feb 8, 2026)
+25/25 backend tests pass (`/app/test_reports/iteration_28.json`).
+
+- ✅ **"Part of LTG" partner badge** — `is_ltg_partner` boolean on shops + restaurants. Admin-only toggles at `PUT /admin/shops/{id}/ltg-partner` and `PUT /admin/restaurants/{id}/ltg-partner`. LTG shops/restaurants are boosted to the top of listings and rendered with a gold "★ PART OF LTG" pill on ShopCard/RestaurantCard.
+- ✅ **BOGO promo type** — `Promo.type` now supports `'bogo'` with `bogo_min_qty` (default 2). Server-side `bogo_free_quantity()` grants 1 free unit per `bogo_min_qty` paid units. Payload never trusts the client — computed on `/orders` and `/restaurant-orders` create.
+- ✅ **Section limit raised 6 → 10** — both shop `product_sections` and restaurant `menu_sections`. 11th section is rejected (400).
+- ✅ **Promo-only sections** — `SellerSection.is_promo_section=True` auto-populates that section on the storefront from any item whose `promo.active` is true. No manual assignment needed.
+- ✅ **Favorites payload fix** — `GET /api/favorites` now returns `{favorite_id, target_type, created_at, item}`. Favorites page no longer drops items when they fall outside a 200-limit sub-query.
+- ✅ **Favorites query-DELETE** — new `DELETE /api/favorites?target_type=&target_id=` handler (path-based DELETE preserved). Fixes silent 404 from ProductCard / ProductDetail / Favorites Remove buttons.
+- ✅ **Review eligibility on self-delivery** — `canReview = status === 'completed' || delivery_status === 'delivered'`. Customers can now review shop-flow orders that were self-delivered by the seller (they land in `delivered`, not `completed`).
+- ✅ **Top 4 shop products with images** — Shops.jsx + Home.jsx now sort each shop's featured strip by `order_count desc` and filter to items with an `image_url`, so ShopCard's preview always shows real top-sellers.
+- ✅ **Odoo Iter 28 sync prompt** — `/app/memory/odoo_iteration28_prompt.md` gives the user's Odoo developer the full schema-diff (LTG, sections, promo/BOGO, sides_required, free_quantity on invoice lines).
+
+
 ## Completed (Feb 2026, this fork)
 
 ### Iter 27 — Seller sections + time-limited promo (Feb 8, 2026)

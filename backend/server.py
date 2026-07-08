@@ -704,7 +704,7 @@ class ShopIn(BaseModel):
     eta_fixed_minutes: Optional[int] = None
     eta_min_minutes: Optional[int] = None
     eta_max_minutes: Optional[int] = None
-    # Iter 27 — seller-defined PRODUCT SECTIONS (max 6). Groups products
+    # Iter 28 — seller-defined PRODUCT SECTIONS (max 10). Groups products
     # within THIS shop (Featured, On Sale, Accessories…). Distinct from the
     # marketplace-level shop_category. Each product references one section
     # via product.product_section_id.
@@ -817,7 +817,7 @@ class RestaurantIn(BaseModel):
     eta_fixed_minutes: Optional[int] = None
     eta_min_minutes: Optional[int] = None
     eta_max_minutes: Optional[int] = None
-    # Iter 27 — seller-defined MENU SECTIONS (max 6). Sellers create their
+    # Iter 28 — seller-defined MENU SECTIONS (max 10). Sellers create their
     # own groups like Starter / Recommendation / Promo and assign each
     # menu item to one via menu_item.menu_section_id.
     menu_sections: List[SellerSection] = Field(default_factory=list)
