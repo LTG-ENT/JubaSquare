@@ -634,6 +634,7 @@ function UserManagement() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState([]);
   const [deleteTargets, setDeleteTargets] = useState(null); // null | [{id,name,email,role}]
+  const [showDeleted, setShowDeleted] = useState(false); // Iter 30 Wave 3
 
   const loadUsers = async () => {
     setLoading(true);
@@ -643,6 +644,7 @@ function UserManagement() {
       if (filterStatus) params.append("is_active", filterStatus === "active" ? "true" : "false");
       if (filterVerified) params.append("email_verified", filterVerified === "verified" ? "true" : "false");
       if (search) params.append("search", search);
+      if (showDeleted) params.append("include_deleted", "true");
       params.append("limit", "200");
       
       const { data } = await api.get(`/admin/users?${params.toString()}`);
@@ -654,7 +656,7 @@ function UserManagement() {
     }
   };
 
-  useEffect(() => { loadUsers(); }, [filterRole, filterStatus, filterVerified]);
+  useEffect(() => { loadUsers(); }, [filterRole, filterStatus, filterVerified, showDeleted]);
 
   const handleSearch = () => {
     loadUsers();
@@ -715,6 +717,17 @@ function UserManagement() {
         ? prev.filter(id => id !== userId)
         : [...prev, userId]
     );
+  };
+
+  const restoreUser = async (user) => {
+    if (!window.confirm(`Restore ${user.email || user.id}? Their shops/products will be reactivated.`)) return;
+    try {
+      await api.post(`/admin/users/${user.id}/restore`);
+      toast.success("User restored successfully");
+      loadUsers();
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail) || "Failed to restore user");
+    }
   };
 
   const toggleSelectAll = () => {
@@ -810,6 +823,17 @@ function UserManagement() {
         >
           Search
         </button>
+        {/* Iter 30 Wave 3 — Show soft-deleted users toggle */}
+        <label className="ml-auto inline-flex items-center gap-2 text-xs font-semibold text-[var(--js-text-secondary)] cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={showDeleted}
+            onChange={(e) => setShowDeleted(e.target.checked)}
+            data-testid="show-deleted-users-toggle"
+            className="w-4 h-4 rounded border-[var(--js-border)] text-[#C84B31] focus:ring-[#C84B31]"
+          />
+          Show deleted users
+        </label>
       </div>
 
       {/* Bulk Actions Bar */}
@@ -834,6 +858,31 @@ function UserManagement() {
           </button>
         </div>
       )}
+
+      {/* Iter 30 Wave 3 — Send weekly Growth Insights email to every seller */}
+      <div className="mb-4 flex items-center justify-between gap-3 p-3 bg-[#E9C46A]/10 border border-[#E9C46A]/40 rounded-xl">
+        <div className="text-sm text-[var(--js-text)]">
+          <span className="font-bold">📈 Growth Insights</span>
+          <span className="text-[var(--js-text-secondary)] ml-2 text-xs">
+            Send this week&apos;s performance email to every active seller.
+          </span>
+        </div>
+        <button
+          onClick={async () => {
+            if (!window.confirm("Send weekly Growth Insights to every active seller now?")) return;
+            try {
+              const { data } = await api.post("/admin/growth-insights/send-all");
+              toast.success(`Sent ${data.sent} email(s) · Skipped ${data.skipped?.length || 0} · Failed ${data.failed?.length || 0}`);
+            } catch (err) {
+              toast.error(formatDetail(err.response?.data?.detail) || "Failed to send");
+            }
+          }}
+          data-testid="send-growth-insights-btn"
+          className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#0E1A2B] hover:bg-[#1A2E4C] text-white text-sm font-bold rounded-xl transition"
+        >
+          <Mail className="w-4 h-4" /> Send now
+        </button>
+      </div>
 
       {/* Users Table */}
       {loading ? (
@@ -870,6 +919,7 @@ function UserManagement() {
                   onToggleSelect={() => toggleSelectUser(user.id)}
                   onToggleStatus={toggleUserStatus}
                   onDelete={deleteUser}
+                  onRestore={restoreUser}
                   onEdit={() => { setSelectedUser(user); setShowEditModal(true); }}
                   onPassword={() => { setSelectedUser(user); setShowPasswordModal(true); }}
                 />
@@ -913,7 +963,7 @@ function UserManagement() {
   );
 }
 
-function UserRow({ user, selected, onToggleSelect, onToggleStatus, onDelete, onEdit, onPassword }) {
+function UserRow({ user, selected, onToggleSelect, onToggleStatus, onDelete, onRestore, onEdit, onPassword }) {
   const [showMenu, setShowMenu] = useState(false);
   const buttonRef = useState(null);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
@@ -952,13 +1002,14 @@ function UserRow({ user, selected, onToggleSelect, onToggleStatus, onDelete, onE
   };
 
   return (
-    <tr className="border-t border-[var(--js-border)] hover:bg-[var(--js-bg)]">
+    <tr className={`border-t border-[var(--js-border)] hover:bg-[var(--js-bg)] ${user.is_deleted ? "opacity-60" : ""}`}>
       <td className="p-3 w-10">
         <input
           type="checkbox"
           checked={selected}
           onChange={onToggleSelect}
-          className="w-4 h-4 rounded border-[var(--js-border)] text-[#2D6A4F] focus:ring-[#2D6A4F]"
+          disabled={!!user.is_deleted}
+          className="w-4 h-4 rounded border-[var(--js-border)] text-[#2D6A4F] focus:ring-[#2D6A4F] disabled:opacity-40"
         />
       </td>
       <td className="p-3">
@@ -966,12 +1017,20 @@ function UserRow({ user, selected, onToggleSelect, onToggleStatus, onDelete, onE
           <p className="font-semibold text-[var(--js-text)]">{user.name}</p>
           <p className="text-xs text-[var(--js-text-secondary)]">{user.email}</p>
           <div className="flex items-center gap-2 mt-1">
+            {user.is_deleted && (
+              <span
+                data-testid={`user-deleted-badge-${user.id}`}
+                className="text-[10px] font-bold text-white bg-[#5C5C5C] px-1.5 py-0.5 rounded-full"
+              >
+                DELETED
+              </span>
+            )}
             {user.email_verified ? (
               <CheckCircle className="w-3 h-3 text-[#2D6A4F]" title="Email verified" />
             ) : (
               <XCircle className="w-3 h-3 text-[#E9C46A]" title="Email not verified" />
             )}
-            {user.is_active === false && (
+            {user.is_active === false && !user.is_deleted && (
               <span className="text-[10px] font-bold text-[#D90429]">DISABLED</span>
             )}
           </div>
@@ -1023,19 +1082,31 @@ function UserRow({ user, selected, onToggleSelect, onToggleStatus, onDelete, onE
                 onClick={() => setShowMenu(false)}
               />
               <div className="absolute right-0 mt-1 w-48 bg-white border border-[var(--js-border)] rounded-xl shadow-2xl z-20 py-1">
-                <button onClick={() => { onEdit(); setShowMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--js-subtle)] flex items-center gap-2">
-                  <Edit className="w-4 h-4" /> Edit details
-                </button>
-                <button onClick={() => { onPassword(); setShowMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--js-subtle)] flex items-center gap-2">
-                  <Key className="w-4 h-4" /> Reset password
-                </button>
-                <button onClick={() => { onToggleStatus(user); setShowMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--js-subtle)] flex items-center gap-2">
-                  <Power className="w-4 h-4" /> {user.is_active === false ? "Enable" : "Disable"} account
-                </button>
-                <hr className="my-1 border-[var(--js-border)]" />
-                <button onClick={() => { onDelete(user); setShowMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-red-50 text-[#D90429] flex items-center gap-2">
-                  <Trash2 className="w-4 h-4" /> Delete user
-                </button>
+                {user.is_deleted ? (
+                  <button
+                    onClick={() => { onRestore(user); setShowMenu(false); }}
+                    data-testid={`restore-user-${user.id}`}
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-emerald-50 text-[#2D6A4F] flex items-center gap-2 font-semibold"
+                  >
+                    <RotateCcw className="w-4 h-4" /> Restore user
+                  </button>
+                ) : (
+                  <>
+                    <button onClick={() => { onEdit(); setShowMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--js-subtle)] flex items-center gap-2">
+                      <Edit className="w-4 h-4" /> Edit details
+                    </button>
+                    <button onClick={() => { onPassword(); setShowMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--js-subtle)] flex items-center gap-2">
+                      <Key className="w-4 h-4" /> Reset password
+                    </button>
+                    <button onClick={() => { onToggleStatus(user); setShowMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--js-subtle)] flex items-center gap-2">
+                      <Power className="w-4 h-4" /> {user.is_active === false ? "Enable" : "Disable"} account
+                    </button>
+                    <hr className="my-1 border-[var(--js-border)]" />
+                    <button onClick={() => { onDelete(user); setShowMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-red-50 text-[#D90429] flex items-center gap-2">
+                      <Trash2 className="w-4 h-4" /> Delete user
+                    </button>
+                  </>
+                )}
               </div>
             </>
           )}

@@ -255,3 +255,106 @@ async def send_order_notification_seller(to: str, seller_name: str, order: dict,
         preheader=f"New order received for {shop_name}.",
     )
     return await _send(to, f"New order received — #{order_id}", html)
+
+
+
+# --------------------------------------------------------------------
+# Growth Insights (Iter 30 Wave 3) — weekly seller performance digest
+# --------------------------------------------------------------------
+def _pct_delta(curr: float, prev: float) -> str:
+    """Return a colored '+12%' / '−4%' / 'new' delta chip HTML."""
+    if prev <= 0 and curr <= 0:
+        return '<span style="color:#808080;">—</span>'
+    if prev <= 0 and curr > 0:
+        return '<span style="color:#2D6A4F;font-weight:bold;">NEW</span>'
+    pct = ((curr - prev) / prev) * 100.0
+    if pct >= 0:
+        return f'<span style="color:#2D6A4F;font-weight:bold;">+{pct:.0f}%</span>'
+    return f'<span style="color:#C84B31;font-weight:bold;">{pct:.0f}%</span>'
+
+
+async def send_growth_insights_email(to: str, seller_name: str, metrics: Dict) -> Optional[str]:
+    """Weekly Growth Insights digest for a seller (Iter 30 Wave 3).
+
+    `metrics` dict shape:
+      { curr: {orders,revenue_usd,cancelled,favorites,rating}, prev: {...},
+        top_products: [ {name, order_count} ], shop_name, weeks_ago_label }
+    """
+    curr = metrics.get("curr", {})
+    prev = metrics.get("prev", {})
+    shop_name = metrics.get("shop_name", "your shop")
+    top = metrics.get("top_products", []) or []
+
+    top_html = ""
+    if top:
+        rows = "".join(
+            f'<tr><td style="padding:6px 0;">{i+1}. {p.get("name","—")[:40]}</td>'
+            f'<td align="right" style="padding:6px 0;color:#5C5C5C;">×{int(p.get("order_count",0))}</td></tr>'
+            for i, p in enumerate(top[:5])
+        )
+        top_html = f"""
+        <h3 style="margin:24px 0 10px;font-size:14px;color:#1A1A1A;">Top-selling this week</h3>
+        <table width="100%" style="font-size:14px;border-collapse:collapse;">{rows}</table>
+        """
+
+    def tile(label, val, delta):
+        return f"""
+      <td width="33%" valign="top" style="padding:12px 6px;text-align:center;">
+        <div style="font-size:11px;letter-spacing:1.5px;color:#808080;text-transform:uppercase;">{label}</div>
+        <div style="font-size:26px;font-weight:bold;color:#1A1A1A;margin:6px 0;">{val}</div>
+        <div style="font-size:12px;">{delta}</div>
+      </td>
+    """
+
+    kpis_html = f"""
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0"
+           style="margin:14px 0 6px;border-collapse:collapse;background:#F4F1EA;border-radius:10px;">
+      <tr>
+        {tile("Orders", int(curr.get("orders", 0)), _pct_delta(curr.get("orders", 0), prev.get("orders", 0)))}
+        {tile("Revenue", f"${float(curr.get('revenue_usd', 0)):.0f}", _pct_delta(curr.get("revenue_usd", 0), prev.get("revenue_usd", 0)))}
+        {tile("Cancels", int(curr.get("cancelled", 0)), _pct_delta(-curr.get("cancelled", 0), -prev.get("cancelled", 0)))}
+      </tr>
+    </table>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0"
+           style="margin:6px 0 14px;border-collapse:collapse;background:#F4F1EA;border-radius:10px;">
+      <tr>
+        {tile("Favorites", int(curr.get("favorites", 0)), _pct_delta(curr.get("favorites", 0), prev.get("favorites", 0)))}
+        {tile("Avg rating", f"{float(curr.get('rating', 0)):.1f}★" if curr.get("rating") else "—", _pct_delta(curr.get("rating", 0), prev.get("rating", 0)))}
+        {tile("Reviews", int(curr.get("review_count", 0)), _pct_delta(curr.get("review_count", 0), prev.get("review_count", 0)))}
+      </tr>
+    </table>
+    """
+
+    tips = []
+    if curr.get("cancelled", 0) > max(1, curr.get("orders", 0) * 0.2):
+        tips.append("Your cancellation rate looks high this week — quick delivery-window updates and clearer stock counts help a lot.")
+    if curr.get("orders", 0) == 0:
+        tips.append("No orders yet this week. Try turning on a Limited-Time promo or adding your best sellers to a 'Featured' section.")
+    if curr.get("rating", 0) and curr.get("rating", 0) < 4.0:
+        tips.append("Ratings under 4.0 hurt your rank — reply to reviews and follow up with customers who left feedback.")
+    if not tips:
+        tips.append("Great week! Keep the streak — customers are 3× more likely to reorder when they see fast delivery.")
+    tips_html = "".join(f'<li style="margin-bottom:6px;">{t}</li>' for t in tips)
+
+    body = f"""
+      <p style="font-size:14px;color:#5C5C5C;margin:0 0 4px;">Weekly Growth Insights · {shop_name}</p>
+      <p>Hi {seller_name or "there"},</p>
+      <p>Here's how <strong>{shop_name}</strong> performed over the last 7 days
+      compared to the week before.</p>
+      {kpis_html}
+      {top_html}
+      <h3 style="margin:24px 0 10px;font-size:14px;color:#1A1A1A;">Ideas for next week</h3>
+      <ul style="padding-left:18px;font-size:14px;color:#404040;">{tips_html}</ul>
+      <p style="font-size:12px;color:#808080;margin-top:22px;">
+        You're receiving this because you're a seller on JubaSquare.
+        Update your notification preferences in Seller Dashboard → Settings.
+      </p>
+    """
+    html = _shell(
+        title="Your weekly Growth Insights",
+        body_html=body,
+        cta_label="Open Seller Dashboard",
+        cta_url=f"{get_frontend_url()}/seller",
+        preheader=f"{int(curr.get('orders', 0))} orders · ${float(curr.get('revenue_usd', 0)):.0f} revenue this week.",
+    )
+    return await _send(to, f"📈 Weekly Growth Insights — {shop_name}", html)

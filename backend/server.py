@@ -4489,7 +4489,11 @@ async def global_search(q: str = "", limit: int = 5):
     """Case-insensitive substring search on name (and description) across
     restaurants, shops and products. Returns up to `limit` of each group,
     excluding soft-deleted/hidden items. Returns empty lists for q='' or
-    queries shorter than 2 chars so the UI can short-circuit."""
+    queries shorter than 2 chars so the UI can short-circuit.
+
+    Iter 30 Wave 3 — Relevance ranking: results are re-sorted so name
+    matches rank above description matches, exact prefix rank above
+    substring, and LTG / has-promo boosts tie-break equal-relevance rows."""
     q = (q or "").strip()
     if len(q) < 2:
         return {"restaurants": [], "shops": [], "products": [], "query": q}
@@ -4499,13 +4503,30 @@ async def global_search(q: str = "", limit: int = 5):
     name_rx = {"$regex": pat, "$options": "i"}
     desc_rx = {"$regex": pat, "$options": "i"}
 
-    projection = {"_id": 0, "id": 1, "name": 1, "image_url": 1, "area": 1, "category": 1}
+    projection = {"_id": 0, "id": 1, "name": 1, "image_url": 1, "area": 1, "category": 1,
+                  "is_ltg_partner": 1, "description": 1}
+    # Iter 30 Wave 3 — over-fetch (3x limit) so relevance re-ranking has a
+    # deep enough pool to hoist the best matches.
+    fetch = limit * 3
+    ql = q.lower()
+
+    def _relevance(doc: dict) -> tuple:
+        name = (doc.get("name") or "").lower()
+        desc = (doc.get("description") or "").lower()
+        # Lower tuple = higher rank (used with sort() asc).
+        tier = 0 if name.startswith(ql) else (1 if ql in name else (2 if ql in desc else 3))
+        ltg = 0 if doc.get("is_ltg_partner") else 1
+        verified = 0 if doc.get("verification") == "Verified" else 1
+        promo = 0 if doc.get("has_active_promo") or (doc.get("promo") or {}).get("active") else 1
+        return (tier, ltg, verified, promo, len(name))
 
     # Restaurants — exclude soft-deleted, surface "Closed" badge but still show
     restaurants = await db.restaurants.find(
         {"$or": [{"name": name_rx}, {"description": desc_rx}], "is_deleted": {"$ne": True}},
-        {**projection, "is_open": 1, "average_rating": 1, "review_count": 1},
-    ).limit(limit).to_list(limit)
+        {**projection, "is_open": 1, "average_rating": 1, "review_count": 1, "verification": 1},
+    ).limit(fetch).to_list(fetch)
+    restaurants.sort(key=_relevance)
+    restaurants = restaurants[:limit]
 
     # Shops — exclude hidden/deleted from public results
     shops = await db.shops.find(
@@ -4515,7 +4536,9 @@ async def global_search(q: str = "", limit: int = 5):
             "is_public": {"$ne": False},
         },
         {**projection, "verification": 1},
-    ).limit(limit).to_list(limit)
+    ).limit(fetch).to_list(fetch)
+    shops.sort(key=_relevance)
+    shops = shops[:limit]
 
     # Products — exclude inactive
     products = await db.products.find(
@@ -4523,8 +4546,10 @@ async def global_search(q: str = "", limit: int = 5):
             "$or": [{"name": name_rx}, {"description": desc_rx}],
             "is_active": {"$ne": False},
         },
-        {**projection, "price_usd": 1, "shop_id": 1, "is_wholesale": 1},
-    ).limit(limit).to_list(limit)
+        {**projection, "price_usd": 1, "shop_id": 1, "is_wholesale": 1, "promo": 1},
+    ).limit(fetch).to_list(fetch)
+    products.sort(key=_relevance)
+    products = products[:limit]
 
     return {
         "restaurants": restaurants,
@@ -6517,6 +6542,224 @@ async def admin_bulk_delete_users(body: AdminBulkDeleteUsersIn, admin: dict = De
         "succeeded": succeeded,
         "failed": failed,
     }
+
+
+# ----------------------------------------------------------------------------
+# Iter 30 Wave 3 — Soft-delete restore + Growth Insights (weekly seller email)
+# ----------------------------------------------------------------------------
+@api.post("/admin/users/{user_id}/restore")
+async def admin_restore_user(user_id: str, admin: dict = Depends(require_role("admin"))):
+    """Reverse a soft-delete (Iter 30 Wave 3).
+
+    Restores a soft-deleted user record and re-flags any shops/restaurants
+    they own back to active. Fields anonymized during delete (email, name)
+    remain anonymized — the human user must sign up fresh with their real
+    email OR the admin can manually edit the record. This endpoint just
+    reopens the account for use so historical order links stay intact."""
+    u = await db.users.find_one({"id": user_id})
+    if not u:
+        raise HTTPException(404, "User not found")
+    if not u.get("is_deleted"):
+        return {"ok": True, "restored": False, "already_active": True}
+
+    now = now_iso()
+    await db.users.update_one(
+        {"id": user_id},
+        {
+            "$set": {
+                "is_deleted": False,
+                "is_active": True,
+                "restored_at": now,
+                "restored_by": admin["id"],
+                "updated_at": now,
+            },
+            "$unset": {"deleted_at": "", "deleted_by": ""},
+        },
+    )
+
+    if u.get("role") == "seller":
+        # Unflag owned shops/restaurants (products & menu_items were also
+        # marked deleted — restore them too so the storefront reappears).
+        await db.shops.update_many(
+            {"seller_id": user_id, "is_deleted": True},
+            {"$set": {"is_deleted": False, "is_public": True, "restored_at": now},
+             "$unset": {"deleted_at": ""}},
+        )
+        await db.restaurants.update_many(
+            {"seller_id": user_id, "is_deleted": True},
+            {"$set": {"is_deleted": False, "is_open": True, "restored_at": now},
+             "$unset": {"deleted_at": ""}},
+        )
+        await db.products.update_many(
+            {"seller_id": user_id, "is_deleted": True},
+            {"$set": {"is_deleted": False, "is_active": True, "restored_at": now},
+             "$unset": {"deleted_at": ""}},
+        )
+        await db.menu_items.update_many(
+            {"seller_id": user_id, "is_deleted": True},
+            {"$set": {"is_deleted": False, "is_available": True, "restored_at": now},
+             "$unset": {"deleted_at": ""}},
+        )
+
+    return {"ok": True, "restored": True, "user_id": user_id}
+
+
+async def _compute_seller_growth_metrics(seller_id: str, days: int = 7) -> dict:
+    """Compute 7-day (curr) + prior-7-day (prev) metrics for a seller.
+
+    Signals: orders (Completed/Delivered), revenue (order.subtotal_usd for
+    seller's items), cancellations, favorite deltas, avg rating and review
+    count on their shops/restaurants, top 5 products by units sold this week.
+    """
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    now_dt = _dt.now(_tz.utc)
+    curr_start = (now_dt - _td(days=days)).isoformat()
+    prev_start = (now_dt - _td(days=days * 2)).isoformat()
+    curr_end = now_dt.isoformat()
+    prev_end = curr_start
+
+    # Shop and restaurant IDs owned by this seller
+    shop_ids = [s["id"] for s in await db.shops.find({"seller_id": seller_id}, {"_id": 0, "id": 1, "name": 1}).to_list(200)]
+    restaurant_ids = [r["id"] for r in await db.restaurants.find({"seller_id": seller_id}, {"_id": 0, "id": 1, "name": 1}).to_list(200)]
+    shop_docs = await db.shops.find({"seller_id": seller_id}, {"_id": 0}).to_list(200)
+    restaurant_docs = await db.restaurants.find({"seller_id": seller_id}, {"_id": 0}).to_list(200)
+    shop_name = (shop_docs[0]["name"] if shop_docs else (restaurant_docs[0]["name"] if restaurant_docs else "your business"))
+
+    async def _metrics_for_window(start: str, end: str) -> dict:
+        # Marketplace orders — pull the seller_order_splits since each
+        # split already isolates this seller's revenue portion.
+        splits = await db.seller_order_splits.find(
+            {"seller_id": seller_id, "created_at": {"$gte": start, "$lt": end}},
+            {"_id": 0, "seller_earning_usd": 1, "delivery_status": 1, "order_id": 1},
+        ).to_list(5000)
+        # Only completed / delivered count as revenue.
+        completed_splits = [sp for sp in splits if (sp.get("delivery_status") or "").lower() in {"delivered", "completed"}]
+        revenue_shop = sum(float(sp.get("seller_earning_usd") or 0) for sp in completed_splits)
+
+        # Restaurant orders (no split — direct)
+        rest_orders = await db.restaurant_orders.find(
+            {"restaurant_id": {"$in": restaurant_ids}, "created_at": {"$gte": start, "$lt": end}},
+            {"_id": 0, "total_usd": 1, "status": 1, "delivery_status": 1},
+        ).to_list(5000) if restaurant_ids else []
+        completed_rest = [o for o in rest_orders if (o.get("status") or "").lower() in {"completed", "delivered"} or (o.get("delivery_status") or "").lower() == "delivered"]
+        revenue_rest = sum(float(o.get("total_usd") or 0) for o in completed_rest)
+
+        cancelled_shop = len([sp for sp in splits if (sp.get("delivery_status") or "").lower() in {"cancelled", "rejected"}])
+        cancelled_rest = len([o for o in rest_orders if (o.get("status") or "").lower() in {"cancelled", "rejected"}])
+
+        # Favorites added on any owned shop/restaurant/product in the window
+        prod_ids = [p["id"] for p in await db.products.find({"seller_id": seller_id}, {"_id": 0, "id": 1}).to_list(2000)]
+        target_ids = shop_ids + restaurant_ids + prod_ids
+        favs = 0
+        if target_ids:
+            favs = await db.favorites.count_documents({
+                "target_id": {"$in": target_ids},
+                "created_at": {"$gte": start, "$lt": end},
+            })
+
+        return {
+            "orders": len(completed_splits) + len(completed_rest),
+            "revenue_usd": revenue_shop + revenue_rest,
+            "cancelled": cancelled_shop + cancelled_rest,
+            "favorites": favs,
+        }
+
+    curr = await _metrics_for_window(curr_start, curr_end)
+    prev = await _metrics_for_window(prev_start, prev_end)
+
+    # Ratings snapshot (current only — ratings are stateful, not window-based)
+    ratings = [float(d.get("average_rating") or 0) for d in shop_docs + restaurant_docs if d.get("average_rating")]
+    review_counts = [int(d.get("review_count") or 0) for d in shop_docs + restaurant_docs]
+    curr["rating"] = round(sum(ratings) / len(ratings), 2) if ratings else 0.0
+    curr["review_count"] = sum(review_counts)
+    prev["rating"] = curr["rating"]  # no historical snapshot — treat as unchanged
+    prev["review_count"] = curr["review_count"]
+
+    # Top-selling products this week (marketplace)
+    top_products: list = []
+    if shop_ids:
+        top_agg = db.orders.aggregate([
+            {"$match": {"status": {"$in": ["Completed", "Delivered"]}, "created_at": {"$gte": curr_start, "$lt": curr_end}}},
+            {"$unwind": "$items"},
+            {"$match": {"items.seller_id": seller_id}},
+            {"$group": {"_id": "$items.product_id", "n": {"$sum": {"$ifNull": ["$items.quantity", 1]}}, "name": {"$first": "$items.name"}}},
+            {"$sort": {"n": -1}},
+            {"$limit": 5},
+        ])
+        top_products = [{"name": r.get("name") or "Product", "order_count": r["n"]} async for r in top_agg]
+
+    return {
+        "seller_id": seller_id,
+        "shop_name": shop_name,
+        "curr": curr,
+        "prev": prev,
+        "top_products": top_products,
+        "window": {"curr_start": curr_start, "prev_start": prev_start},
+    }
+
+
+@api.get("/seller/growth-insights")
+async def seller_growth_insights_preview(user: dict = Depends(require_role("seller", "admin"))):
+    """Seller-facing preview of their own weekly growth insights (Iter 30 Wave 3).
+    Returns the same JSON the weekly email is generated from."""
+    return await _compute_seller_growth_metrics(user["id"], days=7)
+
+
+class GrowthInsightsSendIn(BaseModel):
+    dry_run: bool = False
+
+
+@api.post("/admin/growth-insights/send/{seller_id}")
+async def admin_send_growth_insights(seller_id: str, body: GrowthInsightsSendIn = Body(default_factory=GrowthInsightsSendIn), _: dict = Depends(require_role("admin"))):
+    """Admin sends the weekly Growth Insights email to a single seller."""
+    seller = await db.users.find_one({"id": seller_id, "role": "seller"}, {"_id": 0})
+    if not seller:
+        raise HTTPException(404, "Seller not found")
+    if seller.get("is_deleted"):
+        raise HTTPException(400, "Seller is soft-deleted")
+    metrics = await _compute_seller_growth_metrics(seller_id, days=7)
+    if body.dry_run:
+        return {"ok": True, "dry_run": True, "metrics": metrics}
+    email_id = await email_service.send_growth_insights_email(
+        to=seller.get("email"),
+        seller_name=seller.get("name") or "",
+        metrics=metrics,
+    )
+    return {"ok": bool(email_id), "email_id": email_id, "seller_id": seller_id}
+
+
+@api.post("/admin/growth-insights/send-all")
+async def admin_send_growth_insights_all(_: dict = Depends(require_role("admin"))):
+    """Admin sends the weekly Growth Insights email to every active seller.
+    Returns counts + per-seller status so the UI can show progress."""
+    sellers = await db.users.find(
+        {"role": "seller", "is_deleted": {"$ne": True}, "is_active": {"$ne": False}},
+        {"_id": 0, "id": 1, "email": 1, "name": 1},
+    ).to_list(2000)
+    sent, failed, skipped = 0, [], []
+    for s in sellers:
+        if not s.get("email") or "@" not in (s.get("email") or ""):
+            skipped.append({"seller_id": s["id"], "reason": "no valid email"})
+            continue
+        try:
+            metrics = await _compute_seller_growth_metrics(s["id"], days=7)
+            # Skip sellers with zero activity in BOTH windows — they haven't
+            # actually onboarded yet, no useful signal to share.
+            if metrics["curr"]["orders"] == 0 and metrics["prev"]["orders"] == 0 and metrics["curr"]["favorites"] == 0:
+                skipped.append({"seller_id": s["id"], "reason": "no activity"})
+                continue
+            eid = await email_service.send_growth_insights_email(
+                to=s["email"], seller_name=s.get("name") or "", metrics=metrics,
+            )
+            if eid:
+                sent += 1
+            else:
+                failed.append({"seller_id": s["id"], "reason": "send failed"})
+        except Exception as e:
+            failed.append({"seller_id": s["id"], "reason": str(e)})
+    return {"ok": True, "sent": sent, "skipped": skipped, "failed": failed, "total_sellers": len(sellers)}
+
+
 
 
 @api.post("/admin/areas")
