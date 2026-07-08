@@ -33,7 +33,14 @@ export default function Shops() {
     return ["All", ...new Set(allCategories)];
   }, [products]);
 
-  const productsByShop = (shopId) => products.filter((p) => p.shop_id === shopId).slice(0, 4);
+  // Top 4 products per shop: must have an image AND be top-selling
+  // (sorted by `order_count` desc). This matches the featured strip on
+  // ShopCard.jsx which expects images only.
+  const productsByShop = (shopId) =>
+    products
+      .filter((p) => p.shop_id === shopId && p.image_url)
+      .sort((a, b) => (b.order_count || 0) - (a.order_count || 0))
+      .slice(0, 4);
 
   // Filter shops based on products' categories
   const filtered = shops.filter((s) => {

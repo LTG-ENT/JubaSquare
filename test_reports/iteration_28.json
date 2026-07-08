@@ -1,0 +1,27 @@
+{
+  "summary": "Iter28 backend validation: 25/25 tests passed. Verified health, admin login (email+username), admin-only LTG toggle for shops/restaurants (403 for sellers, 404 for missing), LTG-first sort ordering on /api/shops & /api/restaurants, 10-section limit + 11-rejected on both PUT /shops/{id} and PUT /restaurants/{id}, is_promo_section round-trip, server-side BOGO enforcement (buy 2 → 1 free on $10 item = subtotal $10) and 10% percent promo ($100 → $90) via /api/orders, favorites POST/GET enriched shape ({favorite_id,target_type,created_at,item}), DELETE /api/favorites?target_type=&target_id= returns {ok:true,deleted:1}, DELETE /api/favorites/{id} path form still works, and review eligibility now accepts delivery_status='delivered' even when status != 'completed'. Regressions on /api/shops, /api/restaurants, /api/products all 200.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter28_ltg_promo_favorites.py",
+    "/app/test_reports/pytest/iter28_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Spec vs code drift: review request documents the LTG toggle path as PUT /api/admin/shops/{shop_id}/ltg but the actual endpoint is PUT /api/admin/shops/{shop_id}/ltg-partner (twin for restaurants). Update docs or add a path alias to avoid future frontend integration confusion.",
+    "server.py is now 7486 lines — still growing without any module split. Sections/promo/LTG/favorites/reviews all live in the same file and would benefit from feature-based routers.",
+    "SellerSection docstring says 'Max 10 per entity' (previously 6). Both PUT /shops/{id} and PUT /restaurants/{id} correctly enforce 10 now, but stale iter27 comments still reference 'max 6' in ShopIn.product_sections (line 707) and RestaurantIn.menu_sections (line 820) docstrings. Please update comments.",
+    "GET /api/favorites silently drops entries whose target no longer exists (item=None → skipped). No favorite_id is returned for orphans so the frontend can't offer a 'clean up' action; consider returning the orphan with item=null instead of dropping.",
+    "DELETE /api/favorites?target_type=&target_id= returns 200 with deleted=0 when nothing matched (no 404). This is intentional per code but the endpoint is not idempotent-safe on caller-side (can't detect 'wasn't there'). Fine for UI but note in API docs.",
+    "Promo.value validator clamps negative → 0, but does NOT cap percent at 100 in the model itself. Runtime effective_price_usd clamps to [0,100] safely — however a percent=250 promo will still round-trip through the API and stored DB as-is. Consider clamping in the validator too."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter28_ltg_promo_favorites.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "N/A (backend-only per request)"},
+  "test_credentials": "admin@jubasquare.com / 1234 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "RUN_TAG-prefixed per-run: 1 seller + 1 customer via admin API+signup, 2 categories (food+shop), 2 restaurants (LTG+regular), 3 shops (LTG+regular+sections-test), 2 products (BOGO+percent promo), 2 restaurant_orders (delivered + pending) for review eligibility test. Full teardown in module-scoped db fixture (users/shops/restaurants/products/menu_items/orders/restaurant_orders/favorites/reviews/categories/exchange_rates filtered by RUN_TAG regex on id/email/seller_id/shop_id/restaurant_id/user_id/customer_id).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "test_iter28_ltg_promo_favorites.py requires REACT_APP_BACKEND_URL, MONGO_URL, DB_NAME env vars — DO NOT `source backend/.env` because VAPID_PRIVATE_KEY_PEM contains bash-breaking newlines; export MONGO_URL, DB_NAME, REACT_APP_BACKEND_URL manually. CRITICAL: use a BlockingJar cookie jar on the requests.Session — backend's get_current_user prefers cookie over Authorization header, so multi-role sessions leak. Actual LTG endpoint path is /admin/shops/{id}/ltg-partner (NOT /ltg as review-request said). Max sections is 10 (not 6 as older code comments claim). BOGO helper subtracts revenue for free units server-side; effective_price_usd is unchanged for bogo type."
+}

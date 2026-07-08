@@ -16,7 +16,7 @@ import jwt
 import secrets
 import re
 from pathlib import Path as _FsPath
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Query, Body
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -4165,6 +4165,22 @@ async def remove_favorite(favorite_id: str, user: dict = Depends(get_current_use
     
     await db.favorites.delete_one({"id": favorite_id})
     return {"ok": True}
+
+
+@api.delete("/favorites")
+async def remove_favorite_by_target(
+    target_type: str = Query(...),
+    target_id: str = Query(...),
+    user: dict = Depends(get_current_user),
+):
+    """Remove a favorite by (target_type, target_id) — used by ProductCard,
+    ProductDetail and the Favorites page's Remove buttons."""
+    res = await db.favorites.delete_one({
+        "user_id": user["id"],
+        "target_type": target_type,
+        "target_id": target_id,
+    })
+    return {"ok": True, "deleted": res.deleted_count}
 
 
 @api.get("/favorites")

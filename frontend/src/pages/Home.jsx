@@ -90,7 +90,11 @@ export default function Home() {
     retailCats.length > 0
       ? retailCats.map((c) => ({ name: c.name, image_url: c.image_url || CATEGORY_ICONS[c.name] || "" }))
       : shopCategories.map((name) => ({ name, image_url: CATEGORY_ICONS[name] || "" }));
-  const productsByShop = (shopId) => allProducts.filter((p) => p.shop_id === shopId).slice(0, 4);
+  const productsByShop = (shopId) =>
+    allProducts
+      .filter((p) => p.shop_id === shopId && p.image_url)
+      .sort((a, b) => (b.order_count || 0) - (a.order_count || 0))
+      .slice(0, 4);
 
   return (
     <div className="min-h-screen flex flex-col">
