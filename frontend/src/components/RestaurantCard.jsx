@@ -50,9 +50,18 @@ export default function RestaurantCard({ restaurant, initialOpen = false, rank =
       api.get(`/restaurants/${restaurant.id}/menu`).then((r) => {
         const items = r.data || [];
         setMenu(items);
-        // Extract unique categories from the menu items (using category_id).
-        // Then look up their names in the restaurant categories tree so
-        // the customer sees "Appetizers", "Mains" rather than UUIDs.
+        // Iter 27 — Prefer SELLER-DEFINED sections (max 6) from the
+        // restaurant doc itself. These live on `restaurant.menu_sections`
+        // and each menu item points to one via `menu_section_id`.
+        // Fall back to platform category grouping only if no sections
+        // exist (legacy restaurants).
+        const sellerSections = (restaurant.menu_sections || [])
+          .slice()
+          .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        if (sellerSections.length) {
+          setMenuCategories(sellerSections.map((s) => ({ id: s.id, name: s.name })));
+          return;
+        }
         const catIds = Array.from(new Set(items.map((m) => m.category_id).filter(Boolean)));
         if (catIds.length) {
           api.get("/categories/tree?group=restaurant").then((cr) => {
@@ -67,7 +76,7 @@ export default function RestaurantCard({ restaurant, initialOpen = false, rank =
         }
       });
     }
-  }, [open, restaurant.id, menu.length]);
+  }, [open, restaurant.id, menu.length, restaurant.menu_sections]);
   
   // Check if restaurant is favorited
   useEffect(() => {
@@ -120,10 +129,15 @@ export default function RestaurantCard({ restaurant, initialOpen = false, rank =
     setOpen(true);
   };
 
-  const filteredMenu = menu.filter((m) =>
-    (!search || m.name.toLowerCase().includes(search.toLowerCase())) &&
-    (activeMenuCat === "all" || m.category_id === activeMenuCat)
-  );
+  // Iter 27 — When the restaurant has seller-defined sections, filter by
+  // menu_section_id (fall back to category_id on legacy items).
+  const useSellerSections = (restaurant.menu_sections || []).length > 0;
+  const filteredMenu = menu.filter((m) => {
+    if (search && !m.name.toLowerCase().includes(search.toLowerCase())) return false;
+    if (activeMenuCat === "all") return true;
+    if (useSellerSections) return m.menu_section_id === activeMenuCat;
+    return m.category_id === activeMenuCat;
+  });
 
   // Group filtered items by category so the drawer shows section headers.
   const groupedMenu = useMemo(() => {
@@ -135,7 +149,7 @@ export default function RestaurantCard({ restaurant, initialOpen = false, rank =
     }
     const buckets = new Map();
     filteredMenu.forEach((m) => {
-      const key = m.category_id || "_uncat";
+      const key = (useSellerSections ? m.menu_section_id : m.category_id) || "_uncat";
       if (!buckets.has(key)) buckets.set(key, []);
       buckets.get(key).push(m);
     });
@@ -148,7 +162,7 @@ export default function RestaurantCard({ restaurant, initialOpen = false, rank =
       rows.push({ cat: { id: "_uncat", name: "Other" }, items: buckets.get("_uncat") });
     }
     return rows;
-  }, [filteredMenu, menuCategories, activeMenuCat]);
+  }, [filteredMenu, menuCategories, activeMenuCat, useSellerSections]);
 
   const addMenu = (item, sides) => {
     const success = addItem({
@@ -390,6 +404,23 @@ function MenuRow({ item, restaurant, addMenu, exchangeRate, currency }) {
   // Use item's embedded exchange rate (seller-specific) or fall back to global
   const itemRate = item.exchange_rate_ssp || exchangeRate;
 
+  // Iter 27 — Promo pricing. When a promo is active + within date window,
+  // display a strikethrough on the raw price and use the discounted price
+  // for all totals. Backend re-computes on order-create so the customer
+  // is charged the same value they see here.
+  const nowIso = new Date().toISOString();
+  const p = item.promo || {};
+  const promoLive = !!p.active && (!p.starts_at || nowIso >= p.starts_at) && (!p.ends_at || nowIso <= p.ends_at);
+  const rawPrice = item.price_usd;
+  const effectivePrice = !promoLive ? rawPrice : (
+    p.type === "percent"
+      ? Math.max(0, rawPrice * (1 - (p.value || 0) / 100))
+      : Math.max(0, rawPrice - (p.value || 0))
+  );
+  const promoLabel = promoLive
+    ? (p.type === "percent" ? `-${Math.round(p.value || 0)}%` : `-${formatPrice(p.value || 0, itemRate, currency)}`)
+    : null;
+
   const toggleSide = (s) => {
     const exists = pickedSides.find((x) => x.name === s.name);
     if (exists) {
@@ -424,7 +455,7 @@ function MenuRow({ item, restaurant, addMenu, exchangeRate, currency }) {
     setPickedSides([]);
   };
 
-  const totalUsd = item.price_usd + pickedSides.reduce((s, x) => s + x.price_usd, 0);
+  const totalUsd = effectivePrice + pickedSides.reduce((s, x) => s + x.price_usd, 0);
 
   // Human-readable requirement hint
   const requirementHint = sidesRequired && (() => {
@@ -445,12 +476,26 @@ function MenuRow({ item, restaurant, addMenu, exchangeRate, currency }) {
                 Required
               </span>
             )}
+            {promoLive && (
+              <span
+                className="text-[9px] font-bold uppercase tracking-widest bg-emerald-600 text-white px-1.5 py-0.5 rounded"
+                title={p.ends_at ? `Promo ends ${new Date(p.ends_at).toLocaleString()}` : "Limited-time promo"}
+                data-testid={`menu-promo-badge-${item.id}`}
+              >
+                {promoLabel} PROMO
+              </span>
+            )}
           </div>
           <p className="text-xs text-[var(--js-text-secondary)] line-clamp-2 mt-0.5">{item.description}</p>
           <div className="mt-1 flex items-center gap-2">
             <span className="font-display font-bold text-[var(--js-text)]" data-testid={`menu-price-${item.id}`}>
               {formatPrice(totalUsd, itemRate, currency)}
             </span>
+            {promoLive && pickedSides.length === 0 && (
+              <span className="text-xs line-through text-[var(--js-text-secondary)]">
+                {formatPrice(rawPrice, itemRate, currency)}
+              </span>
+            )}
             <span className="text-xs text-[var(--js-text-secondary)]">
               ≈ {formatPriceAlt(totalUsd, itemRate, currency)}
             </span>

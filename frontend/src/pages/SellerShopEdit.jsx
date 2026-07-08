@@ -35,6 +35,7 @@ export default function SellerShopEdit() {
     eta_fixed_minutes: 30,
     eta_min_minutes: 25,
     eta_max_minutes: 45,
+    product_sections: [],
   });
 
   useEffect(() => {
@@ -62,6 +63,7 @@ export default function SellerShopEdit() {
           eta_fixed_minutes: s.eta_fixed_minutes ?? 30,
           eta_min_minutes: s.eta_min_minutes ?? 25,
           eta_max_minutes: s.eta_max_minutes ?? 45,
+          product_sections: s.product_sections || [],
         });
       })
       .catch((err) => {
@@ -104,6 +106,10 @@ export default function SellerShopEdit() {
         eta_fixed_minutes: form.eta_mode === "fixed" ? (parseInt(form.eta_fixed_minutes, 10) || null) : null,
         eta_min_minutes: form.eta_mode === "range" ? (parseInt(form.eta_min_minutes, 10) || null) : null,
         eta_max_minutes: form.eta_mode === "range" ? (parseInt(form.eta_max_minutes, 10) || null) : null,
+        product_sections: (form.product_sections || [])
+          .map((s, i) => ({ id: s.id, name: (s.name || "").trim(), sort_order: i }))
+          .filter((s) => s.id && s.name)
+          .slice(0, 6),
       };
       const { data } = await api.put(`/shops/${shop_id}`, payload);
       setShop(data);
@@ -266,6 +272,14 @@ export default function SellerShopEdit() {
           {/* Delivery */}
           <Section title="Delivery settings" subtitle="Pick a pricing model for delivery from this shop.">
             <DeliveryEditor form={form} setForm={setForm} />
+          </Section>
+
+          {/* Product sections */}
+          <Section
+            title="Product sections"
+            subtitle="Group products in this shop into up to 6 sections (Featured, On Sale, Accessories…). Each product can be assigned to one section."
+          >
+            <ShopSectionsEditor form={form} setForm={setForm} />
           </Section>
 
           {/* Estimated delivery */}
@@ -541,6 +555,73 @@ function ShopReceiptLogoEditor({ form, setForm }) {
           />
         </div>
       )}
+    </div>
+  );
+}
+
+
+function ShopSectionsEditor({ form, setForm }) {
+  const sections = form.product_sections || [];
+  const max = 6;
+  const add = () => {
+    if (sections.length >= max) return;
+    setForm({
+      ...form,
+      product_sections: [
+        ...sections,
+        { id: `s_${Math.random().toString(36).slice(2, 10)}`, name: "", sort_order: sections.length },
+      ],
+    });
+  };
+  const remove = (i) => setForm({ ...form, product_sections: sections.filter((_, idx) => idx !== i) });
+  const rename = (i, name) => {
+    const next = sections.slice();
+    next[i] = { ...next[i], name };
+    setForm({ ...form, product_sections: next });
+  };
+  const move = (i, dir) => {
+    const j = i + dir;
+    if (j < 0 || j >= sections.length) return;
+    const next = sections.slice();
+    [next[i], next[j]] = [next[j], next[i]];
+    setForm({ ...form, product_sections: next });
+  };
+  return (
+    <div className="space-y-2">
+      {sections.length === 0 && (
+        <p className="text-xs text-[var(--js-text-secondary)] italic">No sections yet. Common ones: Featured, On Sale, New Arrivals, Accessories, Bestsellers, Clearance.</p>
+      )}
+      {sections.map((s, i) => (
+        <div key={s.id} className="flex items-center gap-2" data-testid={`shop-section-row-${i}`}>
+          <span className="text-xs font-mono text-[var(--js-text-secondary)] w-6">{i + 1}.</span>
+          <input
+            type="text"
+            value={s.name}
+            onChange={(e) => rename(i, e.target.value)}
+            placeholder="Section name (e.g. Featured)"
+            className="flex-1 px-3 py-2 rounded-lg border border-[var(--js-border)] bg-[var(--js-bg)] text-sm"
+            maxLength={40}
+            data-testid={`shop-section-name-${i}`}
+          />
+          <button type="button" onClick={() => move(i, -1)} disabled={i === 0} className="px-2 py-1 text-xs bg-white border border-[var(--js-border)] rounded disabled:opacity-30">↑</button>
+          <button type="button" onClick={() => move(i, 1)} disabled={i === sections.length - 1} className="px-2 py-1 text-xs bg-white border border-[var(--js-border)] rounded disabled:opacity-30">↓</button>
+          <button
+            type="button"
+            onClick={() => remove(i)}
+            data-testid={`shop-section-remove-${i}`}
+            className="px-2 py-1 text-xs bg-red-50 text-red-700 border border-red-200 rounded hover:bg-red-100"
+          >Remove</button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={add}
+        disabled={sections.length >= max}
+        data-testid="shop-section-add"
+        className="text-xs font-semibold bg-[#0E1A2B] hover:bg-black text-white rounded-full px-4 py-1.5 disabled:opacity-40"
+      >
+        + Add section ({sections.length}/{max})
+      </button>
     </div>
   );
 }

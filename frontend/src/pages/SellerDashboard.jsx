@@ -722,6 +722,7 @@ function ProductsTab({ currency, exchangeRate }) {
       price_usd: 0, stock: 100,
       min_order_qty: "", bulk_price_usd: "",
       pricing_tiers: [],
+      product_section_id: "",
       category_id_menu: "",  // PRIMARY: UUID for menu items (required)
       food_category: "",     // DEPRECATED: for display only
       side_items: [],
@@ -729,6 +730,8 @@ function ProductsTab({ currency, exchangeRate }) {
       sides_required: false,
       sides_min_choices: 1,
       sides_max_choices: null,
+      menu_section_id: "",
+      promo: { active: false, type: "percent", value: 0, starts_at: "", ends_at: "" },
     };
   }
 
@@ -865,6 +868,8 @@ function ProductsTab({ currency, exchangeRate }) {
       min_order_qty: p.min_order_qty && p.min_order_qty > 1 ? p.min_order_qty : "",
       bulk_price_usd: p.bulk_price_usd || "",
       pricing_tiers: p.pricing_tiers || [],
+      product_section_id: p.product_section_id || "",
+      promo: p.promo || { active: false, type: "percent", value: 0, starts_at: "", ends_at: "" },
     });
     setShowForm(true);
   };
@@ -884,6 +889,8 @@ function ProductsTab({ currency, exchangeRate }) {
       sides_required: !!m.sides_required,
       sides_min_choices: m.sides_min_choices ?? 1,
       sides_max_choices: m.sides_max_choices ?? null,
+      menu_section_id: m.menu_section_id || "",
+      promo: m.promo || { active: false, type: "percent", value: 0, starts_at: "", ends_at: "" },
     });
     setShowForm(true);
   };
@@ -907,6 +914,14 @@ function ProductsTab({ currency, exchangeRate }) {
           sides_max_choices: form.sides_required && form.sides_max_choices !== null && form.sides_max_choices !== "" && Number.isFinite(parseInt(form.sides_max_choices, 10))
             ? parseInt(form.sides_max_choices, 10)
             : null,
+          menu_section_id: form.menu_section_id || null,
+          promo: form.promo && form.promo.active ? {
+            active: true,
+            type: form.promo.type || "percent",
+            value: parseFloat(form.promo.value) || 0,
+            starts_at: form.promo.starts_at || null,
+            ends_at: form.promo.ends_at || null,
+          } : { active: false, type: "percent", value: 0, starts_at: null, ends_at: null },
         };
         if (editing?.kind === "menu") await api.put(`/menu-items/${editing.id}`, payload);
         else await api.post("/menu-items", payload);
@@ -927,6 +942,14 @@ function ProductsTab({ currency, exchangeRate }) {
             ? (form.pricing_tiers || []).filter((t) => t.min_qty && t.price_usd)
                 .map((t) => ({ min_qty: parseInt(t.min_qty), price_usd: parseFloat(t.price_usd) }))
             : [],
+          product_section_id: form.product_section_id || null,
+          promo: form.promo && form.promo.active ? {
+            active: true,
+            type: form.promo.type || "percent",
+            value: parseFloat(form.promo.value) || 0,
+            starts_at: form.promo.starts_at || null,
+            ends_at: form.promo.ends_at || null,
+          } : { active: false, type: "percent", value: 0, starts_at: null, ends_at: null },
         };
         if (editing?.kind === "product") await api.put(`/products/${editing.id}`, payload);
         else await api.post("/products", payload);
@@ -1182,6 +1205,16 @@ function ProductsTab({ currency, exchangeRate }) {
                   setForm={setForm}
                   hasSides={(form.side_items || []).length > 0}
                 />
+                <SectionPicker
+                  form={form}
+                  setForm={setForm}
+                  fieldKey="menu_section_id"
+                  sections={(restaurants.find((r) => r.id === form.restaurant_id) || {}).menu_sections || []}
+                  label="Menu section"
+                  hint="Where should this item appear on the customer menu?"
+                  emptyHint="Add sections in your Restaurant page settings first."
+                />
+                <PromoEditor form={form} setForm={setForm} />
               </>
             ) : (
               <>
@@ -1343,6 +1376,16 @@ function ProductsTab({ currency, exchangeRate }) {
                     <PricingTiersEditor tiers={form.pricing_tiers} setTiers={(t) => setForm({ ...form, pricing_tiers: t })} currency={currency} exchangeRate={rate} />
                   </div>
                 )}
+                <SectionPicker
+                  form={form}
+                  setForm={setForm}
+                  fieldKey="product_section_id"
+                  sections={(shops.find((sh) => sh.id === form.shop_id) || {}).product_sections || []}
+                  label="Shop section"
+                  hint="Where should this product appear in your shop?"
+                  emptyHint="Add sections in your Shop page settings first."
+                />
+                <PromoEditor form={form} setForm={setForm} />
               </>
             )}
 
@@ -2465,6 +2508,125 @@ function RequiredSidesEditor({ form, setForm, hasSides }) {
             Preset examples:
             <span className="ml-2 inline-block bg-white border border-[var(--js-border)] rounded px-2 py-0.5 mr-1">Pizza size → min 1, max 1</span>
             <span className="inline-block bg-white border border-[var(--js-border)] rounded px-2 py-0.5">Burger meal → min 1, max blank</span>
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function SectionPicker({ form, setForm, fieldKey, sections, label, hint, emptyHint }) {
+  return (
+    <div>
+      <span className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">{label}</span>
+      {sections && sections.length > 0 ? (
+        <select
+          value={form[fieldKey] || ""}
+          onChange={(e) => setForm({ ...form, [fieldKey]: e.target.value })}
+          data-testid={`${fieldKey}-select`}
+          className="w-full px-3 py-2 rounded-lg border border-[var(--js-border)] bg-white text-sm"
+        >
+          <option value="">— No section (Other) —</option>
+          {sections.map((s) => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </select>
+      ) : (
+        <p className="text-xs text-[var(--js-text-secondary)] italic bg-[var(--js-subtle)] rounded-lg px-3 py-2 border border-[var(--js-border)]">
+          {emptyHint}
+        </p>
+      )}
+      {hint && <p className="text-[11px] text-[var(--js-text-secondary)] mt-1">{hint}</p>}
+    </div>
+  );
+}
+
+function PromoEditor({ form, setForm }) {
+  const promo = form.promo || { active: false, type: "percent", value: 0, starts_at: "", ends_at: "" };
+  const set = (patch) => setForm({ ...form, promo: { ...promo, ...patch } });
+  // ISO → <input type="datetime-local"> compatible (YYYY-MM-DDTHH:mm)
+  const toLocal = (iso) => (iso ? iso.slice(0, 16) : "");
+  return (
+    <div className="border border-[var(--js-border)] rounded-2xl p-3 bg-[var(--js-subtle)] space-y-3">
+      <div className="flex items-start gap-3">
+        <input
+          id="promo_active"
+          type="checkbox"
+          checked={!!promo.active}
+          onChange={(e) => set({ active: e.target.checked })}
+          className="mt-1 w-5 h-5 accent-emerald-600"
+          data-testid="promo-active-toggle"
+        />
+        <label htmlFor="promo_active" className="flex-1 cursor-pointer">
+          <p className="font-display font-semibold text-sm text-[var(--js-text)]">Limited-time promo</p>
+          <p className="text-xs text-[var(--js-text-secondary)]">
+            Discount is applied automatically when a customer views this item. Backend re-computes at checkout — safe from tampering.
+          </p>
+        </label>
+      </div>
+      {promo.active && (
+        <div className="space-y-3">
+          <div className="flex items-end gap-3 flex-wrap">
+            <div>
+              <span className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">Type</span>
+              <div className="inline-flex bg-white rounded-full p-1 border border-[var(--js-border)]">
+                {[
+                  { id: "percent", label: "%" },
+                  { id: "amount", label: "$" },
+                ].map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => set({ type: opt.id })}
+                    data-testid={`promo-type-${opt.id}`}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                      promo.type === opt.id ? "bg-emerald-600 text-white" : "text-[var(--js-text-secondary)]"
+                    }`}
+                  >{opt.label}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <span className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">
+                {promo.type === "percent" ? "Discount %" : "Discount $"}
+              </span>
+              <input
+                type="number"
+                min={0}
+                step={promo.type === "percent" ? 1 : 0.1}
+                max={promo.type === "percent" ? 100 : undefined}
+                value={promo.value ?? 0}
+                onChange={(e) => set({ value: e.target.value })}
+                data-testid="promo-value-input"
+                className="w-28 px-3 py-2 rounded-lg border border-[var(--js-border)] bg-white text-sm"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <span className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">Start (optional)</span>
+              <input
+                type="datetime-local"
+                value={toLocal(promo.starts_at)}
+                onChange={(e) => set({ starts_at: e.target.value ? new Date(e.target.value).toISOString() : "" })}
+                data-testid="promo-starts-input"
+                className="w-full px-3 py-2 rounded-lg border border-[var(--js-border)] bg-white text-sm"
+              />
+            </div>
+            <div>
+              <span className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">End (optional)</span>
+              <input
+                type="datetime-local"
+                value={toLocal(promo.ends_at)}
+                onChange={(e) => set({ ends_at: e.target.value ? new Date(e.target.value).toISOString() : "" })}
+                data-testid="promo-ends-input"
+                className="w-full px-3 py-2 rounded-lg border border-[var(--js-border)] bg-white text-sm"
+              />
+            </div>
+          </div>
+          <p className="text-[11px] text-[var(--js-text-secondary)] italic">
+            Leave dates blank to run indefinitely. Toggle off any time to end the promo instantly.
           </p>
         </div>
       )}

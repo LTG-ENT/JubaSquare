@@ -217,6 +217,48 @@ async def _rate_by_seller(seller_ids: list[str]) -> tuple[dict[str, float], floa
     )
 
 
+
+def effective_price_usd(item_doc: dict) -> float:
+    """Return the price after applying an ACTIVE promo (if any) — otherwise
+    the raw price_usd. Used by BOTH product and menu_item schemas since the
+    Promo shape is identical. Never returns a negative price.
+
+    Called by the order-create endpoints AFTER looking up the item from the
+    DB, so a crafted client can't send a fake promo price.
+    """
+    raw = float(item_doc.get("price_usd", 0) or 0)
+    promo = item_doc.get("promo") or {}
+    if not promo.get("active"):
+        return raw
+    now_i = now_iso()
+    starts = promo.get("starts_at")
+    ends = promo.get("ends_at")
+    if starts and now_i < starts:
+        return raw
+    if ends and now_i > ends:
+        return raw
+    ptype = promo.get("type", "percent")
+    pval = float(promo.get("value", 0) or 0)
+    if ptype == "percent":
+        return max(0.0, round(raw * (1 - pval / 100.0), 4))
+    # amount
+    return max(0.0, round(raw - pval, 4))
+
+
+def promo_is_live(promo: dict | None) -> bool:
+    """Whether a promo is currently active + within date window."""
+    if not promo or not promo.get("active"):
+        return False
+    now_i = now_iso()
+    starts = promo.get("starts_at")
+    ends = promo.get("ends_at")
+    if starts and now_i < starts:
+        return False
+    if ends and now_i > ends:
+        return False
+    return True
+
+
 async def enrich_marketplace_orders(orders: list[dict]) -> list[dict]:
     """Attach per-item `exchange_rate_ssp` (seller-specific) to each item so the
     customer/driver/seller UIs can format line totals using the right rate.
@@ -568,6 +610,33 @@ class DeliveryAreaFee(BaseModel):
     fee_usd: float = 0.0
 
 
+class SellerSection(BaseModel):
+    """A seller-defined section (aka 'menu category' inside a restaurant or
+    'product category' inside a shop). Distinct from the platform's global
+    Categories collection — those group restaurants/shops on the marketplace,
+    while these group items WITHIN one restaurant/shop (Starter,
+    Recommendation, Promo, …). Max 6 per entity, validated on the endpoint."""
+    id: str  # uuid, seller-generated
+    name: str
+    sort_order: int = 0
+
+
+class Promo(BaseModel):
+    """Time-limited discount configuration for a single product or menu item.
+    Backend recomputes the effective price server-side at order time so the
+    customer cannot forge a promo price.
+    - `type='percent'` with `value=15.0` → 15% off
+    - `type='amount'` with `value=1.50` → $1.50 off (never below $0)
+    Both dates optional; None means 'no start floor' / 'no end'. A promo is
+    considered ACTIVE when active=True AND now() is within [starts, ends]."""
+    active: bool = False
+    type: Literal["percent", "amount"] = "percent"
+    value: float = 0.0
+    starts_at: Optional[str] = None  # ISO 8601 UTC
+    ends_at: Optional[str] = None    # ISO 8601 UTC
+
+
+
 class ShopIn(BaseModel):
     name: str
     description: Optional[str] = ""
@@ -599,6 +668,11 @@ class ShopIn(BaseModel):
     eta_fixed_minutes: Optional[int] = None
     eta_min_minutes: Optional[int] = None
     eta_max_minutes: Optional[int] = None
+    # Iter 27 — seller-defined PRODUCT SECTIONS (max 6). Groups products
+    # within THIS shop (Featured, On Sale, Accessories…). Distinct from the
+    # marketplace-level shop_category. Each product references one section
+    # via product.product_section_id.
+    product_sections: List[SellerSection] = Field(default_factory=list)
 
 
 class ShopMessageIn(BaseModel):
@@ -639,6 +713,13 @@ class ProductIn(BaseModel):
     bulk_price_usd: Optional[float] = None
     mode: Literal["marketplace", "wholesale"] = "marketplace"
     pricing_tiers: List[dict] = Field(default_factory=list)
+    # Iter 27 — Seller-defined section this product belongs to (max 6 per
+    # shop, defined on Shop.product_sections). Optional; when empty the
+    # customer sees the product under "Other" in the shop menu.
+    product_section_id: Optional[str] = None
+    # Iter 27 — Time-limited promotional discount. Applied server-side on
+    # order create so a crafted client can't fake the price.
+    promo: Optional[Promo] = None
 
 
 class SideItem(BaseModel):
@@ -696,6 +777,10 @@ class RestaurantIn(BaseModel):
     eta_fixed_minutes: Optional[int] = None
     eta_min_minutes: Optional[int] = None
     eta_max_minutes: Optional[int] = None
+    # Iter 27 — seller-defined MENU SECTIONS (max 6). Sellers create their
+    # own groups like Starter / Recommendation / Promo and assign each
+    # menu item to one via menu_item.menu_section_id.
+    menu_sections: List[SellerSection] = Field(default_factory=list)
 
 
 class MenuItemIn(BaseModel):
@@ -720,6 +805,12 @@ class MenuItemIn(BaseModel):
     sides_required: bool = False
     sides_min_choices: Optional[int] = None  # None → 1 when required
     sides_max_choices: Optional[int] = None  # None → unlimited
+    # Iter 27 — Seller-defined menu section (max 6 per restaurant, defined
+    # on Restaurant.menu_sections). Distinct from category_id which points
+    # to the platform-level restaurant grouping.
+    menu_section_id: Optional[str] = None
+    # Iter 27 — Time-limited promotional discount.
+    promo: Optional[Promo] = None
 
 
 class OrderItemIn(BaseModel):
@@ -2073,6 +2164,22 @@ async def update_shop(shop_id: str, body: ShopIn, user: dict = Depends(require_r
     if user["role"] != "admin" and shop["seller_id"] != user["id"]:
         raise HTTPException(403, "Forbidden")
     updates = body.model_dump()
+    # Iter 27 — Enforce the 6-section maximum, dedupe by id, and drop any
+    # blank names. Sellers can only have 6 product-sections per shop.
+    ps = updates.get("product_sections") or []
+    seen = set()
+    clean_ps = []
+    for s in ps:
+        if not s.get("id") or s["id"] in seen:
+            continue
+        name = (s.get("name") or "").strip()
+        if not name:
+            continue
+        seen.add(s["id"])
+        clean_ps.append({"id": s["id"], "name": name[:40], "sort_order": int(s.get("sort_order") or 0)})
+    if len(clean_ps) > 6:
+        raise HTTPException(400, "Maximum 6 product sections allowed")
+    updates["product_sections"] = clean_ps
     # Updating a soft-deleted shop restores it and re-activates its products.
     was_deleted = bool(shop.get("is_deleted"))
     if was_deleted:
@@ -3194,6 +3301,21 @@ async def update_restaurant(restaurant_id: str, body: RestaurantIn, user: dict =
         "eta_min_minutes": body.eta_min_minutes,
         "eta_max_minutes": body.eta_max_minutes,
     }
+    # Iter 27 — Sanitise + enforce max 6 menu sections
+    ms = [s.model_dump() for s in (body.menu_sections or [])]
+    seen = set()
+    clean_ms = []
+    for s in ms:
+        if not s.get("id") or s["id"] in seen:
+            continue
+        name = (s.get("name") or "").strip()
+        if not name:
+            continue
+        seen.add(s["id"])
+        clean_ms.append({"id": s["id"], "name": name[:40], "sort_order": int(s.get("sort_order") or 0)})
+    if len(clean_ms) > 6:
+        raise HTTPException(400, "Maximum 6 menu sections allowed")
+    update_data["menu_sections"] = clean_ms
     if user["role"] == "admin":
         update_data["delivery_managed_by"] = body.delivery_managed_by
     await db.restaurants.update_one({"id": restaurant_id}, {"$set": update_data})
@@ -3368,7 +3490,10 @@ async def create_restaurant_order(body: RestaurantOrderIn, user: dict = Depends(
         if not m:
             raise HTTPException(400, f"Menu item {item.item_id} not found")
         qty = max(1, int(item.quantity))
-        price = float(m.get("price_usd", 0))
+        # Effective price = raw price MINUS active promo (server-side, so a
+        # crafted client can't fake a lower price). See effective_price_usd
+        # in this file.
+        price = effective_price_usd(m)
         sides_total = sum(float(s.price_usd) for s in (item.sides or []))
         # Iter 26 — REQUIRED-SIDES validation. When the menu item is
         # configured with `sides_required=True`, the customer must have
@@ -4103,7 +4228,9 @@ async def place_order(body: OrderIn, user: dict = Depends(get_current_user)):
         if not p:
             raise HTTPException(400, f"Item {it.item_id} not found")
         qty = max(1, int(it.quantity))
-        price = float(p.get("price_usd", 0))
+        # Effective price = raw MINUS any active promo (server-side recompute
+        # so a crafted client cannot pass a lower price). See effective_price_usd.
+        price = effective_price_usd(p)
         # Sides aren't standard on marketplace products; keep what was sent for note value 0.
         line_total = price * qty
         subtotal += line_total

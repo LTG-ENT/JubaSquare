@@ -1,0 +1,22 @@
+{
+  "summary": "Iter27 backend testing complete. All 22 tests passed covering seller-defined menu_sections/product_sections (persistence, sanitisation, dedupe, name-trim, max-6 enforcement on PUT /restaurants/{id} and PUT /shops/{id}), menu_section_id/product_section_id + Promo persistence + roundtrip via GET /menu, and full server-side effective_price_usd enforcement on POST /restaurant-orders (percent, amount, future starts_at, past ends_at, active=False, negative-safety, client-forge-bypass) plus POST /orders (marketplace 25% percent). Regressions green: /api/odoo/health, admin login, seller analytics.by_channel, /api/odoo/kitchen/accept, and iter25/26 fields (prep_time_minutes, sides_required, sides_min/max_choices) still returned by GET /restaurants/{id}/menu.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_iter27_sections_promo.py", "/app/test_reports/pytest/iter27_results.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py now 7341 lines — file continues to grow unchecked. Splitting into feature modules (sections/promo, restaurants, shops, orders, odoo) is overdue.",
+    "SellerSection.sort_order is `int = 0` (not Optional). If a client sends `sort_order: null` the request fails Pydantic 422 before the sanitiser can coerce it. Docstring/spec says 'sort_order coerced to int' — the coercion only fires for str/float/missing values. Consider `sort_order: Optional[int] = 0` to match the stated sanitisation contract.",
+    "Max-6 sections check runs AFTER dedupe/blank-name drop, so a payload with 8 sections containing 2 dupes will silently succeed with 6 sections instead of 400. Not covered by spec explicitly; behaviour is arguably correct (sanitise first) but worth documenting.",
+    "effective_price_usd/promo_is_live compare ISO strings lexicographically for date-window check. Works for well-formed UTC-Z ISO timestamps but will misbehave if a promo is stored with a naive/local ISO or with a different offset (e.g. '+03:00'). Consider parsing to datetime before compare.",
+    "Promo.value has no server-side upper bound. `percent` allows value=200 → negative price clamped to 0.0, but a UI without validation could accidentally give away product. Consider clamping percent to [0,100] and amount>=0 in the Promo validator.",
+    "create_product / update_product spread body.model_dump() into $set — includes promo/product_section_id automatically (good). But there is no validation that product_section_id exists in Shop.product_sections; a stale/typoed section_id silently persists. Same for menu_section_id on menu items. Recommend validating referenced section exists on the parent shop/restaurant (or falling back to null)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter27_sections_promo.py"],
+  "success_rate": {"backend": "100%", "frontend": "N/A (code-review only per request)"},
+  "test_credentials": "admin@jubasquare.com / 1234 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Per-run RUN_TAG prefixed: 1 seller, 1 customer, 2 categories (restaurant/shop group), 1 verified restaurant, 1 shop, multiple menu items + products + marketplace/restaurant orders. Full cleanup in module-scoped db fixture teardown (users/shops/restaurants/products/menu_items/orders/restaurant_orders/exchange_rates/categories filtered by id/email/seller_id/shop_id/restaurant_id regex).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "test_iter27_sections_promo.py requires REACT_APP_BACKEND_URL, MONGO_URL, DB_NAME env vars (source /app/backend/.env & /app/frontend/.env). SellerSection.sort_order does NOT accept None — send an int (or omit). ShopIn.product_sections and RestaurantIn.menu_sections are optional; PUT payload requires name + area at minimum. Marketplace /orders returns fields subtotal_usd + items[].price_usd (not `subtotal`); restaurant /restaurant-orders returns `subtotal`."
+}

@@ -26,11 +26,22 @@ export default function ProductCard({ product, shop }) {
     e.preventDefault(); e.stopPropagation();
     // Wholesale items must be added at their minimum-order quantity, not 1.
     const initialQty = product.is_wholesale ? Math.max(1, product.min_order_qty || 1) : 1;
+    // Apply active promo to the price added to cart. Backend re-verifies at
+    // order-create so the customer can never be charged more than the
+    // displayed promo price.
+    const pm = product.promo || {};
+    const nowIso = new Date().toISOString();
+    const promoLive = !!pm.active && (!pm.starts_at || nowIso >= pm.starts_at) && (!pm.ends_at || nowIso <= pm.ends_at);
+    const effective = !promoLive ? product.price_usd : (
+      pm.type === "percent"
+        ? Math.max(0, product.price_usd * (1 - (pm.value || 0) / 100))
+        : Math.max(0, product.price_usd - (pm.value || 0))
+    );
     const ok = addItem({
       item_type: "product",
       item_id: product.id,
       name: product.name,
-      price_usd: product.price_usd,
+      price_usd: effective,
       image_url: product.image_url,
       exchange_rate_ssp: product.exchange_rate_ssp,
       // Propagate wholesale constraints so the cart can honor the floor.
@@ -110,24 +121,51 @@ export default function ProductCard({ product, shop }) {
           <p className="text-xs text-[var(--js-text-secondary)] mt-1 truncate">{shop.name}</p>
         )}
 
-        <div className="mt-3 flex items-end justify-between gap-2 mt-auto">
-          <div className="min-w-0">
-            <p className="font-display font-bold text-lg text-[var(--js-text)]" data-testid={`product-price-${product.id}`}>
-              {formatPrice(product.price_usd, rate, currency)}
-            </p>
-            <p className="text-[11px] text-[var(--js-text-secondary)]">
-              ≈ {formatPriceAlt(product.price_usd, rate, currency)}
-            </p>
-          </div>
-          <button
-            onClick={onAdd}
-            disabled={outOfStock}
-            data-testid={`add-to-cart-${product.id}`}
-            className="shrink-0 inline-flex items-center gap-1.5 bg-[#C84B31] hover:bg-[#A83A23] disabled:bg-[#A3A39E] disabled:cursor-not-allowed text-white text-xs font-bold rounded-full px-3 py-2 transition shadow-sm hover:shadow-md"
-          >
-            <Plus className="w-3.5 h-3.5" /> Add
-          </button>
-        </div>
+        {/* Iter 27 — Live promo pricing. Backend also recomputes at
+            checkout so the customer is charged what they see here. */}
+        {(() => {
+          const p = product.promo || {};
+          const now = new Date().toISOString();
+          const promoLive = !!p.active && (!p.starts_at || now >= p.starts_at) && (!p.ends_at || now <= p.ends_at);
+          const effective = !promoLive ? product.price_usd : (
+            p.type === "percent"
+              ? Math.max(0, product.price_usd * (1 - (p.value || 0) / 100))
+              : Math.max(0, product.price_usd - (p.value || 0))
+          );
+          return (
+            <div className="mt-3 flex items-end justify-between gap-2 mt-auto">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <p className="font-display font-bold text-lg text-[var(--js-text)]" data-testid={`product-price-${product.id}`}>
+                    {formatPrice(effective, rate, currency)}
+                  </p>
+                  {promoLive && (
+                    <span
+                      className="text-[9px] font-bold uppercase tracking-widest bg-emerald-600 text-white px-1.5 py-0.5 rounded"
+                      data-testid={`product-promo-${product.id}`}
+                    >
+                      {p.type === "percent" ? `-${Math.round(p.value || 0)}%` : `-${formatPrice(p.value || 0, rate, currency)}`}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-[var(--js-text-secondary)]">
+                  {promoLive && (
+                    <span className="line-through mr-1">{formatPrice(product.price_usd, rate, currency)}</span>
+                  )}
+                  ≈ {formatPriceAlt(effective, rate, currency)}
+                </p>
+              </div>
+              <button
+                onClick={onAdd}
+                disabled={outOfStock}
+                data-testid={`add-to-cart-${product.id}`}
+                className="shrink-0 inline-flex items-center gap-1.5 bg-[#C84B31] hover:bg-[#A83A23] disabled:bg-[#A3A39E] disabled:cursor-not-allowed text-white text-xs font-bold rounded-full px-3 py-2 transition shadow-sm hover:shadow-md"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add
+              </button>
+            </div>
+          );
+        })()}
       </div>
     </Link>
   );
