@@ -19,6 +19,19 @@ A multilingual (English/Arabic RTL) Juba-focused marketplace connecting shops, r
 - Cascade deletes on user removal.
 - Multilingual UI + Arabic RTL support.
 
+### Iter 31 — Low-stock report, shop sections tabs, admin LTG toggle, search + mobile, perf, Odoo diff (Feb 8, 2026)
+18/18 backend tests pass (`/app/test_reports/iteration_34.json`).
+
+- ✅ **Low-stock / out-of-stock printable report** — `GET /api/seller/low-stock-report` returns `{out_of_stock, low_stock, healthy, shops, default_threshold}` bucketed by threshold (per-product override, else seller-settings default of 5). New page `/seller/low-stock` renders a print-optimized table with autoprint support and a Printer button. Wired to Seller Dashboard → Products tab as "Low-Stock Report".
+- ✅ **Product sections on Shop page** — `ShopPage.jsx` now renders a tab strip for each shop's `product_sections` (only sections that actually have products/live-promos). Selecting a section filters products; `is_promo_section` auto-populates from active-promo products.
+- ✅ **Admin LTG toggle** — gold "Part of LTG" card in Admin's shop-detail + restaurant-detail modals (toggle on/off). Product-level LTG toggle endpoint already existed (Wave 1).
+- ✅ **Search dropdown images + Enter → Marketplace** — GlobalSearch now shows a placeholder Package icon when no image, adds `loading="lazy"` on images, and on Enter (query ≥2 chars) navigates to `/marketplace?q=<query>`. Marketplace initializes `search` state from `?q=` param.
+- ✅ **Mobile Marketplace categories drawer** — sidebar hidden on mobile; "Browse categories" button opens a bottom-sheet drawer with the same categories + Deals filter.
+- ✅ **Odoo module coverage** — `odoo_schema.OdooProductUpsert` extended with `promo` (percent/amount/bogo), `product_section_id`, `menu_section_id`, `sides_required`, `side_items[]`, `prep_time_minutes`, `is_ltg_partner`. Backwards-compatible: omitting fields preserves existing values. Full Odoo Claude prompt at `/app/memory/odoo_iteration31_prompt.md`.
+- ✅ **Perf indexes** (server.py startup): added indexes on `favorites.target_id`, `orders.shop_id`, `orders.items.product_id`, `orders.items.seller_id`, `products.promo.active`, `products.is_ltg_partner`, `menu_items.promo.active`, `menu_items.menu_section_id`, `shops.is_ltg_partner`, `restaurants.is_ltg_partner`, and more. Verified created via `listIndexes`.
+- ✅ **Frontend perf** — `loading="lazy"` on all card images; `cachedGet(path, ttl=5m)` helper in `lib/cachedGet.js` used for `/categories/tree` calls; debounced search 250ms.
+
+
 ### Iter 30 — Wave 3: Growth Insights email, Restore user, Search relevance (Feb 8, 2026)
 20/20 backend tests pass (`/app/test_reports/iteration_33.json`).
 
