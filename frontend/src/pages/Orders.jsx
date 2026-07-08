@@ -657,14 +657,21 @@ export default function Orders() {
               const splitsLoaded = orderSplits.hasOwnProperty(o.id);
               const allSplitsDelivered = splitsLoaded && splits.length > 0 && splits.every(split => split.delivery_status === "delivered");
               
-              // Override status to "Delivered" if all splits are delivered
-              // For non-COD orders (no splits), rely on o.status
-              const effectiveStatus = allSplitsDelivered ? "Delivered" : o.status;
+              // Iter 29 — marketplace orders that were self-delivered by the
+              // seller (shop flow) set the parent order's `delivery_status`
+              // to `delivered` even when no split exists. Honor that so the
+              // status badge, timeline and review CTA all reflect reality.
+              const parentDelivered = o.delivery_status === "delivered";
+              const isFullyDelivered = allSplitsDelivered || parentDelivered;
+
+              // Override status to "Delivered" when either the parent order
+              // or all splits report delivered.
+              const effectiveStatus = isFullyDelivered ? "Delivered" : o.status;
               const s = STATUS_STYLES[effectiveStatus] || STATUS_STYLES.Pending;
               const Icon = s.icon;
               const isNew = o.id === newId;
-              const isDelivered = o.status === "Delivered" || allSplitsDelivered;
-              const canCancelMp = CUSTOMER_CANCELLABLE_MP_STATUSES.has(o.status) && !allSplitsDelivered;
+              const isDelivered = o.status === "Delivered" || o.status === "Completed" || isFullyDelivered;
+              const canCancelMp = CUSTOMER_CANCELLABLE_MP_STATUSES.has(o.status) && !isFullyDelivered;
               const splitsOutForDelivery = splits.filter(split => split.delivery_status === "out_for_delivery");
               // Compute the FURTHEST-progressed split so the timeline reflects
               // real progress. Prep is only "on the split", not on the parent.
@@ -694,7 +701,7 @@ export default function Orders() {
                       <p className="text-xs text-[#5C5C5C] mt-0.5">{new Date(o.created_at).toLocaleString()}</p>
                     </div>
                     <span className={`inline-flex items-center gap-1.5 ${s.bg} ${s.text} font-bold text-xs px-3 py-1.5 rounded-full`} data-testid={`order-status-${o.id}`}>
-                      <Icon className="w-3.5 h-3.5" /> {o.status}
+                      <Icon className="w-3.5 h-3.5" /> {effectiveStatus}
                     </span>
                   </div>
 

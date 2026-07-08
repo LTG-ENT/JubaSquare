@@ -36,12 +36,31 @@ export default function Marketplace() {
     api.get("/shops?limit=200")
       .then((r) => setShops(Array.isArray(r.data) ? r.data : []))
       .catch(() => setShops([]));
-    // Pull retail tree (with sub-categories) for the sidebar.
-    api
-      .get("/categories/tree?group=retail")
-      .then((r) => setCategoryTree(Array.isArray(r.data) ? r.data : []))
-      .catch(() => setCategoryTree([]));
   }, []);
+
+  // Iter 29 — refetch the category tree whenever the retail/wholesale
+  // filter changes so the sidebar reflects the correct set. "All" pulls
+  // both trees and merges them.
+  useEffect(() => {
+    const group = typeFilter === "wholesale" ? "wholesale" : typeFilter === "retail" ? "retail" : null;
+    if (group) {
+      api.get(`/categories/tree?group=${group}`)
+        .then((r) => setCategoryTree(Array.isArray(r.data) ? r.data : []))
+        .catch(() => setCategoryTree([]));
+    } else {
+      // All → merge retail + wholesale
+      Promise.all([
+        api.get("/categories/tree?group=retail").catch(() => ({ data: [] })),
+        api.get("/categories/tree?group=wholesale").catch(() => ({ data: [] })),
+      ]).then(([retail, whole]) => {
+        const merged = [
+          ...(Array.isArray(retail.data) ? retail.data : []),
+          ...(Array.isArray(whole.data) ? whole.data : []),
+        ];
+        setCategoryTree(merged);
+      });
+    }
+  }, [typeFilter]);
 
   useEffect(() => {
     const params = {};
@@ -135,6 +154,9 @@ export default function Marketplace() {
       next.delete("category");
     }
     next.delete("shop");
+    // Iter 29 — "All categories" also clears the "Deals only" filter so
+    // customers can escape the promo view with one click.
+    next.delete("deals");
     setSearchParams(next);
   };
 
@@ -214,7 +236,10 @@ export default function Marketplace() {
                 <button
                   onClick={() => {
                     const next = new URLSearchParams(searchParams);
-                    next.set("deals", "1");
+                    // Iter 29 — toggle behaviour: clicking Deals a second
+                    // time clears the filter.
+                    if (dealsOnly) next.delete("deals");
+                    else next.set("deals", "1");
                     setSearchParams(next);
                   }}
                   data-testid="category-deals-only"

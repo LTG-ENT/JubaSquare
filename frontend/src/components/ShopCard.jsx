@@ -32,6 +32,24 @@ export default function ShopCard({ shop, productsPreview = [] }) {
                 ★ PART OF LTG
               </span>
             )}
+            {shop.has_active_promo && (
+              <span
+                data-testid={`shop-deals-${shop.id}`}
+                className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full text-white shadow-[0_2px_8px_rgba(200,75,49,0.45)] bg-gradient-to-r from-[#E14B31] via-[#C84B31] to-[#B23A21]"
+                title="Live promos in this shop"
+              >
+                <span aria-hidden style={{ fontSize: 10 }}>🔥</span>DEALS
+              </span>
+            )}
+            {shop.has_wholesale && (
+              <span
+                data-testid={`shop-wholesale-${shop.id}`}
+                className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full text-white shadow-md bg-gradient-to-r from-[#3D5A80] via-[#4C6EA7] to-[#293E5E]"
+                title="Wholesale available"
+              >
+                <span aria-hidden style={{ fontSize: 10 }}>📦</span>WHOLESALE
+              </span>
+            )}
             {verified ? (
               <span className="bg-[#2D6A4F] text-white text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1 shadow-md">
                 <CheckCircle2 className="w-3 h-3" /> Verified

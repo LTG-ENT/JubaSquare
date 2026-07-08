@@ -87,6 +87,35 @@ export default function ProductCard({ product, shop }) {
 
         {/* Badges */}
         <div className="absolute top-3 left-3 flex flex-col gap-1.5">
+          {product.is_ltg_partner && (
+            <span
+              data-testid={`badge-product-ltg-${product.id}`}
+              className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full text-white shadow-lg bg-gradient-to-r from-[#D4AF37] via-[#E9C46A] to-[#B8860B]"
+              title="Part of LTG"
+            >
+              ★ PART OF LTG
+            </span>
+          )}
+          {(() => {
+            const p = product.promo || {};
+            const now = new Date().toISOString();
+            const live = !!p.active && (!p.starts_at || now >= p.starts_at) && (!p.ends_at || now <= p.ends_at);
+            if (!live) return null;
+            const label = p.type === "percent"
+              ? `−${Math.round(p.value || 0)}% OFF`
+              : p.type === "amount"
+                ? `SAVE $${Math.round(p.value || 0)}`
+                : `${p.bogo_min_qty || 2}+1 FREE`;
+            return (
+              <span
+                data-testid={`badge-promo-${product.id}`}
+                className="js-deal-badge inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-widest px-2.5 py-1.5 rounded-full text-white shadow-[0_4px_12px_rgba(200,75,49,0.55)] bg-gradient-to-r from-[#F5583E] via-[#C84B31] to-[#A83521] border border-white/20"
+                title={p.ends_at ? `Ends ${new Date(p.ends_at).toLocaleString()}` : "Limited-time deal"}
+              >
+                <span aria-hidden style={{ fontSize: 11 }}>🔥</span>{label}
+              </span>
+            );
+          })()}
           {isWholesale && (
             <span data-testid={`badge-wholesale-${product.id}`} className="bg-[#2D6A4F] text-white text-[10px] font-bold px-2 py-1 rounded-full shadow-md">
               🟢 Wholesale

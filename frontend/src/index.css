@@ -200,6 +200,21 @@ body {
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
 }
 
+/* Iter 29 — Deal badge pulse for promo/BOGO ribbons on product/menu cards */
+@keyframes js-deal-pulse {
+    0%, 100% { transform: scale(1); box-shadow: 0 4px 12px rgba(200, 75, 49, 0.55); }
+    50%      { transform: scale(1.06); box-shadow: 0 6px 18px rgba(200, 75, 49, 0.75); }
+}
+.js-deal-badge {
+    animation: js-deal-pulse 2.2s ease-in-out infinite;
+    transform-origin: left center;
+    will-change: transform, box-shadow;
+}
+@media (prefers-reduced-motion: reduce) {
+    .js-deal-badge { animation: none; }
+}
+
+
 .js-input {
     background: var(--js-paper);
     border: 1px solid var(--js-border);

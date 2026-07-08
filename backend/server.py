@@ -765,6 +765,10 @@ class ProductIn(BaseModel):
     # Iter 27 — Time-limited promotional discount. Applied server-side on
     # order create so a crafted client can't fake the price.
     promo: Optional[Promo] = None
+    # Iter 29 — "Part of LTG" per-product badge. Admin-only toggle that
+    # boosts the product to the top of /api/products lists in addition to
+    # any shop-level LTG boost.
+    is_ltg_partner: bool = False
 
 
 class SideItem(BaseModel):
@@ -2149,7 +2153,42 @@ async def list_shops(
     # than `limit` so the sort is meaningful, then slice.
     raw = await db.shops.find(q, {"_id": 0}).to_list(MAX_PAGE_LIMIT + off + lim)
     sorted_shops = _sort_shops(raw, s.get("verified_first", True))
-    return sorted_shops[off : off + lim]
+    sliced = sorted_shops[off : off + lim]
+
+    # Iter 29 — enrich each returned shop with `has_active_promo` and
+    # `has_wholesale` flags so the frontend can render the "Deal" and
+    # "Wholesale" badges without an N+1 query. One aggregate covers all.
+    shop_ids = [sh["id"] for sh in sliced]
+    if shop_ids:
+        now_iso_s = now_iso()
+        promo_agg = db.products.aggregate([
+            {"$match": {
+                "shop_id": {"$in": shop_ids},
+                "is_deleted": {"$ne": True},
+                "is_active": {"$ne": False},
+                "promo.active": True,
+                "$and": [
+                    {"$or": [{"promo.starts_at": {"$exists": False}}, {"promo.starts_at": None}, {"promo.starts_at": {"$lte": now_iso_s}}]},
+                    {"$or": [{"promo.ends_at": {"$exists": False}}, {"promo.ends_at": None}, {"promo.ends_at": {"$gte": now_iso_s}}]},
+                ],
+            }},
+            {"$group": {"_id": "$shop_id", "n": {"$sum": 1}}},
+        ])
+        promo_map = {r["_id"]: r["n"] for r in await promo_agg.to_list(len(shop_ids))}
+        whole_agg = db.products.aggregate([
+            {"$match": {
+                "shop_id": {"$in": shop_ids},
+                "is_deleted": {"$ne": True},
+                "is_wholesale": True,
+            }},
+            {"$group": {"_id": "$shop_id", "n": {"$sum": 1}}},
+        ])
+        whole_map = {r["_id"]: r["n"] for r in await whole_agg.to_list(len(shop_ids))}
+        for sh in sliced:
+            sh["has_active_promo"] = bool(promo_map.get(sh["id"]))
+            sh["has_wholesale"] = bool(whole_map.get(sh["id"]))
+
+    return sliced
 
 
 @api.get("/shops/mine")
@@ -2252,6 +2291,18 @@ async def admin_toggle_restaurant_ltg(restaurant_id: str, body: dict = Body(defa
     r = await db.restaurants.update_one({"id": restaurant_id}, {"$set": {"is_ltg_partner": val, "updated_at": now_iso()}})
     if not r.matched_count:
         raise HTTPException(404, "Restaurant not found")
+    return {"ok": True, "is_ltg_partner": val}
+
+
+@api.put("/admin/products/{product_id}/ltg-partner")
+async def admin_toggle_product_ltg(product_id: str, body: dict = Body(default_factory=dict), user: dict = Depends(require_role("admin"))):
+    """Admin-only 'Part of LTG' toggle for individual products (Iter 29).
+    LTG products get a gold badge + top billing in /api/products. Distinct
+    from — and additive to — the parent shop's LTG flag."""
+    val = bool(body.get("is_ltg_partner"))
+    r = await db.products.update_one({"id": product_id}, {"$set": {"is_ltg_partner": val, "updated_at": now_iso()}})
+    if not r.matched_count:
+        raise HTTPException(404, "Product not found")
     return {"ok": True, "is_ltg_partner": val}
 
 
@@ -2627,12 +2678,21 @@ async def list_products(category_id: Optional[str] = None, category: Optional[st
     def _stock_key(p):
         return 0 if int(p.get("stock", 0) or 0) > 0 else 1
 
+    # Iter 29 — LTG-partner products always float to the very top within
+    # their verification tier (stable-sort composition below).
+    def _ltg_key(p):
+        return 0 if p.get("is_ltg_partner") else 1
+
     # Verified-first sort if enabled
     if s.get("verified_first", True):
         order = {"Verified": 0, "Pending": 1, "Rejected": 2}
-        products.sort(key=lambda p: (order.get(p.get("shop_verification", "Pending"), 1), _stock_key(p)))
+        products.sort(key=lambda p: (
+            _ltg_key(p),
+            order.get(p.get("shop_verification", "Pending"), 1),
+            _stock_key(p),
+        ))
     else:
-        products.sort(key=_stock_key)
+        products.sort(key=lambda p: (_ltg_key(p), _stock_key(p)))
     # Final pagination slice
     return products[off : off + lim]
 
@@ -3164,6 +3224,7 @@ async def list_restaurants(request: Request, area: Optional[str] = None, categor
         }
         for r in page:
             r["has_live_promo"] = r["id"] in promoted_rest_ids
+            r["has_active_promo"] = r["id"] in promoted_rest_ids  # alias for card badges
     return page
 
 
@@ -4195,7 +4256,12 @@ async def remove_favorite_by_target(
 
 @api.get("/favorites")
 async def list_favorites(user: dict = Depends(get_current_user)):
-    """List user's favorites"""
+    """List user's favorites (enriched with the shop/restaurant/product doc).
+
+    Iter 29 — soft-deleted targets are filtered out of the response and the
+    favorite record is also removed opportunistically so the UI doesn't
+    have to show orphans. Live targets are returned in {favorite_id,
+    target_type, created_at, item} shape."""
     favorites = await db.favorites.find(
         {"user_id": user["id"]},
         {"_id": 0}
@@ -4203,24 +4269,39 @@ async def list_favorites(user: dict = Depends(get_current_user)):
     
     # Enrich with actual data
     enriched = []
+    orphan_ids: list[str] = []
     for fav in favorites:
+        item = None
         if fav["target_type"] == "restaurant":
-            item = await db.restaurants.find_one({"id": fav["target_id"]}, {"_id": 0})
+            item = await db.restaurants.find_one(
+                {"id": fav["target_id"], "is_deleted": {"$ne": True}}, {"_id": 0}
+            )
         elif fav["target_type"] == "shop":
-            item = await db.shops.find_one({"id": fav["target_id"]}, {"_id": 0})
+            item = await db.shops.find_one(
+                {"id": fav["target_id"], "is_deleted": {"$ne": True}}, {"_id": 0}
+            )
         elif fav["target_type"] == "product":
-            item = await db.products.find_one({"id": fav["target_id"]}, {"_id": 0})
-        else:
-            item = None
-        
+            item = await db.products.find_one(
+                {"id": fav["target_id"], "is_deleted": {"$ne": True}}, {"_id": 0}
+            )
+
         if item:
             enriched.append({
                 "favorite_id": fav["id"],
                 "target_type": fav["target_type"],
                 "created_at": fav["created_at"],
-                "item": item
+                "item": item,
             })
-    
+        else:
+            orphan_ids.append(fav["id"])
+
+    # Fire-and-forget cleanup of orphans so subsequent calls are faster.
+    if orphan_ids:
+        try:
+            await db.favorites.delete_many({"id": {"$in": orphan_ids}})
+        except Exception:
+            pass
+
     return enriched
 
 

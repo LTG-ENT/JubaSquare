@@ -1,0 +1,23 @@
+{
+  "summary": "Iter30 Wave1 backend validation: 20/20 tests PASSED in /app/backend/tests/test_iter30_wave1_badges.py. Verified: (1) /api/shops enrichment has_active_promo + has_wholesale flags per-shop, (2) /api/restaurants has_live_promo AND has_active_promo alias, (3) PUT /api/admin/products/{id}/ltg-partner admin-only toggle with 403 for seller/customer + 404 for missing id, (4) LTG products sort BEFORE non-LTG within verified tier on /api/products, (5) Favorites orphan cleanup — hard-deleted product removed from GET response and db.favorites purged; soft-deleted shop hidden, (6) Favorites happy path shape {favorite_id, target_type, created_at, item}, (7) /api/products?is_wholesale=true|false filter isolation (no leakage), (8) Regression: LTG toggle for shops/restaurants, empty-shop defaults false/false, BOGO free_qty on /orders, sections limit 10.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter30_wave1_badges.py",
+    "/app/test_reports/pytest/iter30_wave1.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py list_shops promo aggregate uses is_deleted:{$ne:True} and is_active:{$ne:False} + date window in Mongo — good perf, one aggregate per page slice.",
+    "list_favorites orphan cleanup uses delete_many with fire-and-forget try/except — safe, non-blocking.",
+    "server.py is ~7660 lines — exceeds the 700-line guideline. Consider splitting into modules (shops, restaurants, products, favorites, admin) for maintainability. Not blocking."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter30_wave1_badges.py"],
+  "success_rate": {"backend": "100% (20/20)", "frontend": "n/a (skipped per request)"},
+  "test_credentials": "admin@jubasquare.com / 1234",
+  "seed_data_creation": "Per-run ephemeral: 3 shops (promo/plain/empty), 4 products (promo/wholesale/plain/bogo/orphan), 1 restaurant + menu_item with live promo, 1 seller, 1 customer. All prefixed TEST_iter30w1_<uuid>. Hard delete_many cleanup in module teardown across users/shops/restaurants/products/menu_items/orders/restaurant_orders/favorites/reviews.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_iter30_wave1_badges.py is the canonical regression file for badge enrichment + product LTG toggle + favorites orphan cleanup. Reuse for future waves. Frontend not tested per main-agent instruction.",
+  "rca of the issue": "n/a — all functional requirements verified pass."
+}
