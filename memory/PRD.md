@@ -19,6 +19,17 @@ A multilingual (English/Arabic RTL) Juba-focused marketplace connecting shops, r
 - Cascade deletes on user removal.
 - Multilingual UI + Arabic RTL support.
 
+### Iter 30 — Wave 2: LTG shelf, featured products, badge filters, ranking (Feb 8, 2026)
+19/19 backend tests pass (`/app/test_reports/iteration_32.json`).
+
+- ✅ **Filter-by-badge chip row** — new `<BadgeFilterBar>` component. Chips: `★ LTG` (gold), `🔥 Deals` (red gradient), `📦 Wholesale` (blue, shops+marketplace only), `✓ Verified` (green). Each toggles the corresponding URL param and calls `GET /api/{shops|restaurants|products}?{ltg|deals|wholesale|verified}=true`. Wired into Marketplace, Shops, Restaurants.
+- ✅ **Composite recommendation ranking** — `/api/shops` now enriches EVERY candidate (not just the page slice) with real signals — `orders_count`, `cancelled_orders`, `favorite_count` — before running `_sort_shops`. Score = `LTG*40 + verified*20 + rating × log(1+reviews) × 3 + favs×0.5 + orders×0.3 − cancelled×0.5`. Verified: A(LTG)>B(high-orders)>C(high-cancellations) in tests.
+- ✅ **Homepage LTG shelf** — new gold-gradient section on Home.jsx lists LTG shops + LTG restaurants. Auto-hides when both lists are empty.
+- ✅ **Homepage featured products** — new `GET /api/homepage/featured-products?limit=N` endpoint returns Verified-shop, in-stock products sorted by `LTG*50 + rating×review-weight×5 + completed_orders×1.5 + favs×0.5 − cancellations×2`. Includes `exchange_rate_ssp` for pricing. Home renders a "Top-Rated Products" grid (auto-hidden when empty).
+- ✅ **Empty promo section auto-hide** — RestaurantCard menu tab bar skips any `is_promo_section=true` section that has no live-promo items. Prevents customers seeing a "Promo" tab that lands them on an empty list.
+- ✅ **Server-side deal enforcement** — `/api/products?deals=true` filters by `promo.active=true` at Mongo and re-checks `promo.starts_at/ends_at` window in Python via `promo_is_live`, so expired promos never leak into the deals view.
+
+
 ### Iter 30 — Wave 1: Badges, deal filters, review-on-delivered, LTG on products (Feb 8, 2026)
 20/20 backend tests pass (`/app/test_reports/iteration_31.json`).
 
