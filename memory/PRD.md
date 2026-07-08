@@ -21,6 +21,16 @@ A multilingual (English/Arabic RTL) Juba-focused marketplace connecting shops, r
 
 ## Completed (Feb 2026, this fork)
 
+### Iter 27 — Seller sections + time-limited promo (Feb 8, 2026)
+22/22 backend tests pass (`/app/test_reports/iteration_27.json`).
+
+- ✅ **Seller-defined sections** — new `menu_sections` on Restaurant (up to 6) and `product_sections` on Shop (up to 6). Each item references one via `menu_section_id`/`product_section_id`.
+- ✅ **Backend enforcement** — `PUT /restaurants/{id}` and `PUT /shops/{id}` sanitise (drop empty names + dupes + trim to 40 chars) and reject payloads over the 6-section limit (400).
+- ✅ **Time-limited promo on any item** — new `Promo` block on Menu items + Products: `{active, type: 'percent'|'amount', value, starts_at, ends_at}`. `effective_price_usd` helper computes the discounted price server-side on both `/restaurant-orders` and `/orders` create, so a crafted client can never bypass the promo → charged what the customer sees.
+- ✅ **Promo safety** — `Promo.value` clamped to ≥0 via Pydantic validator; percent additionally clamped to ≤100 inside `effective_price_usd`. Negative-price safety guaranteed even for legacy docs.
+- ✅ **Seller UI** — `MenuSectionsEditor` + `ShopSectionsEditor` (add/rename/reorder/remove, 6-max). `SectionPicker` + `PromoEditor` added to the menu-item and product forms with % / $ toggle and start/end datetime pickers.
+- ✅ **Customer UI** — RestaurantCard menu drawer prefers seller sections over platform categories. ProductCard + MenuRow show emerald promo badge (e.g. `-25%`), strikethrough on the original price, and add the discounted price to cart.
+
 ### Iter 26 — Menu categorization + required sides (Feb 8, 2026)
 13/13 backend tests pass (`/app/test_reports/iteration_26.json`).
 

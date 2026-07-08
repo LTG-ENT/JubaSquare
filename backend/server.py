@@ -20,7 +20,7 @@ from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Respons
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, field_validator
 
 import email_service
 import cod
@@ -240,9 +240,12 @@ def effective_price_usd(item_doc: dict) -> float:
     ptype = promo.get("type", "percent")
     pval = float(promo.get("value", 0) or 0)
     if ptype == "percent":
+        # Belt-and-braces clamp: even if a legacy doc stored value>100,
+        # never charge the customer a negative amount.
+        pval = min(100.0, max(0.0, pval))
         return max(0.0, round(raw * (1 - pval / 100.0), 4))
     # amount
-    return max(0.0, round(raw - pval, 4))
+    return max(0.0, round(raw - max(0.0, pval), 4))
 
 
 def promo_is_live(promo: dict | None) -> bool:
@@ -634,6 +637,18 @@ class Promo(BaseModel):
     value: float = 0.0
     starts_at: Optional[str] = None  # ISO 8601 UTC
     ends_at: Optional[str] = None    # ISO 8601 UTC
+
+    @field_validator("value")
+    @classmethod
+    def _clamp_value(cls, v):
+        # Guardrail so a mis-typed 200% doesn't accidentally give the item
+        # away. Percentages clamped to [0,100]. Amounts clamped to >=0
+        # (the effective-price helper still floors the final price at 0).
+        try:
+            v = float(v or 0)
+        except (TypeError, ValueError):
+            v = 0.0
+        return max(0.0, v)
 
 
 
