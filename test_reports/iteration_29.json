@@ -1,0 +1,39 @@
+{
+  "summary": "Iter 29 soft-cascade delete backend tested (19 tests, 9 pass / 10 fail). Discovered CRITICAL backend bug: `_cascade_delete_user` sets `username: None` on the anonymized user record which violates the pre-existing unique-sparse index `username_1` — the first soft-delete may succeed on some DBs but subsequent ones ALWAYS fail with E11000 DuplicateKeyError, and in this environment even the first soft-delete of a fresh admin-created seller fails (500 Internal Server Error) because multiple existing users already have `username: null` indexed. This blocks nearly every downstream assertion (login rejection, anonymization, list-hiding, entity soft-flagging, bulk-delete).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "DELETE /api/admin/users/{user_id} and POST /api/admin/users/bulk-delete",
+        "issue": "500 Internal Server Error caused by pymongo.errors.DuplicateKeyError: E11000 duplicate key error collection: jubasquare.users index: username_1 dup key: { username: null }. `_cascade_delete_user` (~server.py line 6165) does `$set: {'username': None, ...}` on the anonymized user, but the `username_1` index is `unique + sparse` — sparse only skips docs where the field is MISSING; docs with explicit `username: null` still occupy the index and collide. Result: cascade delete is fully broken.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter29_soft_cascade_delete.py",
+    "/app/test_reports/pytest/iter29_results.xml"
+  ],
+  "action_items": [
+    "In backend/server.py `_cascade_delete_user` (~line 6165), do NOT `$set` username to None. Either (a) use `$unset: {'username': ''}` so the field is removed and the sparse index no longer holds it, or (b) set it to a unique per-user value like `f'deleted_{user_id}'`. Option (a) is preferred to match the spec (personal identifier wiped).",
+    "After the fix, re-run: pytest /app/backend/tests/test_iter29_soft_cascade_delete.py -v — all 10 currently-failing tests should turn green (they all cascade from the same root cause).",
+    "Optional cleanup: run a one-shot script to `$unset` username on the 35 pre-existing users that currently have `username: null` explicitly, so their DB entries do not consume the unique-sparse index."
+  ],
+  "critical_code_review_comments": [
+    "server.py `_cascade_delete_user` line 6165–6184 — `$set: {'username': None}` conflicts with unique+sparse index `username_1`. Replace with `$unset` for username (and consider the same for email if any future unique-sparse index is added).",
+    "server.py `admin_delete_user` (line 6119) does not catch DB errors — the internal DuplicateKeyError leaks as a generic 500. Wrap the cascade with a try/except and raise a meaningful HTTPException so admins see a clear error rather than a bare 500.",
+    "server.py `admin_bulk_delete_users` (line 6237) iterates users and calls `_cascade_delete_user` sequentially with no per-user error handling. If one user fails mid-loop the response is a 500 and partial state is left in the DB. Should aggregate {succeeded:[...], failed:[...]} or wrap in try/except per user.",
+    "Test hygiene: the fixture teardown in test_iter28 (and now in test_iter29) uses hard `db.users.delete_many` on the RUN_TAG regex, which is correct for iter29 since the API now soft-deletes only. Confirmed present in the new test file."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter29_soft_cascade_delete.py"
+  ],
+  "success_rate": {"backend": "47% (9/19)", "frontend": "n/a"},
+  "test_credentials": "Admin: admin@jubasquare.com / 1234 (verified working)",
+  "seed_data_creation": "All test data prefixed with `TEST_iter29_{8-hex}` and torn down via hard `delete_many` on users/shops/restaurants/products/menu_items/orders/splits/favorites/etc. Teardown uses hard delete because API now does soft delete only (per iter29 spec).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The 10 failing tests all cascade from a single root cause (DuplicateKeyError on username_1 index during soft-delete). Once the main agent replaces `$set: {'username': None}` with `$unset` in `_cascade_delete_user`, re-running the full pytest file should yield 19/19 pass. Passing tests already verify: health, admin login, admin creates seller, seller login, favorites POST for shop+product, delete-preview counts (shops/products/restaurants/menu_items >=1), historical splits retention, favorites regression, BOGO promo regression, LTG toggle regression. Only the DELETE flow itself is broken.",
+  "rca of the issue": "Root cause: MongoDB unique-sparse index behavior. `sparse:true` skips docs where the field is MISSING from the document, but docs with the field explicitly set to `null` ARE indexed. `_cascade_delete_user` uses `$set: {'username': None, ...}` — this writes an explicit null, adding the doc to the sparse index; because 35 legacy users already sit at username=null (from earlier seed / iterations), the first admin-created seller soft-delete already collides. Reproduction: create any seller via POST /api/admin/users (which doesn't set a username), then DELETE /api/admin/users/{seller_id} — 500 with E11000 dup key. Mitigation: swap `$set` username-clearing for `$unset` (see action_items)."
+}

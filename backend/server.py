@@ -501,6 +501,11 @@ async def get_current_user(request: Request) -> dict:
     user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    # Iter 29 — soft-deleted users cannot use the API. `is_deleted` is set by
+    # admin_delete_user; the token itself is still valid but every request
+    # returns 401 so any lingering client sessions terminate cleanly.
+    if user.get("is_deleted"):
+        raise HTTPException(status_code=401, detail="Account deleted")
     return user
 
 
@@ -1126,6 +1131,11 @@ async def login(payload: LoginIn, request: Request, response: Response):
 
     if user.get("suspended"):
         raise HTTPException(status_code=403, detail="Your account has been suspended. Contact support.")
+
+    if user.get("is_deleted"):
+        # Iter 29 — soft-deleted accounts cannot log in. Silence to avoid
+        # revealing whether the email ever existed.
+        raise HTTPException(status_code=401, detail="Invalid email or password")
 
     # Check if account is disabled by admin
     if not user.get("is_active", True):
@@ -5805,13 +5815,20 @@ async def admin_list_users(
     search: Optional[str] = None,
     is_active: Optional[bool] = None,
     email_verified: Optional[bool] = None,
+    include_deleted: bool = False,
     _: dict = Depends(require_role("admin")),
 ):
-    """List all users with filters and aggregated stats."""
+    """List all users with filters and aggregated stats.
+
+    By default soft-deleted users (`is_deleted=True`, Iter 29) are hidden.
+    Pass `include_deleted=true` to see them (they render greyed out on the
+    admin dashboard for audit purposes)."""
     page_size, offset = clamp_pagination(limit, skip)
     
     # Build query
     query: dict = {}
+    if not include_deleted:
+        query["is_deleted"] = {"$ne": True}
     if role in {"customer", "seller", "admin"}:
         query["role"] = role
     if is_active is not None:
@@ -6054,9 +6071,9 @@ async def admin_update_user_status(user_id: str, body: AdminUserStatusIn, admin:
 
 @api.get("/admin/users/{user_id}/delete-preview")
 async def admin_delete_preview(user_id: str, admin: dict = Depends(require_role("admin"))):
-    """Return a summary of what a hard-delete would cascade — used by the
-    admin UI to show a confirmation modal ('this will also delete X shops,
-    Y products, Z restaurants — cannot be undone')."""
+    """Return a summary of what a soft-delete would touch — used by the
+    admin UI to show a confirmation modal ('this will soft-delete X shops,
+    Y restaurants; orders + payouts + reviews are kept for accounting')."""
     user = await db.users.find_one({"id": user_id}, {"_id": 0})
     if not user:
         raise HTTPException(404, "User not found")
@@ -6101,96 +6118,142 @@ async def admin_delete_preview(user_id: str, admin: dict = Depends(require_role(
 
 @api.delete("/admin/users/{user_id}")
 async def admin_delete_user(user_id: str, admin: dict = Depends(require_role("admin"))):
-    """Delete user account (hard delete with cascade)."""
+    """Soft-delete a user account with a soft cascade (Iter 29).
+
+    The user record is retained and anonymized so that historical orders,
+    payouts, invoices and reviews continue to reference a valid — but
+    de-identified — user. Personal collections (favorites, notifications,
+    verification/reset tokens, cart, onboarding progress) are wiped."""
     user = await db.users.find_one({"id": user_id})
     if not user:
         raise HTTPException(404, "User not found")
-    
+
     # Prevent admin from deleting themselves
     if user_id == admin["id"]:
         raise HTTPException(400, "You cannot delete your own account")
-    
-    await _cascade_delete_user(user)
+
+    await _cascade_delete_user(user, admin_id=admin["id"])
+    return {"ok": True, "soft_deleted": True, "user_id": user_id}
 
 
-async def _cascade_delete_user(user: dict) -> None:
-    """Hard-delete a user + everything they own.
+async def _cascade_delete_user(user: dict, admin_id: Optional[str] = None) -> None:
+    """Soft-cascade delete (Iter 29).
 
-    - Users, notifications, favorites, email_verifications, password_resets,
-      onboarding_progress, reports (authored by the user), order_messages
-      (sent by them), shop_messages (sent by them as customer_id).
-    - If seller: also delete their shops, products, restaurants, menu_items,
-      reviews on those shops/products/restaurants, shop_messages & order_messages
-      touching those shops, seller_payouts, seller_order_splits, invoices,
-      restaurant_invoices.
-    - Orders are KEPT for historical/accounting records — `seller_id` will
-      orphan, but customer order history + platform revenue reports survive.
-    """
+    Retained (for accounting / audit):
+      - user record itself (anonymized)
+      - orders, restaurant_orders, seller_order_splits
+      - seller_payouts, invoices, restaurant_invoices
+      - reviews (author id kept, but display name reads "[Deleted user]"
+        via user join)
+
+    Wiped:
+      - notifications, favorites, email_verifications, password_resets,
+        onboarding_progress, carts, sessions/refresh tokens
+
+    Soft-flagged (`is_deleted=True`, `deleted_at`):
+      - shops, restaurants and their products / menu_items (already
+        soft-delete-aware, so simply reuse the flag).
+
+    All operations are best-effort — missing collections are silently
+    skipped so this remains forward-compatible."""
     user_id = user["id"]
+    now = now_iso()
+    original_email = (user.get("email") or "").lower()
 
-    # Per-user cleanup (applies to any role)
-    await db.users.delete_one({"id": user_id})
-    await db.notifications.delete_many({"user_id": user_id})
-    await db.favorites.delete_many({"user_id": user_id})
-    await db.email_verifications.delete_many({"user_id": user_id})
-    await db.password_resets.delete_many({"user_id": user_id})
-    await db.onboarding_progress.delete_many({"user_id": user_id})
-    await db.reports.delete_many({"reporter_id": user_id})
-    await db.reviews.delete_many({"user_id": user_id})
-    await db.order_messages.delete_many({"sender_id": user_id})
-    await db.shop_messages.delete_many({"customer_id": user_id})
+    # 1. Anonymize the user record — keep it so foreign keys stay valid.
+    anon_email = f"deleted+{user_id}@removed.local"
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {
+            "is_deleted": True,
+            "is_active": False,
+            "deleted_at": now,
+            "deleted_by": admin_id,
+            "email": anon_email,
+            "original_email_hash": original_email and str(hash(original_email)),
+            "name": "[Deleted user]",
+            "phone": None,
+            "avatar_url": None,
+            "username": None,
+            "email_verified": False,
+            "must_change_password": True,
+            "password_hash": "!disabled!",
+            "settings": {},
+            "updated_at": now,
+        }},
+    )
 
-    if user.get("role") != "seller":
-        return
+    # 2. Wipe personal-only collections (safe to lose).
+    for coll_name, filt in [
+        ("notifications", {"user_id": user_id}),
+        ("favorites", {"user_id": user_id}),
+        ("email_verifications", {"user_id": user_id}),
+        ("password_resets", {"user_id": user_id}),
+        ("onboarding_progress", {"user_id": user_id}),
+        ("carts", {"user_id": user_id}),
+        ("web_push_subscriptions", {"user_id": user_id}),
+        ("shop_messages", {"customer_id": user_id}),
+    ]:
+        try:
+            await db[coll_name].delete_many(filt)
+        except Exception:
+            pass  # collection may not exist yet — safe to ignore
 
-    # Seller cascade — gather owned entities first so we can filter dependents.
-    shops = await db.shops.find({"seller_id": user_id}, {"_id": 0, "id": 1}).to_list(1000)
-    shop_ids = [s["id"] for s in shops]
-    products = await db.products.find({"shop_id": {"$in": shop_ids}}, {"_id": 0, "id": 1}).to_list(10000)
-    product_ids = [p["id"] for p in products]
-    restaurants = await db.restaurants.find({"seller_id": user_id}, {"_id": 0, "id": 1}).to_list(1000)
-    restaurant_ids = [r["id"] for r in restaurants]
+    # 3. Seller-specific soft cascade
+    if user.get("role") == "seller":
+        # Soft-flag owned shops + restaurants and their child items
+        shops = await db.shops.find({"seller_id": user_id}, {"_id": 0, "id": 1}).to_list(1000)
+        shop_ids = [s["id"] for s in shops]
+        restaurants = await db.restaurants.find({"seller_id": user_id}, {"_id": 0, "id": 1}).to_list(1000)
+        restaurant_ids = [r["id"] for r in restaurants]
 
-    # Delete owned entities
-    await db.shops.delete_many({"seller_id": user_id})
-    await db.products.delete_many({"shop_id": {"$in": shop_ids}})
-    await db.restaurants.delete_many({"seller_id": user_id})
-    await db.menu_items.delete_many({"restaurant_id": {"$in": restaurant_ids}})
+        if shop_ids:
+            await db.shops.update_many(
+                {"id": {"$in": shop_ids}},
+                {"$set": {"is_deleted": True, "is_public": False, "deleted_at": now}},
+            )
+            await db.products.update_many(
+                {"shop_id": {"$in": shop_ids}},
+                {"$set": {"is_active": False, "is_deleted": True, "deleted_at": now}},
+            )
 
-    # Reviews left on any of those shops / products / restaurants
-    await db.reviews.delete_many({"shop_id": {"$in": shop_ids}})
-    await db.reviews.delete_many({"product_id": {"$in": product_ids}})
-    await db.reviews.delete_many({"restaurant_id": {"$in": restaurant_ids}})
+        if restaurant_ids:
+            await db.restaurants.update_many(
+                {"id": {"$in": restaurant_ids}},
+                {"$set": {"is_deleted": True, "is_open": False, "deleted_at": now}},
+            )
+            await db.menu_items.update_many(
+                {"restaurant_id": {"$in": restaurant_ids}},
+                {"$set": {"is_available": False, "is_deleted": True, "deleted_at": now}},
+            )
 
-    # Messages tied to those shops
-    await db.shop_messages.delete_many({"shop_id": {"$in": shop_ids}})
-    await db.order_messages.delete_many({"seller_id": user_id})
+        # NOTE: seller_payouts, seller_order_splits, invoices and
+        # restaurant_invoices are intentionally KEPT for accounting.
 
-    # Payouts / invoices / reports about the seller
-    await db.seller_payouts.delete_many({"seller_id": user_id})
-    await db.seller_order_splits.delete_many({"seller_id": user_id})
-    await db.invoices.delete_many({"seller_id": user_id})
-    await db.restaurant_invoices.delete_many({"seller_id": user_id})
-    await db.reports.delete_many({"shop_id": {"$in": shop_ids}})
+    # 4. Session termination — the get_current_user dependency also blocks
+    # this user via `is_deleted`; nothing more needed.
 
 
 @api.post("/admin/users/bulk-delete")
 async def admin_bulk_delete_users(body: AdminBulkDeleteUsersIn, admin: dict = Depends(require_role("admin"))):
-    """Delete multiple user accounts at once (hard delete with cascade)."""
+    """Soft-delete multiple user accounts at once (Iter 29 soft cascade)."""
     user_ids = body.user_ids
     
     # Prevent admin from deleting themselves
     if admin["id"] in user_ids:
         raise HTTPException(400, "You cannot delete your own account")
     
-    users = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0}).to_list(1000)
+    users = await db.users.find(
+        {"id": {"$in": user_ids}, "is_deleted": {"$ne": True}},
+        {"_id": 0},
+    ).to_list(1000)
     if not users:
         raise HTTPException(404, "No users found to delete")
 
     for u in users:
-        await _cascade_delete_user(u)
+        await _cascade_delete_user(u, admin_id=admin["id"])
 
-    return {"deleted": len(users)}
+    return {"deleted": len(users), "soft_deleted": True}
 
 
 @api.post("/admin/areas")
