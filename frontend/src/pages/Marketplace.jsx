@@ -7,6 +7,7 @@ import ProductCard from "@/components/ProductCard";
 import WholesaleCard from "@/components/WholesaleCard";
 import AreaSelector from "@/components/AreaSelector";
 import BadgeFilterBar from "@/components/BadgeFilterBar";
+import { cachedGet } from "@/lib/cachedGet";
 import { useCart } from "@/context/CartContext";
 import { Search, X, Package, ChevronRight, ChevronDown } from "lucide-react";
 
@@ -21,8 +22,17 @@ export default function Marketplace() {
   const [shops, setShops] = useState([]);
   const [categoryTree, setCategoryTree] = useState([]); // [{id,name,children:[...]}]
   const [expandedCats, setExpandedCats] = useState({});
-  const [search, setSearch] = useState("");
   const [searchParams, setSearchParams] = useSearchParams();
+  const [search, setSearch] = useState(searchParams.get("q") || "");
+  const [showMobileCats, setShowMobileCats] = useState(false); // Iter 31
+
+  // Iter 31 — sync ?q= URL param with local search state so the header
+  // "See all results" jumps to /marketplace?q=<query> land pre-filtered.
+  useEffect(() => {
+    const q = searchParams.get("q") || "";
+    if (q !== search) setSearch(q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const [typeFilter, setTypeFilter] = useState(searchParams.get("view") || "all");
   const [sortBy, setSortBy] = useState("recommended");
   const { area, setArea } = useCart();
@@ -39,24 +49,24 @@ export default function Marketplace() {
       .catch(() => setShops([]));
   }, []);
 
-  // Iter 29 — refetch the category tree whenever the retail/wholesale
+  // Iter 31 — refetch the category tree whenever the retail/wholesale
   // filter changes so the sidebar reflects the correct set. "All" pulls
-  // both trees and merges them.
+  // both trees and merges them. Cached in localStorage for 5 min.
   useEffect(() => {
     const group = typeFilter === "wholesale" ? "wholesale" : typeFilter === "retail" ? "retail" : null;
     if (group) {
-      api.get(`/categories/tree?group=${group}`)
-        .then((r) => setCategoryTree(Array.isArray(r.data) ? r.data : []))
+      cachedGet(`/categories/tree?group=${group}`)
+        .then((data) => setCategoryTree(Array.isArray(data) ? data : []))
         .catch(() => setCategoryTree([]));
     } else {
       // All → merge retail + wholesale
       Promise.all([
-        api.get("/categories/tree?group=retail").catch(() => ({ data: [] })),
-        api.get("/categories/tree?group=wholesale").catch(() => ({ data: [] })),
+        cachedGet("/categories/tree?group=retail").catch(() => []),
+        cachedGet("/categories/tree?group=wholesale").catch(() => []),
       ]).then(([retail, whole]) => {
         const merged = [
-          ...(Array.isArray(retail.data) ? retail.data : []),
-          ...(Array.isArray(whole.data) ? whole.data : []),
+          ...(Array.isArray(retail) ? retail : []),
+          ...(Array.isArray(whole) ? whole : []),
         ];
         setCategoryTree(merged);
       });
@@ -225,13 +235,36 @@ export default function Marketplace() {
         </div>
 
         {/* Iter 30 Wave 2 — Filter-by-badge chip row */}
-        <div className="mb-8">
+        <div className="mb-4">
           <BadgeFilterBar showWholesale={typeFilter !== "retail"} />
         </div>
 
+        {/* Iter 31 — Mobile-only category launcher (desktop uses left rail) */}
+        <div className="lg:hidden mb-4 flex items-center gap-2">
+          <button
+            onClick={() => setShowMobileCats(true)}
+            data-testid="mobile-categories-btn"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-[var(--js-border)] text-sm font-semibold text-[var(--js-text)] shadow-sm"
+          >
+            <Package className="w-4 h-4" />
+            Browse categories
+            {(selectedCategoryId || dealsOnly) && (
+              <span className="ml-1 inline-block w-2 h-2 rounded-full bg-[#C84B31]" aria-hidden />
+            )}
+          </button>
+          {(selectedCategoryId || selectedCategoryLegacy || dealsOnly) && (
+            <button
+              onClick={() => { setSearchParams({}); }}
+              className="text-xs text-[#C84B31] font-bold underline"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-8">
-          {/* Sidebar */}
-          <aside className="space-y-6 lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
+          {/* Sidebar — desktop only. Mobile uses the drawer below. */}
+          <aside className="space-y-6 lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto hidden lg:block">
             <div className="relative">
               <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-[var(--js-text-secondary)]" />
               <input
@@ -352,6 +385,80 @@ export default function Marketplace() {
           </div>
         </div>
       </div>
+
+      {/* Iter 31 — Mobile categories bottom sheet */}
+      {showMobileCats && (
+        <div
+          className="fixed inset-0 z-50 lg:hidden"
+          onClick={() => setShowMobileCats(false)}
+          data-testid="mobile-categories-drawer"
+        >
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="absolute bottom-0 inset-x-0 max-h-[80vh] bg-white rounded-t-3xl shadow-2xl flex flex-col animate-in slide-in-from-bottom duration-200"
+          >
+            <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--js-border)] sticky top-0 bg-white rounded-t-3xl">
+              <h3 className="font-display font-bold text-lg text-[var(--js-text)]">Categories</h3>
+              <button
+                onClick={() => setShowMobileCats(false)}
+                data-testid="mobile-categories-close"
+                className="p-2 rounded-full hover:bg-[var(--js-subtle)]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-1">
+              <button
+                onClick={() => {
+                  const next = new URLSearchParams(searchParams);
+                  if (dealsOnly) next.delete("deals"); else next.set("deals", "1");
+                  setSearchParams(next);
+                  setShowMobileCats(false);
+                }}
+                className={`w-full text-left px-3 py-3 rounded-xl text-sm font-bold inline-flex items-center gap-2 ${
+                  dealsOnly ? "bg-gradient-to-r from-[#E14B31] via-[#C84B31] to-[#B23A21] text-white" : "text-[#C84B31] border border-[#C84B31]"
+                }`}
+              >
+                <span aria-hidden>🔥</span> Deals only
+              </button>
+              <button
+                onClick={() => { setCategory(""); setShowMobileCats(false); }}
+                className={`w-full text-left px-3 py-3 rounded-xl text-sm font-medium ${
+                  !selectedCategoryId && !selectedCategoryLegacy && !dealsOnly ? "bg-[#1A1A1A] text-white" : "text-[var(--js-text)] hover:bg-[var(--js-subtle)]"
+                }`}
+              >
+                All categories
+              </button>
+              {sidebarCats.map((c) => (
+                <div key={c.id}>
+                  <button
+                    onClick={() => { setCategory(c.id); setShowMobileCats(false); }}
+                    className={`w-full text-left px-3 py-3 rounded-xl text-sm font-medium ${
+                      selectedCategoryId === c.id ? "bg-[#1A1A1A] text-white" : "text-[var(--js-text)] hover:bg-[var(--js-subtle)]"
+                    }`}
+                    data-testid={`mobile-category-${c.name.replace(/\s+/g, "-").toLowerCase()}`}
+                  >
+                    {c.name}
+                  </button>
+                  {(c.children || []).map((sub) => (
+                    <button
+                      key={sub.id}
+                      onClick={() => { setCategory(sub.id); setShowMobileCats(false); }}
+                      className={`w-full text-left px-6 py-2 rounded-xl text-xs font-medium ${
+                        selectedCategoryId === sub.id ? "bg-[#C84B31] text-white" : "text-[var(--js-text-secondary)] hover:bg-[var(--js-subtle)]"
+                      }`}
+                    >
+                      → {sub.name}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       <Footer />
     </div>
   );

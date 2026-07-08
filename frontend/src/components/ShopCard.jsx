@@ -95,7 +95,7 @@ export default function ShopCard({ shop, productsPreview = [] }) {
                 className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 border border-[var(--js-border)] bg-[var(--js-subtle)] hover:scale-105 transition"
                 title={p.name}
               >
-                <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
+                <img src={p.image_url} alt={p.name} loading="lazy" className="w-full h-full object-cover" />
               </Link>
             ))}
           </div>

@@ -10,6 +10,10 @@ import api from "@/lib/api";
  *   - restaurant → /restaurants?focus={id}  (Restaurants page auto-opens the modal)
  *   - shop       → /shop/{id}
  *   - product    → /product/{id}
+ *
+ * Iter 31 — pressing Enter (without picking a result) takes the customer to
+ * /marketplace?q={query} which reuses the same relevance-ranked backend
+ * results, but rendered as full ProductCards.
  */
 export default function GlobalSearch() {
   const navigate = useNavigate();
@@ -20,7 +24,7 @@ export default function GlobalSearch() {
   const boxRef = useRef(null);
   const timerRef = useRef(null);
 
-  // Debounced fetch
+  // Debounced fetch — 250ms, slightly slower for less request volume.
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
     if (!q || q.trim().length < 2) {
@@ -34,7 +38,7 @@ export default function GlobalSearch() {
         .then((r) => setResults(r.data || { restaurants: [], shops: [], products: [] }))
         .catch(() => setResults({ restaurants: [], shops: [], products: [] }))
         .finally(() => setLoading(false));
-    }, 200);
+    }, 250);
     return () => timerRef.current && clearTimeout(timerRef.current);
   }, [q]);
 
@@ -53,6 +57,16 @@ export default function GlobalSearch() {
     navigate(path);
   };
 
+  // Iter 31 — Enter without a selection → full search page.
+  const onKeyDown = (e) => {
+    if (e.key === "Enter" && q.trim().length >= 2) {
+      e.preventDefault();
+      go(`/marketplace?q=${encodeURIComponent(q.trim())}`);
+    } else if (e.key === "Escape") {
+      setOpen(false);
+    }
+  };
+
   const total =
     results.restaurants.length + results.shops.length + results.products.length;
   const showDropdown = open && q.trim().length >= 2;
@@ -66,6 +80,7 @@ export default function GlobalSearch() {
           value={q}
           onChange={(e) => { setQ(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
+          onKeyDown={onKeyDown}
           placeholder="Search restaurants, shops, products…"
           data-testid="global-search-input"
           className="w-full sm:w-56 md:w-64 lg:w-72 bg-white/10 hover:bg-white/15 focus:bg-white/15 border border-white/20 focus:border-white/40 placeholder:text-white/50 text-white text-sm rounded-full pl-9 pr-9 py-2 transition focus:outline-none"
@@ -95,7 +110,7 @@ export default function GlobalSearch() {
 
           {!loading && total === 0 && (
             <p className="p-6 text-sm text-center text-[var(--js-text-secondary)]" data-testid="global-search-empty">
-              No matches for <span className="font-semibold text-[var(--js-text)]">"{q}"</span>
+              No matches for <span className="font-semibold text-[var(--js-text)]">&ldquo;{q}&rdquo;</span>
             </p>
           )}
 
@@ -150,6 +165,16 @@ export default function GlobalSearch() {
               ))}
             </SearchGroup>
           )}
+
+          {!loading && total > 0 && (
+            <button
+              onClick={() => go(`/marketplace?q=${encodeURIComponent(q.trim())}`)}
+              data-testid="search-see-all"
+              className="w-full px-4 py-3 border-t border-[var(--js-border)] bg-[var(--js-subtle)] hover:bg-[#F4F1EA] text-center text-sm font-bold text-[#C84B31]"
+            >
+              See all results for &ldquo;{q}&rdquo; →
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -174,10 +199,12 @@ function SearchRow({ testid, onClick, imageUrl, title, subtitle, badge, price })
       data-testid={testid}
       className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--js-subtle)] text-left transition"
     >
-      <div className="w-10 h-10 rounded-lg bg-[var(--js-subtle)] overflow-hidden shrink-0">
+      <div className="w-10 h-10 rounded-lg bg-[var(--js-subtle)] overflow-hidden shrink-0 flex items-center justify-center">
         {imageUrl ? (
-          <img src={imageUrl} alt="" className="w-full h-full object-cover" />
-        ) : null}
+          <img src={imageUrl} alt="" loading="lazy" className="w-full h-full object-cover" />
+        ) : (
+          <Package className="w-5 h-5 text-[var(--js-text-secondary)]" />
+        )}
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-[var(--js-text)] truncate">{title}</p>

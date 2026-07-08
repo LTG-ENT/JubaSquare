@@ -15,7 +15,7 @@ import PasswordChangeForm from "@/components/PasswordChangeForm";
 import SellerOnboardingCard from "@/components/SellerOnboardingCard";
 import SellerFirstLoginWizard from "@/components/SellerFirstLoginWizard";
 import SellerDashboardTour from "@/components/SellerDashboardTour";
-import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle, ExternalLink, MessageCircle, Mail, Phone, ChefHat, Wallet, MapPin, Upload, TrendingUp, PackageCheck, GraduationCap } from "lucide-react";
+import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle, ExternalLink, MessageCircle, Mail, Phone, ChefHat, Wallet, MapPin, Upload, TrendingUp, PackageCheck, GraduationCap, Printer } from "lucide-react";
 import { useSearchParams, Link } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -1027,6 +1027,17 @@ function ProductsTab({ currency, exchangeRate }) {
           >
             <Upload className="w-4 h-4" /> Bulk Import
           </button>
+          {/* Iter 31 — printable low-stock / out-of-stock report */}
+          <a
+            href="/seller/low-stock?autoprint=0"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="low-stock-report-btn"
+            className="inline-flex items-center gap-2 bg-[#8B6B00] hover:bg-[#6A4F00] text-white text-sm font-semibold px-4 py-2.5 rounded-full"
+            title="Open printable low-stock / out-of-stock report"
+          >
+            <Printer className="w-4 h-4" /> Low-Stock Report
+          </a>
           <button
             onClick={openNew}
             disabled={shops.length === 0 && restaurants.length === 0}

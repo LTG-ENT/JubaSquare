@@ -300,7 +300,7 @@ export default function RestaurantCard({ restaurant, initialOpen = false, rank =
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={() => setOpen(false)} data-testid={`restaurant-modal-${restaurant.id}`}>
           <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="aspect-[16/8] overflow-hidden relative">
-              <img src={restaurant.image_url} alt={restaurant.name} className="w-full h-full object-cover" />
+              <img src={restaurant.image_url} alt={restaurant.name} loading="lazy" className="w-full h-full object-cover" />
               <button onClick={() => setOpen(false)} className="absolute top-4 right-4 bg-white/90 backdrop-blur rounded-full p-2 hover:bg-white" data-testid="close-restaurant-modal">
                 <X className="w-5 h-5" />
               </button>

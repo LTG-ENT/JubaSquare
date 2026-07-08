@@ -275,6 +275,21 @@ function AdminShopsTab() {
     }
   };
 
+  // Iter 31 — admin-only "Part of LTG" toggle from the shop/restaurant detail modal.
+  const toggleLtg = async (nextValue) => {
+    try {
+      const base = detail._kind === "restaurant"
+        ? `/admin/restaurants/${detail.id}/ltg-partner`
+        : `/admin/shops/${detail.id}/ltg-partner`;
+      const { data } = await api.put(base, { is_ltg_partner: !!nextValue });
+      toast.success(nextValue ? "Marked as Part of LTG ★" : "Removed from LTG");
+      setDetail({ ...detail, is_ltg_partner: !!data.is_ltg_partner });
+      load();
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail) || "Failed to update LTG status");
+    }
+  };
+
   const allRows = useMemo(() => {
     if (kindFilter === "shops") return shops;
     if (kindFilter === "restaurants") return restaurants;
@@ -429,6 +444,30 @@ function AdminShopsTab() {
               <div className="flex gap-2">
                 <button onClick={() => verify(detail.id)} className="flex-1 bg-[#2D6A4F] hover:bg-[#1B4332] text-white text-sm font-semibold py-2.5 rounded-full">✓ Verify</button>
                 <button onClick={() => reject(detail.id)} className="flex-1 bg-[#D90429]/10 text-[#D90429] hover:bg-[#D90429] hover:text-white text-sm font-semibold py-2.5 rounded-full transition">✗ Reject</button>
+              </div>
+
+              {/* Iter 31 — Part of LTG toggle (admin only) */}
+              <div className="bg-gradient-to-br from-[#D4AF37]/10 via-[#E9C46A]/10 to-[#B8860B]/10 border border-[#E9C46A]/60 rounded-2xl p-4" data-testid="shop-ltg-toggle-card">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-display font-semibold text-sm mb-1 text-[#8B6B00]">
+                      ★ Part of LTG
+                    </h3>
+                    <p className="text-xs text-[var(--js-text-secondary)]">
+                      Boost <strong>{detail.name}</strong> to the top of the recommendation list and show the gold "PART OF LTG" badge on their card and product listings.
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer flex-shrink-0 mt-1">
+                    <input
+                      type="checkbox"
+                      checked={!!detail.is_ltg_partner}
+                      onChange={(e) => toggleLtg(e.target.checked)}
+                      data-testid="admin-ltg-toggle"
+                      className="sr-only peer"
+                    />
+                    <div className="w-12 h-6 bg-gray-200 rounded-full peer peer-checked:bg-gradient-to-r peer-checked:from-[#D4AF37] peer-checked:to-[#B8860B] transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:w-5 after:h-5 after:rounded-full after:shadow after:transition-all peer-checked:after:translate-x-6"></div>
+                  </label>
+                </div>
               </div>
 
               <div className="bg-[var(--js-subtle)] rounded-2xl p-4">

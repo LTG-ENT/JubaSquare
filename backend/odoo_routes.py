@@ -193,6 +193,24 @@ def create_odoo_routes(db, require_role):
                 "bulk_price_usd": payload.bulk_price,
                 "pricing_tiers": [tier.dict() for tier in payload.pricing_tiers] if payload.pricing_tiers else []
             }
+
+            # Iter 31 — Extended fields (all optional, only persist if provided
+            # so old Odoo module versions keep working unchanged).
+            if payload.promo is not None:
+                product_data["promo"] = payload.promo.dict()
+            if payload.is_ltg_partner is not None:
+                product_data["is_ltg_partner"] = bool(payload.is_ltg_partner)
+            if entity_type == "shop" and payload.product_section_id is not None:
+                product_data["product_section_id"] = payload.product_section_id
+            if entity_type == "restaurant":
+                if payload.menu_section_id is not None:
+                    product_data["menu_section_id"] = payload.menu_section_id
+                if payload.sides_required is not None:
+                    product_data["sides_required"] = bool(payload.sides_required)
+                if payload.side_items is not None:
+                    product_data["side_items"] = [si.dict() for si in payload.side_items]
+                if payload.prep_time_minutes is not None:
+                    product_data["prep_time_minutes"] = int(payload.prep_time_minutes)
             
             # Add entity-specific fields
             if entity_type == "shop":

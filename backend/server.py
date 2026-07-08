@@ -6705,6 +6705,60 @@ async def seller_growth_insights_preview(user: dict = Depends(require_role("sell
     return await _compute_seller_growth_metrics(user["id"], days=7)
 
 
+
+@api.get("/seller/low-stock-report")
+async def seller_low_stock_report(user: dict = Depends(require_role("seller"))):
+    """Iter 31 — printable low-stock / out-of-stock report for a seller.
+
+    Groups the seller's products into three buckets: out_of_stock (stock<=0),
+    low_stock (0<stock<=low_stock_threshold, default 5), and healthy (rest).
+    Each shop is a section in the response so the print layout can put a
+    header per shop."""
+    settings = (user.get("settings") or {})
+    default_threshold = int(settings.get("low_stock_threshold") or 5)
+
+    shops = await db.shops.find(
+        {"seller_id": user["id"], "is_deleted": {"$ne": True}},
+        {"_id": 0, "id": 1, "name": 1},
+    ).to_list(200)
+    shop_map = {sh["id"]: sh["name"] for sh in shops}
+
+    products = await db.products.find(
+        {"seller_id": user["id"], "is_deleted": {"$ne": True}},
+        {"_id": 0, "id": 1, "name": 1, "sku": 1, "stock": 1, "price_usd": 1,
+         "shop_id": 1, "low_stock_threshold": 1, "is_wholesale": 1, "image_url": 1},
+    ).to_list(2000)
+
+    out_of_stock: list = []
+    low_stock: list = []
+    for p in products:
+        stock = int(p.get("stock") or 0)
+        threshold = int(p.get("low_stock_threshold") or default_threshold)
+        p["_threshold"] = threshold
+        p["_shop_name"] = shop_map.get(p.get("shop_id"), "—")
+        if stock <= 0:
+            out_of_stock.append(p)
+        elif stock <= threshold:
+            low_stock.append(p)
+
+    out_of_stock.sort(key=lambda x: (x["_shop_name"], x["name"]))
+    low_stock.sort(key=lambda x: (x["_shop_name"], int(x.get("stock") or 0)))
+
+    return {
+        "seller_id": user["id"],
+        "seller_name": user.get("name"),
+        "generated_at": now_iso(),
+        "default_threshold": default_threshold,
+        "total_products": len(products),
+        "shops": [{"id": sh["id"], "name": sh["name"]} for sh in shops],
+        "out_of_stock_count": len(out_of_stock),
+        "low_stock_count": len(low_stock),
+        "out_of_stock": out_of_stock,
+        "low_stock": low_stock,
+    }
+
+
+
 class GrowthInsightsSendIn(BaseModel):
     dry_run: bool = False
 
@@ -7445,6 +7499,32 @@ async def seed_production():
     await db.restaurant_orders.create_index([("restaurant_id", 1), ("status", 1)])
     await db.restaurant_orders.create_index([("customer_id", 1), ("created_at", -1)])
     await db.reviews.create_index([("restaurant_id", 1), ("created_at", -1)])
+
+    # Iter 30 Wave 3 (perf) — hot-path indexes for 1000+ scale
+    await db.favorites.create_index([("target_type", 1), ("target_id", 1)])
+    await db.favorites.create_index([("target_id", 1)])  # supports growth-insights per-shop lookups
+    await db.orders.create_index([("shop_id", 1), ("status", 1)])
+    await db.orders.create_index([("customer_id", 1), ("created_at", -1)])
+    await db.orders.create_index([("items.product_id", 1)])
+    await db.orders.create_index([("items.seller_id", 1), ("created_at", -1)])
+    await db.products.create_index([("shop_id", 1), ("is_deleted", 1)])
+    await db.products.create_index([("shop_id", 1), ("is_wholesale", 1)])
+    await db.products.create_index([("seller_id", 1)])
+    await db.products.create_index([("is_ltg_partner", 1)])
+    await db.products.create_index([("promo.active", 1)])
+    await db.menu_items.create_index([("restaurant_id", 1), ("is_deleted", 1)])
+    await db.menu_items.create_index([("restaurant_id", 1), ("menu_section_id", 1)])
+    await db.menu_items.create_index([("promo.active", 1)])
+    await db.shops.create_index([("seller_id", 1)])
+    await db.shops.create_index([("verification", 1), ("is_deleted", 1)])
+    await db.shops.create_index([("is_ltg_partner", 1)])
+    await db.restaurants.create_index([("seller_id", 1)])
+    await db.restaurants.create_index([("verification", 1), ("is_deleted", 1)])
+    await db.restaurants.create_index([("is_ltg_partner", 1)])
+    await db.seller_order_splits.create_index([("seller_id", 1), ("created_at", -1)])
+    await db.seller_order_splits.create_index([("order_id", 1)])
+    await db.users.create_index([("role", 1), ("is_deleted", 1)])
+
     # `order_id_1` used to be a NON-sparse unique index intended for
     # restaurant reviews (one review per order). Product reviews don't
     # carry an order_id, so every product review inserted `null` and

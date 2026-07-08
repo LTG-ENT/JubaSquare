@@ -19,6 +19,8 @@ export default function ShopPage() {
   const [loading, setLoading] = useState(true);
   const [contactOpen, setContactOpen] = useState(false);
   const [search, setSearch] = useState("");
+  // Iter 31 — active section tab (id) or "all"
+  const [activeSectionId, setActiveSectionId] = useState("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -47,12 +49,50 @@ export default function ShopPage() {
 
   const filteredProducts = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return products;
-    return products.filter((p) =>
+    let list = products;
+    // Section filter first
+    if (activeSectionId && activeSectionId !== "all") {
+      const sectionMeta = (shop?.product_sections || []).find((s) => s.id === activeSectionId);
+      const isPromo = !!sectionMeta?.is_promo_section;
+      const nowIso = new Date().toISOString();
+      const promoLive = (m) => {
+        const p = m?.promo || {};
+        if (!p.active) return false;
+        if (p.starts_at && nowIso < p.starts_at) return false;
+        if (p.ends_at && nowIso > p.ends_at) return false;
+        return true;
+      };
+      list = list.filter((p) =>
+        isPromo ? promoLive(p) : p.product_section_id === activeSectionId
+      );
+    }
+    if (!q) return list;
+    return list.filter((p) =>
       (p.name || "").toLowerCase().includes(q) ||
       (p.category || "").toLowerCase().includes(q)
     );
-  }, [search, products]);
+  }, [search, products, activeSectionId, shop]);
+
+  // Iter 31 — only surface sections that actually have products (or an
+  // active promo, for promo sections). Prevents empty tabs.
+  const visibleSections = useMemo(() => {
+    if (!shop?.product_sections?.length) return [];
+    const nowIso = new Date().toISOString();
+    const promoLive = (m) => {
+      const p = m?.promo || {};
+      if (!p.active) return false;
+      if (p.starts_at && nowIso < p.starts_at) return false;
+      if (p.ends_at && nowIso > p.ends_at) return false;
+      return true;
+    };
+    return (shop.product_sections || [])
+      .slice()
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+      .filter((sec) => {
+        if (sec.is_promo_section) return products.some(promoLive);
+        return products.some((p) => p.product_section_id === sec.id);
+      });
+  }, [shop, products]);
 
   if (loading) {
     return (
@@ -237,6 +277,40 @@ export default function ShopPage() {
             </div>
           )}
         </div>
+
+        {/* Iter 31 — Product Section tabs (only shown when shop uses sections) */}
+        {visibleSections.length > 0 && (
+          <div className="mb-5" data-testid="shop-section-tabs">
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setActiveSectionId("all")}
+                data-testid="shop-section-all"
+                className={`px-4 py-2 rounded-full text-sm font-semibold transition ${
+                  activeSectionId === "all"
+                    ? "bg-[#1A1A1A] text-white"
+                    : "bg-white border border-[var(--js-border)] text-[var(--js-text)] hover:border-[#1A1A1A]"
+                }`}
+              >
+                All
+              </button>
+              {visibleSections.map((sec) => (
+                <button
+                  key={sec.id}
+                  onClick={() => setActiveSectionId(sec.id)}
+                  data-testid={`shop-section-${sec.id}`}
+                  className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold transition ${
+                    activeSectionId === sec.id
+                      ? "bg-[#C84B31] text-white"
+                      : "bg-white border border-[var(--js-border)] text-[var(--js-text)] hover:border-[#C84B31]"
+                  }`}
+                >
+                  {sec.is_promo_section && <span aria-hidden>🔥</span>}
+                  {sec.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {filteredProducts.length === 0 ? (
           <div className="bg-white border border-[var(--js-border)] rounded-2xl p-8 text-center text-[var(--js-text-secondary)] text-sm" data-testid="shop-no-products">

@@ -192,6 +192,30 @@ class OdooSyncLog(BaseModel):
 # Webhook Payloads (from Odoo to JubaSquare)
 # ============================================================================
 
+class OdooPromo(BaseModel):
+    """Iter 31 — Time-limited promotional discount on a product/menu item.
+
+    - `percent` : discount as a percent (0..100)
+    - `amount`  : flat USD off the unit price
+    - `bogo`    : Buy N Get 1 Free — customer must have >= bogo_min_qty
+                  units to get 1 free (JubaSquare enforces on order create).
+    """
+    active: bool = False
+    type: Literal["percent", "amount", "bogo"] = "percent"
+    value: float = 0.0
+    bogo_min_qty: int = 2
+    starts_at: Optional[str] = None
+    ends_at: Optional[str] = None
+
+
+class OdooSideItem(BaseModel):
+    """A single side / add-on option for a restaurant menu item."""
+    id: Optional[str] = None
+    name: str
+    price_usd: float = 0.0
+    is_default: bool = False
+
+
 class OdooProductUpsert(BaseModel):
     """Webhook payload for product upsert from Odoo"""
     shop_id: Optional[str] = None
@@ -219,6 +243,26 @@ class OdooProductUpsert(BaseModel):
     sync_stock: bool = True
     sync_image: bool = True
     sync_description: bool = True
+
+    # ------------------------------------------------------------------
+    # Iter 31 — additions to match JubaSquare's expanded product model.
+    # All optional to preserve backwards compatibility with older Odoo
+    # module versions that don't send these fields.
+    # ------------------------------------------------------------------
+    promo: Optional[OdooPromo] = None
+    # Shop products only — the seller-defined product_section on the shop
+    # (see /admin/shops/{id}/product-sections). Restaurants use
+    # `menu_section_id` instead.
+    product_section_id: Optional[str] = None
+    # Restaurant menu items only.
+    menu_section_id: Optional[str] = None
+    sides_required: Optional[bool] = None
+    side_items: Optional[List[OdooSideItem]] = None
+    prep_time_minutes: Optional[int] = None
+    # Admin-controlled 'Part of LTG' boost. Only trusted Odoo callers should
+    # send this. JubaSquare's backend still gates changes behind
+    # /admin/products/{id}/ltg-partner in the UI.
+    is_ltg_partner: Optional[bool] = None
 
 
 class OdooStockUpdate(BaseModel):

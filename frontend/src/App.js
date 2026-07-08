@@ -47,6 +47,7 @@ const SellerDashboard = lazy(() => import("@/pages/SellerDashboard"));
 const SellerShopEdit = lazy(() => import("@/pages/SellerShopEdit"));
 const SellerRestaurantEdit = lazy(() => import("@/pages/SellerRestaurantEdit"));
 const SellerGuide = lazy(() => import("@/pages/SellerGuide"));
+const SellerLowStockReport = lazy(() => import("@/pages/SellerLowStockReport"));
 const AdminDashboard = lazy(() => import("@/pages/AdminDashboard"));
 const DriverDashboard = lazy(() => import("@/pages/DriverDashboard"));
 const About = lazy(() => import("@/pages/legal/About"));
@@ -148,6 +149,7 @@ export default function App() {
                   <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
                   <Route path="/seller" element={<ProtectedRoute role="seller"><SellerDashboard /></ProtectedRoute>} />
                   <Route path="/seller/guide" element={<ProtectedRoute role="seller"><SellerGuide /></ProtectedRoute>} />
+                  <Route path="/seller/low-stock" element={<ProtectedRoute role="seller"><SellerLowStockReport /></ProtectedRoute>} />
                   <Route path="/seller/shop/:shop_id/edit" element={<ProtectedRoute role="seller"><SellerShopEdit /></ProtectedRoute>} />
                   <Route path="/seller/restaurant/:restaurant_id/edit" element={<ProtectedRoute role="seller"><SellerRestaurantEdit /></ProtectedRoute>} />
                   <Route path="/admin" element={<ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>} />

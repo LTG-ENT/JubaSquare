@@ -1,0 +1,30 @@
+{
+  "summary": "Iter 31 backend testing complete. 17/18 tests passed on first run; the 1 failure was a transient 502 on /api/health (re-run passed). All targeted areas verified: low-stock report (auth gating + buckets + soft-delete exclusion + sort), Odoo upsert new fields (promo/section/ltg/sides/prep_time), Odoo backwards-compat (minimal payload preserves new fields), admin LTG toggles for shop/restaurant/product, all new Mongo perf indexes present, and /api/shops regression (has_active_promo/has_wholesale flags).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/health", "issue": "One transient 502 observed during first pytest run; endpoint returns 200 on retry. Likely upstream/ingress warm-up. No code fix needed."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter31_low_stock_odoo_indexes.py",
+    "/app/test_reports/pytest/iter31_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 8135 lines — long overdue for a modular split (e.g. routers per domain: orders, shops, restaurants, admin, seller, odoo). Recommend refactor before iter 35.",
+    "seller_low_stock_report reads user['settings'] but ProductionUser model may not expose that field via the JWT payload; default_threshold currently always falls back to 5. Confirm intended per-seller threshold flow.",
+    "OdooProductUpsert backwards-compat correctly only writes new fields when non-None (odoo_routes.py L197-213) — solid pattern, keep it for future field additions."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter31_low_stock_odoo_indexes.py"
+  ],
+  "success_rate": {"backend": "100% (18/18)", "frontend": "not tested (skipped per request)"},
+  "test_credentials": "admin@jubasquare.com / 1234 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "All seeded rows are prefixed TEST_iter31_<hex> and cleaned up in the module-scoped db fixture teardown. Included: 1 seller, 1 customer, 1 shop (LTG-eligible, Odoo-enabled), 1 restaurant (Odoo-enabled), 2 categories, 4 products (out-of-stock, low-stock, healthy, soft-deleted), plus one Odoo service token generated via admin API (tagged for teardown).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Odoo webhook auth: no ODOO_WEBHOOK_TOKEN env; test generates a fresh service token via POST /api/admin/odoo/service-token/generate as admin (raw returned only once). If a token already exists in db.odoo_service_tokens on next run, the Odoo tests self-skip because the raw isn't retrievable. Alternative: call /api/admin/odoo/service-token/rotate to force-mint a new one.",
+  "rca of the issue": "n/a — no unresolved issues."
+}
