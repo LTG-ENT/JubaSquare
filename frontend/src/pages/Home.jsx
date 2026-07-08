@@ -7,6 +7,7 @@ import Footer from "@/components/Footer";
 import SeoMeta, { websiteSchema, organizationSchema } from "@/components/SeoMeta";
 import ShopCard from "@/components/ShopCard";
 import WholesaleCard from "@/components/WholesaleCard";
+import ProductCard from "@/components/ProductCard";
 import RestaurantCard from "@/components/RestaurantCard";
 import TrendingRestaurants from "@/components/TrendingRestaurants";
 import AreaSelector from "@/components/AreaSelector";
@@ -55,6 +56,9 @@ export default function Home() {
   const [retailCats, setRetailCats] = useState([]); // [{id,name,image_url,children:[]}]
   const [slideIdx, setSlideIdx] = useState(0);
   const [heroConfig, setHeroConfig] = useState(null);
+  const [ltgShops, setLtgShops] = useState([]);
+  const [ltgRestaurants, setLtgRestaurants] = useState([]);
+  const [featuredProducts, setFeaturedProducts] = useState([]);
   const { area, setArea } = useCart();
 
   useEffect(() => {
@@ -67,6 +71,10 @@ export default function Home() {
       .then((r) => setRetailCats(Array.isArray(r.data) ? r.data : []))
       .catch(() => setRetailCats([]));
     api.get("/homepage").then((r) => setHeroConfig(r.data)).catch(() => setHeroConfig(null));
+    // Iter 30 Wave 2 — LTG shelf + featured shelf.
+    api.get("/shops?ltg=true&limit=8").then((r) => setLtgShops(safeArray(r.data))).catch(() => setLtgShops([]));
+    api.get("/restaurants?ltg=true&limit=8").then((r) => setLtgRestaurants(safeArray(r.data))).catch(() => setLtgRestaurants([]));
+    api.get("/homepage/featured-products?limit=8").then((r) => setFeaturedProducts(safeArray(r.data))).catch(() => setFeaturedProducts([]));
   }, []);
 
   // Effective slides: admin-managed first, fall back to defaults
@@ -256,6 +264,74 @@ export default function Home() {
                 <WholesaleCard key={p.id} product={p} shop={shops.find((s) => s.id === p.shop_id)} />
               ))}
             </div>
+          </div>
+        </section>
+      )}
+
+      {/* PART OF LTG — Local Top Growth partner shelf */}
+      {(ltgShops.length > 0 || ltgRestaurants.length > 0) && (
+        <section
+          data-testid="home-ltg-shelf"
+          className="relative py-16 sm:py-20 w-full overflow-hidden"
+          style={{
+            background:
+              "linear-gradient(135deg, rgba(212,175,55,0.10) 0%, rgba(233,196,106,0.06) 60%, rgba(184,134,11,0.08) 100%)",
+          }}
+        >
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-end justify-between flex-wrap gap-4 mb-8">
+              <div>
+                <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.2em] font-bold px-3 py-1.5 rounded-full mb-3 text-white shadow-[0_4px_14px_rgba(184,134,11,0.5)] bg-gradient-to-r from-[#D4AF37] via-[#E9C46A] to-[#B8860B]">
+                  ★ PART OF LTG
+                </span>
+                <h2 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">Local Top Growth Partners</h2>
+                <p className="text-sm text-[#5C5C5C] mt-1">
+                  Handpicked shops and restaurants growing Juba&apos;s economy.
+                </p>
+              </div>
+            </div>
+            {ltgShops.length > 0 && (
+              <div className="mb-8">
+                <p className="text-xs font-semibold uppercase tracking-wider text-[#5C5C5C] mb-3">Shops</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {ltgShops.slice(0, 6).map((s) => (
+                    <ShopCard key={s.id} shop={s} productsPreview={productsByShop(s.id)} />
+                  ))}
+                </div>
+              </div>
+            )}
+            {ltgRestaurants.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-[#5C5C5C] mb-3">Restaurants</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                  {ltgRestaurants.slice(0, 4).map((r) => <RestaurantCard key={r.id} restaurant={r} />)}
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* FEATURED PRODUCTS — best-rated + most-ordered − fewest cancellations */}
+      {featuredProducts.length > 0 && (
+        <section
+          data-testid="home-featured-products"
+          className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-20 w-full"
+        >
+          <div className="flex items-end justify-between flex-wrap gap-4 mb-8">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-[#5C5C5C] font-bold mb-2">Loved by Juba</p>
+              <h2 className="font-display font-bold text-3xl sm:text-4xl text-[#1A1A1A]">Top-Rated Products</h2>
+              <p className="text-sm text-[#5C5C5C] mt-1">Best reviews, most orders, least returns.</p>
+            </div>
+            <Link to="/marketplace" className="text-sm font-semibold text-[#C84B31] hover:underline">
+              Browse all →
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {featuredProducts.slice(0, 8).map((p) => (
+              <ProductCard key={p.id} product={p} />
+            ))}
           </div>
         </section>
       )}

@@ -1,0 +1,23 @@
+{
+  "summary": "Iter30 Wave2 backend validation: 19/19 tests PASSED in /app/backend/tests/test_iter30_wave2_badge_filters.py. Verified: (1) /api/shops badge filter params ltg/deals/wholesale/verified — isolation + ltg+deals intersection, (2) /api/shops without filters still enriches has_active_promo + has_wholesale on every shop, (3) /api/restaurants badge filters ltg/deals/verified — expired promo restaurant excluded from ?deals=true (date-window enforcement), (4) /api/products?ltg=true only LTG products, /api/products?deals=true excludes expired promos and includes live percent + BOGO, (5) /api/homepage/featured-products returns list<=limit, includes exchange_rate_ssp, all in-stock, only from Verified shops, LTG product ranked in top-5 via +50 boost, (6) Composite shop ranking A(LTG+verified)>B(verified+15 completed orders+rating5)>C(verified+15 cancellations), (7) Regression: shop enrichment flags + restaurant has_live_promo+has_active_promo alias intact, (8) Empty featured returns [] gracefully.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter30_wave2_badge_filters.py",
+    "/app/test_reports/pytest/iter30_wave2.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py list_shops enrichment runs 5 aggregates (orders completed/cancelled, favorites, promo, wholesale) per request — acceptable for the current data scale but should move to a materialised summary collection or cached view when shop count grows beyond a few hundred.",
+    "list_shops applies ltg/verified via mongo query but deals/wholesale are Python-side post-filters after slice-window fetch — with a wide range of shops paginated deep, ?deals=1 could yield an under-filled page; pagination cursor semantics could be revisited.",
+    "homepage_featured_products uses $unwind on orders.items for two aggregates over all completed+cancelled orders — will not scale well with a large order history; consider persisting order_count/cancellation_count on the product doc via a background job."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter30_wave2_badge_filters.py"],
+  "success_rate": {"backend": "100% (19/19)", "frontend": "n/a (skipped per request)"},
+  "test_credentials": "admin@jubasquare.com / 1234",
+  "seed_data_creation": "Per-run ephemeral prefix TEST_iter30w2_<uuid>. 3 shops (A=LTG+verified, B=verified high-orders/rating, C=verified high-cancellations), 7 products (live promo, expired promo, wholesale, LTG, BOGO, plainB, plainC), 3 restaurants (LTG, deals with live promo menu-item, plain with expired promo menu-item), 15 Completed orders on shop B, 15 Cancelled orders on shop C. Hard delete_many teardown across users/shops/restaurants/products/menu_items/orders/restaurant_orders/favorites/reviews/splits.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_iter30_wave2_badge_filters.py is the canonical regression file for badge-filter query params + featured-products endpoint + composite ranking. Health endpoint had one transient 502 on first run; retry cleared. Reuse for next iterations.",
+  "rca of the issue": "n/a — all functional requirements verified pass."
+}

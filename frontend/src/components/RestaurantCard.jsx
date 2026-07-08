@@ -58,8 +58,23 @@ export default function RestaurantCard({ restaurant, initialOpen = false, rank =
         const sellerSections = (restaurant.menu_sections || [])
           .slice()
           .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        // Iter 30 Wave 2 — hide empty promo sections from the tab bar.
+        // A promo section is only shown when there's at least one menu
+        // item that currently has a live promo.
+        const nowIso = new Date().toISOString();
+        const promoLive = (m) => {
+          const p = m.promo || {};
+          if (!p.active) return false;
+          if (p.starts_at && nowIso < p.starts_at) return false;
+          if (p.ends_at && nowIso > p.ends_at) return false;
+          return true;
+        };
+        const anyLivePromoInList = items.some(promoLive);
+        const visibleSellerSections = sellerSections.filter(
+          (s) => !s.is_promo_section || anyLivePromoInList
+        );
         if (sellerSections.length) {
-          setMenuCategories(sellerSections.map((s) => ({ id: s.id, name: s.name })));
+          setMenuCategories(visibleSellerSections.map((s) => ({ id: s.id, name: s.name })));
           return;
         }
         const catIds = Array.from(new Set(items.map((m) => m.category_id).filter(Boolean)));

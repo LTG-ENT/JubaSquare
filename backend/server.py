@@ -2120,6 +2120,11 @@ async def list_shops(
     kind: Optional[str] = None,
     limit: Optional[int] = None,
     skip: Optional[int] = None,
+    # Iter 30 Wave 2 — badge filters
+    ltg: Optional[bool] = None,
+    deals: Optional[bool] = None,
+    wholesale: Optional[bool] = None,
+    verified: Optional[bool] = None,
 ):
     # Public marketplace listing — exclude shops that the seller has hidden (is_public=False)
     # and shops that are soft-deleted. Legacy shops without these flags default to visible.
@@ -2149,21 +2154,50 @@ async def list_shops(
         q["area"] = area
     if kind:
         q["kind"] = kind
+    if ltg is True:
+        q["is_ltg_partner"] = True
+    if verified is True:
+        q["verification"] = "Verified"
     # Verified-first sort happens in Python; we have to fetch a wider window
     # than `limit` so the sort is meaningful, then slice.
     raw = await db.shops.find(q, {"_id": 0}).to_list(MAX_PAGE_LIMIT + off + lim)
-    sorted_shops = _sort_shops(raw, s.get("verified_first", True))
-    sliced = sorted_shops[off : off + lim]
 
-    # Iter 29 — enrich each returned shop with `has_active_promo` and
-    # `has_wholesale` flags so the frontend can render the "Deal" and
-    # "Wholesale" badges without an N+1 query. One aggregate covers all.
-    shop_ids = [sh["id"] for sh in sliced]
-    if shop_ids:
+    # Iter 30 Wave 2 — enrich ALL candidates (not just the slice) with the
+    # signals used by the ranker so ordering is real.
+    shop_ids_all = [sh["id"] for sh in raw]
+    if shop_ids_all:
+        orders_map = {
+            r["_id"]: r["n"] for r in await db.orders.aggregate([
+                {"$match": {"shop_id": {"$in": shop_ids_all}, "status": {"$nin": ["Cancelled", "Rejected"]}}},
+                {"$group": {"_id": "$shop_id", "n": {"$sum": 1}}},
+            ]).to_list(len(shop_ids_all))
+        }
+        cancelled_map = {
+            r["_id"]: r["n"] for r in await db.orders.aggregate([
+                {"$match": {"shop_id": {"$in": shop_ids_all}, "status": {"$in": ["Cancelled", "Rejected"]}}},
+                {"$group": {"_id": "$shop_id", "n": {"$sum": 1}}},
+            ]).to_list(len(shop_ids_all))
+        }
+        fav_map = {
+            r["_id"]: r["n"] for r in await db.favorites.aggregate([
+                {"$match": {"target_type": "shop", "target_id": {"$in": shop_ids_all}}},
+                {"$group": {"_id": "$target_id", "n": {"$sum": 1}}},
+            ]).to_list(len(shop_ids_all))
+        }
+        for sh in raw:
+            sh["orders_count"] = orders_map.get(sh["id"], 0)
+            sh["cancelled_orders"] = cancelled_map.get(sh["id"], 0)
+            sh["favorite_count"] = fav_map.get(sh["id"], 0)
+
+    sorted_shops = _sort_shops(raw, s.get("verified_first", True))
+
+    # Enrich all candidates with `has_active_promo` and `has_wholesale`
+    # BEFORE the badge filter is applied so we can filter on them.
+    if shop_ids_all:
         now_iso_s = now_iso()
         promo_agg = db.products.aggregate([
             {"$match": {
-                "shop_id": {"$in": shop_ids},
+                "shop_id": {"$in": shop_ids_all},
                 "is_deleted": {"$ne": True},
                 "is_active": {"$ne": False},
                 "promo.active": True,
@@ -2174,21 +2208,28 @@ async def list_shops(
             }},
             {"$group": {"_id": "$shop_id", "n": {"$sum": 1}}},
         ])
-        promo_map = {r["_id"]: r["n"] for r in await promo_agg.to_list(len(shop_ids))}
+        promo_map = {r["_id"]: r["n"] for r in await promo_agg.to_list(len(shop_ids_all))}
         whole_agg = db.products.aggregate([
             {"$match": {
-                "shop_id": {"$in": shop_ids},
+                "shop_id": {"$in": shop_ids_all},
                 "is_deleted": {"$ne": True},
                 "is_wholesale": True,
             }},
             {"$group": {"_id": "$shop_id", "n": {"$sum": 1}}},
         ])
-        whole_map = {r["_id"]: r["n"] for r in await whole_agg.to_list(len(shop_ids))}
-        for sh in sliced:
+        whole_map = {r["_id"]: r["n"] for r in await whole_agg.to_list(len(shop_ids_all))}
+        for sh in sorted_shops:
             sh["has_active_promo"] = bool(promo_map.get(sh["id"]))
             sh["has_wholesale"] = bool(whole_map.get(sh["id"]))
 
-    return sliced
+    # Apply badge filters AFTER enrichment (deals/wholesale are computed
+    # fields, not stored).
+    if deals is True:
+        sorted_shops = [sh for sh in sorted_shops if sh.get("has_active_promo")]
+    if wholesale is True:
+        sorted_shops = [sh for sh in sorted_shops if sh.get("has_wholesale")]
+
+    return sorted_shops[off : off + lim]
 
 
 @api.get("/shops/mine")
@@ -2597,6 +2638,9 @@ async def mark_reply_read(message_id: str, user: dict = Depends(get_current_user
 async def list_products(category_id: Optional[str] = None, category: Optional[str] = None,
                         area: Optional[str] = None, shop_id: Optional[str] = None,
                         kind: Optional[str] = None, is_wholesale: Optional[bool] = None,
+                        # Iter 30 Wave 2 — badge filters
+                        ltg: Optional[bool] = None,
+                        deals: Optional[bool] = None,
                         limit: Optional[int] = None, skip: Optional[int] = None):
     """
     List products with filtering.
@@ -2615,6 +2659,12 @@ async def list_products(category_id: Optional[str] = None, category: Optional[st
         q["shop_id"] = shop_id
     if is_wholesale is not None:
         q["is_wholesale"] = is_wholesale
+    if ltg is True:
+        q["is_ltg_partner"] = True
+    if deals is True:
+        # Live promo — Mongo can't compare against now for the date window,
+        # so filter loosely here and re-check with promo_is_live below.
+        q["promo.active"] = True
     # Hide deactivated products from public listings (still queryable when caller
     # explicitly targets a single shop_id so the owner can manage them).
     if not shop_id:
@@ -2654,6 +2704,12 @@ async def list_products(category_id: Optional[str] = None, category: Optional[st
     sellers = await db.users.find({"id": {"$in": seller_ids}}, {"_id": 0, "id": 1, "settings": 1}).to_list(INTERNAL_CAP)
     auto_hide = {u["id"]: bool((u.get("settings") or {}).get("auto_hide_out_of_stock")) for u in sellers}
     products = [p for p in products if not (auto_hide.get(p["seller_id"]) and p.get("stock", 0) <= 0)]
+
+    # Iter 30 Wave 2 — date-window enforcement for the ?deals=1 filter.
+    # Mongo can't compare promo.starts_at / ends_at against now_iso(), so
+    # do that filter in Python after we've narrowed the candidate set.
+    if deals is True:
+        products = [p for p in products if promo_is_live((p.get("promo") or {}))]
 
     # Embed per-seller exchange rate + shop verification (for verified-first sort)
     s = await get_settings()
@@ -2695,6 +2751,92 @@ async def list_products(category_id: Optional[str] = None, category: Optional[st
         products.sort(key=lambda p: (_ltg_key(p), _stock_key(p)))
     # Final pagination slice
     return products[off : off + lim]
+
+
+@api.get("/homepage/featured-products")
+async def homepage_featured_products(limit: int = 8):
+    """Iter 30 Wave 2 — homepage featured shelf.
+    Products ranked by composite score: rating × completed_orders − cancellations,
+    with a tie-break on favorite_count. Only Verified shops. Only in-stock items.
+    LTG products still float to the top.
+    """
+    lim = max(1, min(24, int(limit or 8)))
+    # Only from Verified public shops
+    verified_shops = await db.shops.find(
+        {"verification": "Verified", "is_deleted": {"$ne": True}, "$or": [{"is_public": {"$ne": False}}, {"is_public": {"$exists": False}}]},
+        {"_id": 0, "id": 1},
+    ).to_list(2000)
+    verified_ids = [sh["id"] for sh in verified_shops]
+    if not verified_ids:
+        return []
+
+    products = await db.products.find(
+        {
+            "shop_id": {"$in": verified_ids},
+            "is_deleted": {"$ne": True},
+            "is_active": {"$ne": False},
+            "stock": {"$gt": 0},
+        },
+        {"_id": 0},
+    ).to_list(2000)
+    if not products:
+        return []
+
+    pids = [p["id"] for p in products]
+
+    # Aggregate live orders per product (from order.items[])
+    order_map: dict = {r["_id"]: r["n"] for r in await db.orders.aggregate([
+        {"$match": {"status": {"$in": ["Completed", "Delivered"]}}},
+        {"$unwind": "$items"},
+        {"$match": {"items.product_id": {"$in": pids}}},
+        {"$group": {"_id": "$items.product_id", "n": {"$sum": 1}}},
+    ]).to_list(len(pids))}
+    cancelled_map: dict = {r["_id"]: r["n"] for r in await db.orders.aggregate([
+        {"$match": {"status": {"$in": ["Cancelled", "Rejected"]}}},
+        {"$unwind": "$items"},
+        {"$match": {"items.product_id": {"$in": pids}}},
+        {"$group": {"_id": "$items.product_id", "n": {"$sum": 1}}},
+    ]).to_list(len(pids))}
+    fav_map: dict = {r["_id"]: r["n"] for r in await db.favorites.aggregate([
+        {"$match": {"target_type": "product", "target_id": {"$in": pids}}},
+        {"$group": {"_id": "$target_id", "n": {"$sum": 1}}},
+    ]).to_list(len(pids))}
+
+    def score(p):
+        rating = float(p.get("average_rating") or 0)
+        review_count = int(p.get("review_count") or 0)
+        completed = order_map.get(p["id"], 0)
+        cancelled = cancelled_map.get(p["id"], 0)
+        favs = fav_map.get(p["id"], 0)
+        ltg_boost = 50 if p.get("is_ltg_partner") else 0
+        # Rating-review-completed compound; cancellations bleed the score.
+        return (
+            ltg_boost
+            + rating * (1 + min(review_count, 200) * 0.02) * 5
+            + completed * 1.5
+            + favs * 0.5
+            - cancelled * 2
+        )
+
+    for p in products:
+        p["_featured_score"] = score(p)
+        p["order_count"] = order_map.get(p["id"], 0)
+        p["favorite_count"] = fav_map.get(p["id"], 0)
+
+    products.sort(key=lambda x: x["_featured_score"], reverse=True)
+    # Enrich exchange rate so ShopCard/ProductCard can price properly.
+    s = await get_settings()
+    global_rate = float(s.get("global_rate", 600.0))
+    seller_ids = list({p["seller_id"] for p in products[:lim]})
+    rate_records = await db.exchange_rates.find({"seller_id": {"$in": seller_ids}}, {"_id": 0}).to_list(len(seller_ids))
+    rate_by_seller = {r["seller_id"]: float(r.get("rate", global_rate)) for r in rate_records}
+    top = products[:lim]
+    for p in top:
+        p["exchange_rate_ssp"] = rate_by_seller.get(p["seller_id"], global_rate)
+        p.pop("_featured_score", None)
+    return top
+
+
 
 
 @api.get("/products/bulk-template")
@@ -3129,7 +3271,11 @@ async def delete_product(product_id: str, user: dict = Depends(require_role("sel
 @api.get("/restaurants")
 async def list_restaurants(request: Request, area: Optional[str] = None, category_id: Optional[str] = None,
                            category: Optional[str] = None,
-                           limit: Optional[int] = None, skip: Optional[int] = None):
+                           limit: Optional[int] = None, skip: Optional[int] = None,
+                           # Iter 30 Wave 2 — badge filters
+                           ltg: Optional[bool] = None,
+                           deals: Optional[bool] = None,
+                           verified: Optional[bool] = None):
     """
     List restaurants with filtering.
     
@@ -3207,25 +3353,31 @@ async def list_restaurants(request: Request, area: Optional[str] = None, categor
     # Iter 28 — LTG partners always float to the very top within their
     # verification tier (stable sort — Python's sort is stable).
     rests.sort(key=lambda r: 0 if r.get("is_ltg_partner") else 1)
-    
-    page = rests[off : off + lim]
-    # Iter 28 — Attach `has_live_promo` so the restaurant card can show a
-    # 🔥 Deals badge without the frontend having to fetch every menu.
-    if page:
-        rest_ids = [r["id"] for r in page]
-        # Only look up items that actually have a promo turned on. We check
-        # date windows in Python since Mongo can't compare against now_iso().
+
+    # Iter 30 Wave 2 — enrich ALL candidates with `has_active_promo` BEFORE
+    # slicing/filtering so badge filters and ranking are accurate.
+    all_ids = [r["id"] for r in rests]
+    if all_ids:
         promo_items = await db.menu_items.find(
-            {"restaurant_id": {"$in": rest_ids}, "promo.active": True},
+            {"restaurant_id": {"$in": all_ids}, "promo.active": True},
             {"_id": 0, "restaurant_id": 1, "promo": 1},
-        ).to_list(5000)
+        ).to_list(10000)
         promoted_rest_ids = {
             it["restaurant_id"] for it in promo_items if promo_is_live(it.get("promo"))
         }
-        for r in page:
+        for r in rests:
             r["has_live_promo"] = r["id"] in promoted_rest_ids
             r["has_active_promo"] = r["id"] in promoted_rest_ids  # alias for card badges
-    return page
+
+    # Apply badge filters
+    if ltg is True:
+        rests = [r for r in rests if r.get("is_ltg_partner")]
+    if verified is True:
+        rests = [r for r in rests if r.get("verification") == "Verified"]
+    if deals is True:
+        rests = [r for r in rests if r.get("has_active_promo")]
+
+    return rests[off : off + lim]
 
 
 @api.get("/restaurants/mine")

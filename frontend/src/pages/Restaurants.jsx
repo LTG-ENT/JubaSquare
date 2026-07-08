@@ -6,6 +6,7 @@ import Footer from "@/components/Footer";
 import RestaurantCard from "@/components/RestaurantCard";
 import TrendingRestaurants from "@/components/TrendingRestaurants";
 import AreaSelector from "@/components/AreaSelector";
+import BadgeFilterBar from "@/components/BadgeFilterBar";
 import { useCart } from "@/context/CartContext";
 
 /**
@@ -37,12 +38,16 @@ export default function Restaurants() {
     // CRITICAL: Clear old data immediately to prevent showing unfiltered results
     setRestaurants([]);
     setLoading(true);
-    
-    // Fetch restaurants with category_id filter (if not "all")
-    const restaurantsUrl = activeCatId && activeCatId !== "all"
-      ? `/restaurants?limit=200&category_id=${activeCatId}`
-      : "/restaurants?limit=200";
-    
+
+    // Iter 30 Wave 2 — badge filters propagated from URL chips.
+    const restQs = new URLSearchParams();
+    restQs.set("limit", "200");
+    if (activeCatId && activeCatId !== "all") restQs.set("category_id", activeCatId);
+    ["ltg", "deals", "verified"].forEach((k) => {
+      if (searchParams.get(k)) restQs.set(k, "true");
+    });
+    const restaurantsUrl = `/restaurants?${restQs.toString()}`;
+
     api.get(restaurantsUrl)
       .then((r) => {
         setRestaurants(r.data);
@@ -52,17 +57,17 @@ export default function Restaurants() {
         setRestaurants([]);
         setLoading(false);
       });
-    
+
     // Menu items are only used for empty state detection now (not for filtering)
     // But we still need them to detect if a category has ANY menu items
     const menuUrl = activeCatId && activeCatId !== "all"
       ? `/menu-items?limit=200&category_id=${activeCatId}`
       : "/menu-items?limit=200";
-    
+
     api.get(menuUrl).then((r) => {
       setMenuItems(Array.isArray(r.data) ? r.data : []);
     }).catch(() => setMenuItems([]));
-  }, [activeCatId]); // Re-fetch when category changes
+  }, [activeCatId, searchParams]);
 
   // Fetch categories once on mount
   useEffect(() => {
@@ -211,6 +216,11 @@ export default function Restaurants() {
               <option value="name_asc">Name: A → Z</option>
             </select>
           </div>
+        </div>
+
+        {/* Iter 30 Wave 2 — Filter-by-badge chip row */}
+        <div className="mb-8">
+          <BadgeFilterBar />
         </div>
 
         {loading ? (

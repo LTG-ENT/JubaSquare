@@ -6,6 +6,7 @@ import Footer from "@/components/Footer";
 import ProductCard from "@/components/ProductCard";
 import WholesaleCard from "@/components/WholesaleCard";
 import AreaSelector from "@/components/AreaSelector";
+import BadgeFilterBar from "@/components/BadgeFilterBar";
 import { useCart } from "@/context/CartContext";
 import { Search, X, Package, ChevronRight, ChevronDown } from "lucide-react";
 
@@ -75,10 +76,17 @@ export default function Marketplace() {
     if (selectedShop) params.shop_id = selectedShop;
     if (typeFilter === "retail") params.is_wholesale = false;
     if (typeFilter === "wholesale") params.is_wholesale = true;
+    // Iter 30 Wave 2 — pass badge chip filters through to backend so the
+    // server's ranked list already respects them.
+    if (searchParams.get("ltg")) params.ltg = "true";
+    if (searchParams.get("deals")) params.deals = "true";
+    // ?wholesale=1 chip: only meaningful when typeFilter is not already
+    // constraining is_wholesale.
+    if (searchParams.get("wholesale") && typeFilter !== "retail") params.is_wholesale = "true";
     api.get("/products", { params: { ...params, limit: 200 } })
       .then((r) => setProducts(Array.isArray(r.data) ? r.data : []))
       .catch(() => setProducts([]));
-  }, [selectedCategoryId, selectedCategoryLegacy, selectedShop, typeFilter]);
+  }, [selectedCategoryId, selectedCategoryLegacy, selectedShop, typeFilter, searchParams]);
 
   const categories = useMemo(() => {
     try {
@@ -182,7 +190,7 @@ export default function Marketplace() {
           <AreaSelector value={area} onChange={setArea} />
         </div>
 
-        <div className="flex flex-wrap gap-2 mb-8 items-center">
+        <div className="flex flex-wrap gap-2 mb-4 items-center">
           {FILTERS.map((f) => (
             <button
               key={f.id}
@@ -214,6 +222,11 @@ export default function Marketplace() {
               <option value="name_asc">Name: A → Z</option>
             </select>
           </div>
+        </div>
+
+        {/* Iter 30 Wave 2 — Filter-by-badge chip row */}
+        <div className="mb-8">
+          <BadgeFilterBar showWholesale={typeFilter !== "retail"} />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-8">

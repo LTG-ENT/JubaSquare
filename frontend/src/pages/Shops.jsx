@@ -1,9 +1,11 @@
 import { useEffect, useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router-dom";
 import api from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ShopCard from "@/components/ShopCard";
+import BadgeFilterBar from "@/components/BadgeFilterBar";
 import AreaSelector from "@/components/AreaSelector";
 import { useCart } from "@/context/CartContext";
 import { Search, Store } from "lucide-react";
@@ -14,12 +16,20 @@ export default function Shops() {
   const [products, setProducts] = useState([]);
   const [search, setSearch] = useState("");
   const [activeCat, setActiveCat] = useState("All");
+  const [searchParams] = useSearchParams();
   const { area, setArea } = useCart();
 
   useEffect(() => {
-    api.get("/shops?limit=200").then((r) => setShops(r.data));
+    // Iter 30 Wave 2 — pass badge chip params through so backend filters +
+    // ranks appropriately.
+    const qs = new URLSearchParams();
+    qs.set("limit", "200");
+    ["ltg", "deals", "wholesale", "verified"].forEach((k) => {
+      if (searchParams.get(k)) qs.set(k, "true");
+    });
+    api.get(`/shops?${qs.toString()}`).then((r) => setShops(r.data));
     api.get("/products?limit=200").then((r) => setProducts(r.data));
-  }, []);
+  }, [searchParams]);
 
   // Get unique categories from products (not shops)
   const cats = useMemo(() => {
@@ -90,7 +100,7 @@ export default function Shops() {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 mb-8">
+        <div className="flex flex-wrap gap-2 mb-4">
           {cats.map((c) => (
             <button
               key={c}
@@ -105,6 +115,11 @@ export default function Shops() {
               {c}
             </button>
           ))}
+        </div>
+
+        {/* Iter 30 Wave 2 — Filter-by-badge chip row */}
+        <div className="mb-8">
+          <BadgeFilterBar showWholesale />
         </div>
 
         {filtered.length === 0 ? (
