@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { MapPin, X, Plus, Search, Star, Heart } from "lucide-react";
 import api, { formatPrice, formatPriceAlt } from "@/lib/api";
 import { useCart } from "@/context/CartContext";
@@ -34,6 +34,8 @@ function MiniCurrencyToggle() {
 export default function RestaurantCard({ restaurant, initialOpen = false, rank = null, trendingScore = null }) {
   const [open, setOpen] = useState(initialOpen);
   const [menu, setMenu] = useState([]);
+  const [menuCategories, setMenuCategories] = useState([]);  // {id, name}
+  const [activeMenuCat, setActiveMenuCat] = useState("all");
   const [search, setSearch] = useState("");
   const [isFavorite, setIsFavorite] = useState(false);
   const [favoriteId, setFavoriteId] = useState(null);
@@ -45,7 +47,25 @@ export default function RestaurantCard({ restaurant, initialOpen = false, rank =
 
   useEffect(() => {
     if (open && menu.length === 0) {
-      api.get(`/restaurants/${restaurant.id}/menu`).then((r) => setMenu(r.data));
+      api.get(`/restaurants/${restaurant.id}/menu`).then((r) => {
+        const items = r.data || [];
+        setMenu(items);
+        // Extract unique categories from the menu items (using category_id).
+        // Then look up their names in the restaurant categories tree so
+        // the customer sees "Appetizers", "Mains" rather than UUIDs.
+        const catIds = Array.from(new Set(items.map((m) => m.category_id).filter(Boolean)));
+        if (catIds.length) {
+          api.get("/categories/tree?group=restaurant").then((cr) => {
+            const flat = [];
+            const walk = (nodes) => (nodes || []).forEach((n) => { flat.push({ id: n.id, name: n.name }); walk(n.children); });
+            walk(cr.data || []);
+            const byId = Object.fromEntries(flat.map((c) => [c.id, c.name]));
+            setMenuCategories(catIds.map((id) => ({ id, name: byId[id] || "Other" })));
+          }).catch(() => {
+            setMenuCategories(catIds.map((id) => ({ id, name: "Menu" })));
+          });
+        }
+      });
     }
   }, [open, restaurant.id, menu.length]);
   
@@ -100,7 +120,35 @@ export default function RestaurantCard({ restaurant, initialOpen = false, rank =
     setOpen(true);
   };
 
-  const filteredMenu = menu.filter((m) => !search || m.name.toLowerCase().includes(search.toLowerCase()));
+  const filteredMenu = menu.filter((m) =>
+    (!search || m.name.toLowerCase().includes(search.toLowerCase())) &&
+    (activeMenuCat === "all" || m.category_id === activeMenuCat)
+  );
+
+  // Group filtered items by category so the drawer shows section headers.
+  const groupedMenu = useMemo(() => {
+    if (activeMenuCat !== "all") {
+      return [{
+        cat: menuCategories.find((c) => c.id === activeMenuCat) || { id: activeMenuCat, name: "Menu" },
+        items: filteredMenu,
+      }];
+    }
+    const buckets = new Map();
+    filteredMenu.forEach((m) => {
+      const key = m.category_id || "_uncat";
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(m);
+    });
+    const rows = [];
+    menuCategories.forEach((c) => {
+      const items = buckets.get(c.id);
+      if (items && items.length) rows.push({ cat: c, items });
+    });
+    if (buckets.has("_uncat")) {
+      rows.push({ cat: { id: "_uncat", name: "Other" }, items: buckets.get("_uncat") });
+    }
+    return rows;
+  }, [filteredMenu, menuCategories, activeMenuCat]);
 
   const addMenu = (item, sides) => {
     const success = addItem({
@@ -282,9 +330,43 @@ export default function RestaurantCard({ restaurant, initialOpen = false, rank =
                 <h3 className="font-display font-semibold text-lg text-[var(--js-text)]">Menu</h3>
                 <MiniCurrencyToggle />
               </div>
-              <div className="space-y-3">
-                {filteredMenu.map((item) => <MenuRow key={item.id} item={item} restaurant={restaurant} addMenu={addMenu} exchangeRate={exchangeRate} currency={currency} />)}
-                {filteredMenu.length === 0 && menu.length > 0 && <p className="text-sm text-[var(--js-text-secondary)] text-center py-6">No items match "{search}"</p>}
+              {menuCategories.length > 1 && (
+                <div className="flex flex-wrap gap-2 mb-3" data-testid={`menu-categories-${restaurant.id}`}>
+                  <button
+                    onClick={() => setActiveMenuCat("all")}
+                    data-testid={`menu-cat-${restaurant.id}-all`}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
+                      activeMenuCat === "all"
+                        ? "bg-[#C84B31] text-white border-[#C84B31]"
+                        : "bg-white border-[var(--js-border)] text-[var(--js-text)] hover:border-[#C84B31]"
+                    }`}
+                  >All</button>
+                  {menuCategories.map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => setActiveMenuCat(c.id)}
+                      data-testid={`menu-cat-${restaurant.id}-${c.id}`}
+                      className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
+                        activeMenuCat === c.id
+                          ? "bg-[#C84B31] text-white border-[#C84B31]"
+                          : "bg-white border-[var(--js-border)] text-[var(--js-text)] hover:border-[#C84B31]"
+                      }`}
+                    >{c.name}</button>
+                  ))}
+                </div>
+              )}
+              <div className="space-y-4">
+                {groupedMenu.map(({ cat, items }) => (
+                  <div key={cat.id} data-testid={`menu-section-${cat.id}`}>
+                    {menuCategories.length > 1 && (
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--js-text-secondary)] mb-2">{cat.name}</p>
+                    )}
+                    <div className="space-y-3">
+                      {items.map((item) => <MenuRow key={item.id} item={item} restaurant={restaurant} addMenu={addMenu} exchangeRate={exchangeRate} currency={currency} />)}
+                    </div>
+                  </div>
+                ))}
+                {filteredMenu.length === 0 && menu.length > 0 && <p className="text-sm text-[var(--js-text-secondary)] text-center py-6">No items match your filter.</p>}
                 {menu.length === 0 && <p className="text-sm text-[var(--js-text-secondary)]">Loading menu...</p>}
               </div>
             </div>
@@ -296,37 +378,74 @@ export default function RestaurantCard({ restaurant, initialOpen = false, rank =
 }
 
 function MenuRow({ item, restaurant, addMenu, exchangeRate, currency }) {
-  const [expanded, setExpanded] = useState(false);
-  const [pickedSides, setPickedSides] = useState([]);
   const hasSides = (item.side_items || []).length > 0;
+  const sidesRequired = !!item.sides_required && hasSides;
+  const minChoices = sidesRequired ? (item.sides_min_choices ?? 1) : 0;
+  const maxChoices = sidesRequired ? (item.sides_max_choices ?? null) : null;
+  // If sides are required, expand the sides section immediately so the
+  // customer sees exactly what they must pick.
+  const [expanded, setExpanded] = useState(sidesRequired);
+  const [pickedSides, setPickedSides] = useState([]);
 
   // Use item's embedded exchange rate (seller-specific) or fall back to global
   const itemRate = item.exchange_rate_ssp || exchangeRate;
 
   const toggleSide = (s) => {
     const exists = pickedSides.find((x) => x.name === s.name);
-    if (exists) setPickedSides(pickedSides.filter((x) => x.name !== s.name));
-    else setPickedSides([...pickedSides, s]);
+    if (exists) {
+      setPickedSides(pickedSides.filter((x) => x.name !== s.name));
+      return;
+    }
+    // Enforce max: when maxChoices=1 (e.g. pizza size), replace the
+    // previous choice instead of appending. Otherwise ignore the click
+    // once the ceiling is hit.
+    if (maxChoices != null && pickedSides.length >= maxChoices) {
+      if (maxChoices === 1) {
+        setPickedSides([s]);
+      }
+      return;
+    }
+    setPickedSides([...pickedSides, s]);
   };
+
+  const canAdd = !sidesRequired || (
+    pickedSides.length >= minChoices &&
+    (maxChoices == null || pickedSides.length <= maxChoices)
+  );
 
   const onPlusClick = () => {
     if (hasSides && !expanded) {
       setExpanded(true);
       return;
     }
+    if (!canAdd) return;  // guarded by disabled=true but be safe
     addMenu(item, pickedSides);
-    setExpanded(false);
+    setExpanded(sidesRequired);  // stay expanded if required for next click
     setPickedSides([]);
   };
 
   const totalUsd = item.price_usd + pickedSides.reduce((s, x) => s + x.price_usd, 0);
+
+  // Human-readable requirement hint
+  const requirementHint = sidesRequired && (() => {
+    if (maxChoices === minChoices) return `Choose exactly ${minChoices}`;
+    if (maxChoices == null) return `Choose at least ${minChoices}`;
+    return `Choose ${minChoices}–${maxChoices}`;
+  })();
 
   return (
     <div className="border border-[var(--js-border)] rounded-2xl p-3" data-testid={`menu-item-${item.id}`}>
       <div className="flex gap-3">
         <img src={item.image_url} alt={item.name} className="w-20 h-20 rounded-xl object-cover" />
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-[var(--js-text)]">{item.name}</p>
+          <div className="flex items-center gap-2">
+            <p className="font-semibold text-[var(--js-text)]">{item.name}</p>
+            {sidesRequired && (
+              <span className="text-[9px] font-bold uppercase tracking-widest bg-[#C84B31] text-white px-1.5 py-0.5 rounded" title="Sides required">
+                Required
+              </span>
+            )}
+          </div>
           <p className="text-xs text-[var(--js-text-secondary)] line-clamp-2 mt-0.5">{item.description}</p>
           <div className="mt-1 flex items-center gap-2">
             <span className="font-display font-bold text-[var(--js-text)]" data-testid={`menu-price-${item.id}`}>
@@ -338,10 +457,10 @@ function MenuRow({ item, restaurant, addMenu, exchangeRate, currency }) {
           </div>
         </div>
         <button
-          disabled={!restaurant.is_open}
+          disabled={!restaurant.is_open || (expanded && !canAdd)}
           onClick={onPlusClick}
           data-testid={`add-menu-${item.id}`}
-          title={hasSides && !expanded ? "Choose sides" : "Add to cart"}
+          title={sidesRequired && !canAdd ? requirementHint : (hasSides && !expanded ? "Choose sides" : "Add to cart")}
           className="self-center bg-[#1A1A1A] hover:bg-[#C84B31] text-white rounded-full p-2.5 transition disabled:bg-[#A3A39E] disabled:cursor-not-allowed"
         >
           <Plus className="w-4 h-4" />
@@ -349,17 +468,33 @@ function MenuRow({ item, restaurant, addMenu, exchangeRate, currency }) {
       </div>
       {expanded && hasSides && (
         <div className="mt-3 pt-3 border-t border-[var(--js-border)]">
-          <p className="text-xs font-semibold text-[var(--js-text-secondary)] mb-2">Choose sides (optional):</p>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-[var(--js-text-secondary)]">
+              {sidesRequired ? requirementHint : "Choose sides (optional):"}
+            </p>
+            {sidesRequired && (
+              <p className={`text-xs font-bold ${canAdd ? "text-emerald-700" : "text-[#C84B31]"}`}
+                 data-testid={`menu-item-${item.id}-picked-count`}>
+                {pickedSides.length}/{maxChoices ?? "∞"}
+              </p>
+            )}
+          </div>
           <div className="flex flex-wrap gap-2">
             {item.side_items.map((s) => {
               const picked = pickedSides.find((x) => x.name === s.name);
+              const atMax = !picked && maxChoices != null && pickedSides.length >= maxChoices && maxChoices !== 1;
               return (
                 <button
                   key={s.name}
                   onClick={() => toggleSide(s)}
+                  disabled={atMax}
                   data-testid={`side-${item.id}-${s.name.replace(/\s+/g, "-").toLowerCase()}`}
                   className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition ${
-                    picked ? "bg-[#C84B31] text-white border-[#C84B31]" : "bg-white border-[var(--js-border)] text-[var(--js-text)] hover:border-[#C84B31]"
+                    picked
+                      ? "bg-[#C84B31] text-white border-[#C84B31]"
+                      : atMax
+                        ? "bg-gray-100 border-[var(--js-border)] text-gray-400 cursor-not-allowed"
+                        : "bg-white border-[var(--js-border)] text-[var(--js-text)] hover:border-[#C84B31]"
                   }`}
                 >
                   {picked ? "✓ " : "+ "}{s.name} {formatPrice(s.price_usd, itemRate, currency)}
@@ -369,16 +504,17 @@ function MenuRow({ item, restaurant, addMenu, exchangeRate, currency }) {
           </div>
           <div className="mt-3 flex items-center justify-end gap-2">
             <button
-              onClick={() => { setExpanded(false); setPickedSides([]); }}
+              onClick={() => { setExpanded(sidesRequired); setPickedSides([]); }}
               data-testid={`cancel-sides-${item.id}`}
-              className="text-xs font-semibold text-[var(--js-text-secondary)] hover:text-[var(--js-text)] px-3 py-1.5"
+              className={`text-xs font-semibold text-[var(--js-text-secondary)] hover:text-[var(--js-text)] px-3 py-1.5 ${sidesRequired ? "hidden" : ""}`}
             >
               Cancel
             </button>
             <button
               onClick={onPlusClick}
+              disabled={!canAdd}
               data-testid={`confirm-sides-${item.id}`}
-              className="text-xs font-bold bg-[#C84B31] hover:bg-[#A83A23] text-white rounded-full px-4 py-2 transition"
+              className="text-xs font-bold bg-[#C84B31] hover:bg-[#A83A23] text-white rounded-full px-4 py-2 transition disabled:bg-[#A3A39E] disabled:cursor-not-allowed"
             >
               Add to cart
             </button>

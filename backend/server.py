@@ -711,6 +711,15 @@ class MenuItemIn(BaseModel):
     # a target-vs-actual timer per order. Optional; falls back to a global
     # default (or "—") when not set.
     prep_time_minutes: Optional[int] = None
+    # Iter 26 — REQUIRED sides. When True, the customer MUST select between
+    # sides_min_choices and sides_max_choices side items before checkout.
+    # Use cases:
+    #   • Pizza size (choose exactly one): sides_required=True, min=1, max=1
+    #   • Burger meal (must pick fries, extras optional): min=1, max=null
+    #   • Optional (default old behaviour): required=False
+    sides_required: bool = False
+    sides_min_choices: Optional[int] = None  # None → 1 when required
+    sides_max_choices: Optional[int] = None  # None → unlimited
 
 
 class OrderItemIn(BaseModel):
@@ -3361,6 +3370,24 @@ async def create_restaurant_order(body: RestaurantOrderIn, user: dict = Depends(
         qty = max(1, int(item.quantity))
         price = float(m.get("price_usd", 0))
         sides_total = sum(float(s.price_usd) for s in (item.sides or []))
+        # Iter 26 — REQUIRED-SIDES validation. When the menu item is
+        # configured with `sides_required=True`, the customer must have
+        # picked between sides_min_choices (default 1) and sides_max_choices
+        # (default unlimited) side items. Reject the order otherwise so a
+        # crafted frontend cannot bypass the rule.
+        if m.get("sides_required"):
+            allowed_names = {s.get("name") for s in (m.get("side_items") or [])}
+            picked_names = [s.name for s in (item.sides or [])]
+            invalid = [n for n in picked_names if n not in allowed_names]
+            if invalid:
+                raise HTTPException(400, f"Invalid sides for {m['name']}: {invalid}")
+            min_n = m.get("sides_min_choices")
+            if min_n is None: min_n = 1
+            max_n = m.get("sides_max_choices")  # None → unlimited
+            if len(picked_names) < min_n:
+                raise HTTPException(400, f"{m['name']} requires at least {min_n} side item(s); got {len(picked_names)}")
+            if max_n is not None and len(picked_names) > max_n:
+                raise HTTPException(400, f"{m['name']} allows at most {max_n} side item(s); got {len(picked_names)}")
         line = (price + sides_total) * qty
         subtotal += line
         secure_items.append({

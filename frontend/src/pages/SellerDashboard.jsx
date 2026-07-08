@@ -726,6 +726,9 @@ function ProductsTab({ currency, exchangeRate }) {
       food_category: "",     // DEPRECATED: for display only
       side_items: [],
       prep_time_minutes: "",
+      sides_required: false,
+      sides_min_choices: 1,
+      sides_max_choices: null,
     };
   }
 
@@ -878,6 +881,9 @@ function ProductsTab({ currency, exchangeRate }) {
       food_category: m.food_category || "",   // DEPRECATED (for display)
       side_items: m.side_items || [],
       prep_time_minutes: m.prep_time_minutes ?? "",
+      sides_required: !!m.sides_required,
+      sides_min_choices: m.sides_min_choices ?? 1,
+      sides_max_choices: m.sides_max_choices ?? null,
     });
     setShowForm(true);
   };
@@ -894,6 +900,13 @@ function ProductsTab({ currency, exchangeRate }) {
           food_category: form.food_category,   // DEPRECATED (backward compat)
           side_items: (form.side_items || []).map((s) => ({ name: s.name, price_usd: parseFloat(s.price_usd) || 0 })),
           prep_time_minutes: form.prep_time_minutes === "" ? null : (parseInt(form.prep_time_minutes, 10) || null),
+          sides_required: !!form.sides_required,
+          sides_min_choices: form.sides_required
+            ? (Number.isFinite(parseInt(form.sides_min_choices, 10)) ? Math.max(1, parseInt(form.sides_min_choices, 10)) : 1)
+            : null,
+          sides_max_choices: form.sides_required && form.sides_max_choices !== null && form.sides_max_choices !== "" && Number.isFinite(parseInt(form.sides_max_choices, 10))
+            ? parseInt(form.sides_max_choices, 10)
+            : null,
         };
         if (editing?.kind === "menu") await api.put(`/menu-items/${editing.id}`, payload);
         else await api.post("/menu-items", payload);
@@ -1164,6 +1177,11 @@ function ProductsTab({ currency, exchangeRate }) {
                 <ImageUpload label="Food photo" value={form.image_url} onChange={(v) => setForm({ ...form, image_url: v })} testId="product-image-upload" />
                 <Textarea label="Description" value={form.description} onChange={(v) => setForm({ ...form, description: v })} testId="product-desc-input" />
                 <SideItemsEditor sides={form.side_items} setSides={(s) => setForm({ ...form, side_items: s })} currency={currency} exchangeRate={rate} />
+                <RequiredSidesEditor
+                  form={form}
+                  setForm={setForm}
+                  hasSides={(form.side_items || []).length > 0}
+                />
               </>
             ) : (
               <>
@@ -2380,6 +2398,75 @@ function MessagesTab({ onChange }) {
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+
+function RequiredSidesEditor({ form, setForm, hasSides }) {
+  // Only meaningful when at least one side item exists. Sellers configure
+  // this to force customers to choose e.g. a pizza size or burger-meal
+  // fries before adding to cart. See MenuItemIn validation on the backend.
+  const required = !!form.sides_required;
+  const min = form.sides_min_choices ?? 1;
+  const max = form.sides_max_choices;
+  return (
+    <div className="border border-[var(--js-border)] rounded-2xl p-3 bg-[var(--js-subtle)] space-y-3">
+      <div className="flex items-start gap-3">
+        <input
+          id="menu_sides_required"
+          type="checkbox"
+          disabled={!hasSides}
+          checked={required}
+          onChange={(e) => setForm({ ...form, sides_required: e.target.checked })}
+          className="mt-1 w-5 h-5 accent-[#C84B31] disabled:opacity-40"
+          data-testid="menu-sides-required-toggle"
+        />
+        <label htmlFor="menu_sides_required" className={`flex-1 ${hasSides ? "cursor-pointer" : "opacity-50"}`}>
+          <p className="font-display font-semibold text-sm text-[var(--js-text)]">Force customer to choose sides</p>
+          <p className="text-xs text-[var(--js-text-secondary)]">
+            {hasSides
+              ? "Turn on for items like pizza (must pick size) or burger meals (must pick fries)."
+              : "Add at least one side item above to enable this."}
+          </p>
+        </label>
+      </div>
+      {required && hasSides && (
+        <div className="grid grid-cols-2 gap-3">
+          <label className="text-xs">
+            <span className="block font-semibold text-[var(--js-text-secondary)] mb-1">Minimum choices</span>
+            <input
+              type="number"
+              min={1}
+              max={(form.side_items || []).length}
+              value={min}
+              onChange={(e) => setForm({ ...form, sides_min_choices: e.target.value })}
+              data-testid="menu-sides-min-input"
+              className="w-full px-3 py-2 rounded-lg border border-[var(--js-border)] bg-[var(--js-bg)] text-sm"
+            />
+          </label>
+          <label className="text-xs">
+            <span className="block font-semibold text-[var(--js-text-secondary)] mb-1">Maximum choices (blank = unlimited)</span>
+            <input
+              type="number"
+              min={1}
+              max={(form.side_items || []).length}
+              value={max ?? ""}
+              onChange={(e) =>
+                setForm({ ...form, sides_max_choices: e.target.value === "" ? null : e.target.value })
+              }
+              data-testid="menu-sides-max-input"
+              className="w-full px-3 py-2 rounded-lg border border-[var(--js-border)] bg-[var(--js-bg)] text-sm"
+              placeholder="unlimited"
+            />
+          </label>
+          <p className="col-span-2 text-[11px] text-[var(--js-text-secondary)] italic">
+            Preset examples:
+            <span className="ml-2 inline-block bg-white border border-[var(--js-border)] rounded px-2 py-0.5 mr-1">Pizza size → min 1, max 1</span>
+            <span className="inline-block bg-white border border-[var(--js-border)] rounded px-2 py-0.5">Burger meal → min 1, max blank</span>
+          </p>
+        </div>
       )}
     </div>
   );
