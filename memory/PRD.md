@@ -19,6 +19,17 @@ A multilingual (English/Arabic RTL) Juba-focused marketplace connecting shops, r
 - Cascade deletes on user removal.
 - Multilingual UI + Arabic RTL support.
 
+### Iter 30 — Wave 1: Badges, deal filters, review-on-delivered, LTG on products (Feb 8, 2026)
+20/20 backend tests pass (`/app/test_reports/iteration_31.json`).
+
+- ✅ **Shop/Restaurant card badges** — top-right stack: `LTG` (gold) + `DEALS` (fire gradient, animated) + `WHOLESALE` (blue, shops only) + `Verified` (green). Backend enriches `/api/shops` with `has_active_promo` + `has_wholesale` and `/api/restaurants` with `has_live_promo` + `has_active_promo` in a single aggregate per page.
+- ✅ **Marketplace filter fixes** — (a) "All categories" now also clears `?deals=1`, (b) "Deals only" toggles ON/OFF on second click, (c) category tree refetches by `typeFilter` — Retail shows retail-only, Wholesale shows wholesale-only, All merges both.
+- ✅ **Marketplace order review unblocked** — Orders.jsx marketplace path now honors `o.delivery_status==='delivered'` (or all splits delivered) in addition to `o.status`. Status badge, timeline, `isDelivered` and "Review" CTA all light up on self-delivered shop orders. Restaurant path already handled this.
+- ✅ **Punchier promo badge** — ProductCard shows a full "🔥 −25% OFF" / "SAVE $X" / "2+1 FREE" ribbon top-left with pulse animation (`js-deal-badge`, 2.2s ease-in-out infinite, respects prefers-reduced-motion).
+- ✅ **LTG per-product** — Product model gets `is_ltg_partner: bool`. New `PUT /api/admin/products/{id}/ltg-partner` admin-only endpoint. Product list sort now boosts LTG-partner products to the top of their verification tier. Gold LTG pill renders on ProductCard.
+- ✅ **Favorites hardening** — `GET /api/favorites` filters out soft-deleted targets AND auto-cleans favorites pointing to hard-deleted items on the fly. Empty favorites for real customers who added favorites on removed items now stops appearing as orphans.
+
+
 ### Iter 29 — Seller onboarding wired + Soft-cascade user delete (Feb 8, 2026)
 19/19 backend tests pass (`/app/test_reports/iteration_30.json`).
 
