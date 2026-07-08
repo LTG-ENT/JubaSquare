@@ -19,6 +19,21 @@ A multilingual (English/Arabic RTL) Juba-focused marketplace connecting shops, r
 - Cascade deletes on user removal.
 - Multilingual UI + Arabic RTL support.
 
+### Iter 30 — Wave 3: Growth Insights email, Restore user, Search relevance (Feb 8, 2026)
+20/20 backend tests pass (`/app/test_reports/iteration_33.json`).
+
+- ✅ **Weekly Growth Insights email** — sellers receive a Resend-powered email with 7-day KPIs (orders, revenue, cancels, favorites, avg rating, review count) versus the prior 7 days, top-5 selling products, and personalized tips (high cancel-rate warning, no-orders nudge, low-rating call-to-action).
+  - `_compute_seller_growth_metrics(seller_id, days=7)` aggregates from `seller_order_splits`, `restaurant_orders`, `favorites`, `orders` (with `items.seller_id` filter for top-sellers).
+  - `GET /api/seller/growth-insights` — seller preview.
+  - `POST /api/admin/growth-insights/send/{seller_id}` — admin single-seller send (+ `dry_run:true` option).
+  - `POST /api/admin/growth-insights/send-all` — batch send; skips zero-activity + invalid-email sellers; returns `{sent, skipped, failed, total_sellers}`.
+  - "Send now" button on Admin → Users panel (`data-testid="send-growth-insights-btn"`).
+  - `_pct_delta` supports `lower_is_better` so cancellation drops correctly render green.
+- ✅ **Restore soft-deleted user** — `POST /api/admin/users/{id}/restore` reverses the soft cascade: user unflagged, owned shops/restaurants/products/menu_items un-flagged too. Idempotent for already-active users. Admin-only.
+  - Admin UI: "Show deleted users" toggle + `DELETED` pill on rows + "Restore user" menu action.
+- ✅ **Search relevance** — `/api/search` now over-fetches 3× limit, then Python-sorts each collection by tier: exact-prefix name (0) > substring name (1) > description match (2) > other (3). LTG partner, Verified status, and active-promo flags tie-break equal-relevance rows. Soft-deleted and non-public entries excluded.
+
+
 ### Iter 30 — Wave 2: LTG shelf, featured products, badge filters, ranking (Feb 8, 2026)
 19/19 backend tests pass (`/app/test_reports/iteration_32.json`).
 

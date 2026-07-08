@@ -261,16 +261,21 @@ async def send_order_notification_seller(to: str, seller_name: str, order: dict,
 # --------------------------------------------------------------------
 # Growth Insights (Iter 30 Wave 3) — weekly seller performance digest
 # --------------------------------------------------------------------
-def _pct_delta(curr: float, prev: float) -> str:
-    """Return a colored '+12%' / '−4%' / 'new' delta chip HTML."""
+def _pct_delta(curr: float, prev: float, *, lower_is_better: bool = False) -> str:
+    """Return a colored '+12%' / '−4%' / 'new' delta chip HTML.
+
+    `lower_is_better=True` inverts the color logic — used for KPIs like
+    cancellations where a DROP is a good thing (should render green).
+    """
     if prev <= 0 and curr <= 0:
         return '<span style="color:#808080;">—</span>'
     if prev <= 0 and curr > 0:
         return '<span style="color:#2D6A4F;font-weight:bold;">NEW</span>'
     pct = ((curr - prev) / prev) * 100.0
-    if pct >= 0:
-        return f'<span style="color:#2D6A4F;font-weight:bold;">+{pct:.0f}%</span>'
-    return f'<span style="color:#C84B31;font-weight:bold;">{pct:.0f}%</span>'
+    is_good = (pct >= 0) if not lower_is_better else (pct <= 0)
+    color = "#2D6A4F" if is_good else "#C84B31"
+    sign = "+" if pct >= 0 else ""
+    return f'<span style="color:{color};font-weight:bold;">{sign}{pct:.0f}%</span>'
 
 
 async def send_growth_insights_email(to: str, seller_name: str, metrics: Dict) -> Optional[str]:
@@ -312,7 +317,7 @@ async def send_growth_insights_email(to: str, seller_name: str, metrics: Dict) -
       <tr>
         {tile("Orders", int(curr.get("orders", 0)), _pct_delta(curr.get("orders", 0), prev.get("orders", 0)))}
         {tile("Revenue", f"${float(curr.get('revenue_usd', 0)):.0f}", _pct_delta(curr.get("revenue_usd", 0), prev.get("revenue_usd", 0)))}
-        {tile("Cancels", int(curr.get("cancelled", 0)), _pct_delta(-curr.get("cancelled", 0), -prev.get("cancelled", 0)))}
+        {tile("Cancels", int(curr.get("cancelled", 0)), _pct_delta(curr.get("cancelled", 0), prev.get("cancelled", 0), lower_is_better=True))}
       </tr>
     </table>
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0"
