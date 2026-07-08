@@ -108,9 +108,9 @@ export default function SellerRestaurantEdit() {
         eta_min_minutes: form.eta_mode === "range" ? (parseInt(form.eta_min_minutes, 10) || null) : null,
         eta_max_minutes: form.eta_mode === "range" ? (parseInt(form.eta_max_minutes, 10) || null) : null,
         menu_sections: (form.menu_sections || [])
-          .map((s, i) => ({ id: s.id, name: (s.name || "").trim(), sort_order: i }))
+          .map((s, i) => ({ id: s.id, name: (s.name || "").trim(), sort_order: i, is_promo_section: !!s.is_promo_section }))
           .filter((s) => s.id && s.name)
-          .slice(0, 6),
+          .slice(0, 10),
       };
       const { data } = await api.put(`/restaurants/${restaurant_id}`, payload);
       setRestaurant(data);
@@ -639,7 +639,7 @@ function ReceiptLogoEditor({ form, setForm }) {
 
 function MenuSectionsEditor({ form, setForm }) {
   const sections = form.menu_sections || [];
-  const max = 6;
+  const max = 10;
   const add = () => {
     if (sections.length >= max) return;
     setForm({
@@ -673,25 +673,41 @@ function MenuSectionsEditor({ form, setForm }) {
         <p className="text-xs text-[var(--js-text-secondary)] italic">No sections yet. Common ones: Starter, Recommendation, Promo, Mains, Desserts, Drinks.</p>
       )}
       {sections.map((s, i) => (
-        <div key={s.id} className="flex items-center gap-2" data-testid={`menu-section-row-${i}`}>
-          <span className="text-xs font-mono text-[var(--js-text-secondary)] w-6">{i + 1}.</span>
-          <input
-            type="text"
-            value={s.name}
-            onChange={(e) => rename(i, e.target.value)}
-            placeholder="Section name (e.g. Starter)"
-            className="flex-1 px-3 py-2 rounded-lg border border-[var(--js-border)] bg-[var(--js-bg)] text-sm"
-            maxLength={40}
-            data-testid={`menu-section-name-${i}`}
-          />
-          <button type="button" onClick={() => move(i, -1)} disabled={i === 0} className="px-2 py-1 text-xs bg-white border border-[var(--js-border)] rounded disabled:opacity-30">↑</button>
-          <button type="button" onClick={() => move(i, 1)} disabled={i === sections.length - 1} className="px-2 py-1 text-xs bg-white border border-[var(--js-border)] rounded disabled:opacity-30">↓</button>
-          <button
-            type="button"
-            onClick={() => remove(i)}
-            data-testid={`menu-section-remove-${i}`}
-            className="px-2 py-1 text-xs bg-red-50 text-red-700 border border-red-200 rounded hover:bg-red-100"
-          >Remove</button>
+        <div key={s.id} className="space-y-1" data-testid={`menu-section-row-${i}`}>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono text-[var(--js-text-secondary)] w-6">{i + 1}.</span>
+            <input
+              type="text"
+              value={s.name}
+              onChange={(e) => rename(i, e.target.value)}
+              placeholder="Section name (e.g. Starter)"
+              className="flex-1 px-3 py-2 rounded-lg border border-[var(--js-border)] bg-[var(--js-bg)] text-sm"
+              maxLength={40}
+              data-testid={`menu-section-name-${i}`}
+            />
+            <button type="button" onClick={() => move(i, -1)} disabled={i === 0} className="px-2 py-1 text-xs bg-white border border-[var(--js-border)] rounded disabled:opacity-30">↑</button>
+            <button type="button" onClick={() => move(i, 1)} disabled={i === sections.length - 1} className="px-2 py-1 text-xs bg-white border border-[var(--js-border)] rounded disabled:opacity-30">↓</button>
+            <button
+              type="button"
+              onClick={() => remove(i)}
+              data-testid={`menu-section-remove-${i}`}
+              className="px-2 py-1 text-xs bg-red-50 text-red-700 border border-red-200 rounded hover:bg-red-100"
+            >Remove</button>
+          </div>
+          <label className="flex items-center gap-2 text-[11px] text-[var(--js-text-secondary)] pl-8">
+            <input
+              type="checkbox"
+              checked={!!s.is_promo_section}
+              onChange={(e) => {
+                const next = sections.slice();
+                next[i] = { ...next[i], is_promo_section: e.target.checked };
+                setForm({ ...form, menu_sections: next });
+              }}
+              className="w-3.5 h-3.5 accent-[#C84B31]"
+              data-testid={`menu-section-promo-toggle-${i}`}
+            />
+            <span>Auto-populate with items that have a <strong>live promo</strong> (this section will hide if no live promos).</span>
+          </label>
         </div>
       ))}
       <button

@@ -218,6 +218,21 @@ async def _rate_by_seller(seller_ids: list[str]) -> tuple[dict[str, float], floa
 
 
 
+def bogo_free_quantity(item_doc: dict, qty: int) -> int:
+    """Return how many units the customer gets FREE under a BOGO promo.
+    Rule: every `bogo_min_qty` units bought grants 1 free — the free unit
+    counts INSIDE the qty ordered (customer said 'give me 3', promo=2+1free,
+    customer pays for 2). Returns 0 when the promo isn't live or type
+    isn't bogo. Never returns more than qty."""
+    promo = item_doc.get("promo") or {}
+    if not promo_is_live(promo):
+        return 0
+    if promo.get("type") != "bogo":
+        return 0
+    bmin = max(1, int(promo.get("bogo_min_qty") or 2))
+    return min(qty, qty // bmin)
+
+
 def effective_price_usd(item_doc: dict) -> float:
     """Return the price after applying an ACTIVE promo (if any) — otherwise
     the raw price_usd. Used by BOTH product and menu_item schemas since the
@@ -618,10 +633,15 @@ class SellerSection(BaseModel):
     'product category' inside a shop). Distinct from the platform's global
     Categories collection — those group restaurants/shops on the marketplace,
     while these group items WITHIN one restaurant/shop (Starter,
-    Recommendation, Promo, …). Max 6 per entity, validated on the endpoint."""
+    Recommendation, Promo, …). Max 10 per entity, validated on the endpoint.
+    When `is_promo_section=True`, the customer sees all items with a
+    currently live promo in this section AUTOMATICALLY — sellers don't need
+    to reassign each promoted item. The section is hidden when no items
+    have a live promo (avoids empty 'Deals' shelves)."""
     id: str  # uuid, seller-generated
     name: str
     sort_order: int = 0
+    is_promo_section: bool = False
 
 
 class Promo(BaseModel):
@@ -630,20 +650,21 @@ class Promo(BaseModel):
     customer cannot forge a promo price.
     - `type='percent'` with `value=15.0` → 15% off
     - `type='amount'` with `value=1.50` → $1.50 off (never below $0)
+    - `type='bogo'` with `bogo_min_qty=2` → buy 2+, get 1 free (price is
+      NOT reduced; effective_price_usd stays at raw. The 'free' quantity is
+      granted server-side at order create by adjusting the line total.)
     Both dates optional; None means 'no start floor' / 'no end'. A promo is
     considered ACTIVE when active=True AND now() is within [starts, ends]."""
     active: bool = False
-    type: Literal["percent", "amount"] = "percent"
+    type: Literal["percent", "amount", "bogo"] = "percent"
     value: float = 0.0
+    bogo_min_qty: int = 2  # only used when type='bogo'
     starts_at: Optional[str] = None  # ISO 8601 UTC
     ends_at: Optional[str] = None    # ISO 8601 UTC
 
     @field_validator("value")
     @classmethod
     def _clamp_value(cls, v):
-        # Guardrail so a mis-typed 200% doesn't accidentally give the item
-        # away. Percentages clamped to [0,100]. Amounts clamped to >=0
-        # (the effective-price helper still floors the final price at 0).
         try:
             v = float(v or 0)
         except (TypeError, ValueError):
@@ -688,6 +709,10 @@ class ShopIn(BaseModel):
     # marketplace-level shop_category. Each product references one section
     # via product.product_section_id.
     product_sections: List[SellerSection] = Field(default_factory=list)
+    # Iter 28 — "Part of LTG" partnership program. Admin-set toggle that
+    # sellers request; when true the shop gets a badge + Recommendation
+    # boost + Homepage LTG shelf placement.
+    is_ltg_partner: bool = False
 
 
 class ShopMessageIn(BaseModel):
@@ -796,6 +821,8 @@ class RestaurantIn(BaseModel):
     # own groups like Starter / Recommendation / Promo and assign each
     # menu item to one via menu_item.menu_section_id.
     menu_sections: List[SellerSection] = Field(default_factory=list)
+    # Iter 28 — "Part of LTG" partnership badge (see ShopIn).
+    is_ltg_partner: bool = False
 
 
 class MenuItemIn(BaseModel):
@@ -2043,10 +2070,31 @@ async def reassign_menu_item_category(
 # Shops
 # ----------------------------------------------------------------------------
 def _sort_shops(shops, verified_first: bool):
-    if not verified_first:
-        return shops
-    order = {"Verified": 0, "Pending": 1, "Rejected": 2}
-    shops.sort(key=lambda s: order.get(s.get("verification", "Pending"), 1))
+    """Iter 28 — Recommendation ranking: composite score built from
+    verification + LTG partnership + reviews + favorites + orders. Higher
+    score → shows first. When `verified_first` is off, use score only."""
+    def _score(s):
+        score = 0.0
+        # LTG partnership is the strongest boost (paid partnership tier).
+        if s.get("is_ltg_partner"):
+            score += 40
+        if verified_first:
+            v = s.get("verification", "Pending")
+            score += 20 if v == "Verified" else (10 if v == "Pending" else 0)
+        # Reviews: rating × log(count) so a 5.0 with 200 reviews beats
+        # a 5.0 with 3 reviews.
+        rating = float(s.get("average_rating") or 0)
+        review_count = int(s.get("review_count") or 0)
+        if review_count > 0:
+            import math
+            score += rating * math.log(1 + review_count) * 3
+        # Favorites & orders — engagement proxies.
+        score += 0.5 * int(s.get("favorite_count") or 0)
+        score += 0.3 * int(s.get("orders_count") or 0)
+        # Fewer cancellations → slight boost.
+        score -= 0.5 * int(s.get("cancelled_orders") or 0)
+        return score
+    shops.sort(key=_score, reverse=True)
     return shops
 
 
@@ -2171,6 +2219,33 @@ async def create_shop(body: ShopIn, user: dict = Depends(require_role("seller", 
     return shop
 
 
+@api.put("/admin/shops/{shop_id}/ltg-partner")
+async def admin_toggle_shop_ltg(shop_id: str, body: dict = Body(default_factory=dict), user: dict = Depends(require_role("admin"))):
+    """Admin-only toggle for 'Part of LTG' badge on a shop. Sellers cannot
+    self-award this — the endpoint used in the seller edit page ignores the
+    flag. LTG shops get:
+      • a gold badge on all their surfaces
+      • +40 boost on the recommendation score
+      • homepage LTG shelf placement
+    """
+    val = bool(body.get("is_ltg_partner"))
+    r = await db.shops.update_one({"id": shop_id}, {"$set": {"is_ltg_partner": val, "updated_at": now_iso()}})
+    if not r.matched_count:
+        raise HTTPException(404, "Shop not found")
+    return {"ok": True, "is_ltg_partner": val}
+
+
+@api.put("/admin/restaurants/{restaurant_id}/ltg-partner")
+async def admin_toggle_restaurant_ltg(restaurant_id: str, body: dict = Body(default_factory=dict), user: dict = Depends(require_role("admin"))):
+    """Admin-only 'Part of LTG' toggle for restaurants (see shop twin)."""
+    val = bool(body.get("is_ltg_partner"))
+    r = await db.restaurants.update_one({"id": restaurant_id}, {"$set": {"is_ltg_partner": val, "updated_at": now_iso()}})
+    if not r.matched_count:
+        raise HTTPException(404, "Restaurant not found")
+    return {"ok": True, "is_ltg_partner": val}
+
+
+
 @api.put("/shops/{shop_id}")
 async def update_shop(shop_id: str, body: ShopIn, user: dict = Depends(require_role("seller", "admin"))):
     shop = await db.shops.find_one({"id": shop_id})
@@ -2191,10 +2266,19 @@ async def update_shop(shop_id: str, body: ShopIn, user: dict = Depends(require_r
         if not name:
             continue
         seen.add(s["id"])
-        clean_ps.append({"id": s["id"], "name": name[:40], "sort_order": int(s.get("sort_order") or 0)})
-    if len(clean_ps) > 6:
-        raise HTTPException(400, "Maximum 6 product sections allowed")
+        clean_ps.append({
+            "id": s["id"],
+            "name": name[:40],
+            "sort_order": int(s.get("sort_order") or 0),
+            "is_promo_section": bool(s.get("is_promo_section")),
+        })
+    if len(clean_ps) > 10:
+        raise HTTPException(400, "Maximum 10 product sections allowed")
     updates["product_sections"] = clean_ps
+    # LTG partner status is ADMIN-ONLY (set via /admin/shops/{id}/ltg-partner).
+    # Strip the field from a seller's payload so they can't self-award.
+    if user["role"] != "admin":
+        updates.pop("is_ltg_partner", None)
     # Updating a soft-deleted shop restores it and re-activates its products.
     was_deleted = bool(shop.get("is_deleted"))
     if was_deleted:
@@ -3050,8 +3134,27 @@ async def list_restaurants(request: Request, area: Optional[str] = None, categor
     if s.get("verified_first", True):
         order = {"Verified": 0, "Pending": 1, "Rejected": 2}
         rests.sort(key=lambda r: order.get(r.get("verification", "Pending"), 1))
+    # Iter 28 — LTG partners always float to the very top within their
+    # verification tier (stable sort — Python's sort is stable).
+    rests.sort(key=lambda r: 0 if r.get("is_ltg_partner") else 1)
     
-    return rests[off : off + lim]
+    page = rests[off : off + lim]
+    # Iter 28 — Attach `has_live_promo` so the restaurant card can show a
+    # 🔥 Deals badge without the frontend having to fetch every menu.
+    if page:
+        rest_ids = [r["id"] for r in page]
+        # Only look up items that actually have a promo turned on. We check
+        # date windows in Python since Mongo can't compare against now_iso().
+        promo_items = await db.menu_items.find(
+            {"restaurant_id": {"$in": rest_ids}, "promo.active": True},
+            {"_id": 0, "restaurant_id": 1, "promo": 1},
+        ).to_list(5000)
+        promoted_rest_ids = {
+            it["restaurant_id"] for it in promo_items if promo_is_live(it.get("promo"))
+        }
+        for r in page:
+            r["has_live_promo"] = r["id"] in promoted_rest_ids
+    return page
 
 
 @api.get("/restaurants/mine")
@@ -3327,10 +3430,18 @@ async def update_restaurant(restaurant_id: str, body: RestaurantIn, user: dict =
         if not name:
             continue
         seen.add(s["id"])
-        clean_ms.append({"id": s["id"], "name": name[:40], "sort_order": int(s.get("sort_order") or 0)})
-    if len(clean_ms) > 6:
-        raise HTTPException(400, "Maximum 6 menu sections allowed")
+        clean_ms.append({
+            "id": s["id"],
+            "name": name[:40],
+            "sort_order": int(s.get("sort_order") or 0),
+            "is_promo_section": bool(s.get("is_promo_section")),
+        })
+    if len(clean_ms) > 10:
+        raise HTTPException(400, "Maximum 10 menu sections allowed")
     update_data["menu_sections"] = clean_ms
+    # LTG partner status is ADMIN-ONLY. Only add to update when caller is admin.
+    if user["role"] == "admin" and body.is_ltg_partner is not None:
+        update_data["is_ltg_partner"] = bool(body.is_ltg_partner)
     if user["role"] == "admin":
         update_data["delivery_managed_by"] = body.delivery_managed_by
     await db.restaurants.update_one({"id": restaurant_id}, {"$set": update_data})
@@ -3507,8 +3618,10 @@ async def create_restaurant_order(body: RestaurantOrderIn, user: dict = Depends(
         qty = max(1, int(item.quantity))
         # Effective price = raw price MINUS active promo (server-side, so a
         # crafted client can't fake a lower price). See effective_price_usd
-        # in this file.
+        # in this file. For BOGO promos, also grant `bogo_free_quantity`
+        # units for free (subtract from line total).
         price = effective_price_usd(m)
+        free_qty = bogo_free_quantity(m, qty)
         sides_total = sum(float(s.price_usd) for s in (item.sides or []))
         # Iter 26 — REQUIRED-SIDES validation. When the menu item is
         # configured with `sides_required=True`, the customer must have
@@ -3528,7 +3641,7 @@ async def create_restaurant_order(body: RestaurantOrderIn, user: dict = Depends(
                 raise HTTPException(400, f"{m['name']} requires at least {min_n} side item(s); got {len(picked_names)}")
             if max_n is not None and len(picked_names) > max_n:
                 raise HTTPException(400, f"{m['name']} allows at most {max_n} side item(s); got {len(picked_names)}")
-        line = (price + sides_total) * qty
+        line = (price + sides_total) * qty - (price * free_qty)  # BOGO: subtract free-unit revenue
         subtotal += line
         secure_items.append({
             "item_type": "menu_item",
@@ -3964,8 +4077,8 @@ async def create_review(body: ReviewIn, user: dict = Depends(get_current_user)):
     if order["customer_id"] != user["id"]:
         raise HTTPException(403, "You can only review your own orders")
     
-    if order["status"] != "completed":
-        raise HTTPException(400, "You can only review completed orders")
+    if order["status"] != "completed" and order.get("delivery_status") != "delivered":
+        raise HTTPException(400, "You can only review completed or delivered orders")
     
     # Check if already reviewed
     existing = await db.reviews.find_one({"order_id": body.order_id})
@@ -4246,8 +4359,9 @@ async def place_order(body: OrderIn, user: dict = Depends(get_current_user)):
         # Effective price = raw MINUS any active promo (server-side recompute
         # so a crafted client cannot pass a lower price). See effective_price_usd.
         price = effective_price_usd(p)
+        free_qty = bogo_free_quantity(p, qty)  # BOGO: units granted free
         # Sides aren't standard on marketplace products; keep what was sent for note value 0.
-        line_total = price * qty
+        line_total = price * qty - (price * free_qty)
         subtotal += line_total
         secure_items.append({
             "item_type": "product",

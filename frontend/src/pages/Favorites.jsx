@@ -9,19 +9,11 @@ import { toast } from "sonner";
 
 export default function Favorites() {
   const [favs, setFavs] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [shops, setShops] = useState([]);
-  const [restaurants, setRestaurants] = useState([]);
   const { exchangeRate, addItem } = useCart();
 
   const load = async () => {
-    const [f, p, s, r] = await Promise.all([
-      api.get("/favorites?limit=200"),
-      api.get("/products?limit=200"),
-      api.get("/shops?limit=200"),
-      api.get("/restaurants?limit=200"),
-    ]);
-    setFavs(f.data); setProducts(p.data); setShops(s.data); setRestaurants(r.data);
+    const f = await api.get("/favorites?limit=200");
+    setFavs(f.data || []);
   };
   useEffect(() => { load(); }, []);
 
@@ -31,13 +23,13 @@ export default function Favorites() {
     load();
   };
 
-  const productById = Object.fromEntries(products.map((p) => [p.id, p]));
-  const shopById = Object.fromEntries(shops.map((s) => [s.id, s]));
-  const restaurantById = Object.fromEntries(restaurants.map((r) => [r.id, r]));
-
-  const favProducts = favs.filter((f) => f.target_type === "product").map((f) => productById[f.target_id]).filter(Boolean);
-  const favShops = favs.filter((f) => f.target_type === "shop").map((f) => shopById[f.target_id]).filter(Boolean);
-  const favRestaurants = favs.filter((f) => f.target_type === "restaurant").map((f) => restaurantById[f.target_id]).filter(Boolean);
+  // Iter 28 fix — /favorites returns enriched shape {favorite_id, target_type, item}.
+  // Previously this page assumed {target_type, target_id} and joined against
+  // /products?limit=200 → any favorite outside the first 200 (or filtered by
+  // verification) disappeared. Now we read `f.item` directly.
+  const favProducts = favs.filter((f) => f.target_type === "product" && f.item).map((f) => ({ ...f.item, _target_id: f.item.id }));
+  const favShops = favs.filter((f) => f.target_type === "shop" && f.item).map((f) => ({ ...f.item, _target_id: f.item.id }));
+  const favRestaurants = favs.filter((f) => f.target_type === "restaurant" && f.item).map((f) => ({ ...f.item, _target_id: f.item.id }));
 
   const Empty = () => (
     <div className="text-center py-20 bg-white rounded-3xl border border-[var(--js-border)]" data-testid="empty-favorites">

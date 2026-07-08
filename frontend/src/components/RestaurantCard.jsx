@@ -140,8 +140,24 @@ export default function RestaurantCard({ restaurant, initialOpen = false, rank =
   });
 
   // Group filtered items by category so the drawer shows section headers.
+  // Iter 28 — sections flagged `is_promo_section` are auto-populated with
+  // items that currently have a LIVE promo. Hidden when no live promos.
+  const nowIsoForGrouping = new Date().toISOString();
+  const hasLivePromo = (m) => {
+    const pr = m.promo || {};
+    if (!pr.active) return false;
+    if (pr.starts_at && nowIsoForGrouping < pr.starts_at) return false;
+    if (pr.ends_at && nowIsoForGrouping > pr.ends_at) return false;
+    return true;
+  };
   const groupedMenu = useMemo(() => {
+    // Promo-section case: if the active category IS a promo section, only
+    // items with live promos.
     if (activeMenuCat !== "all") {
+      const activeSection = (restaurant.menu_sections || []).find((s) => s.id === activeMenuCat);
+      if (activeSection?.is_promo_section) {
+        return [{ cat: activeSection, items: filteredMenu.filter(hasLivePromo) }];
+      }
       return [{
         cat: menuCategories.find((c) => c.id === activeMenuCat) || { id: activeMenuCat, name: "Menu" },
         items: filteredMenu,
@@ -155,6 +171,13 @@ export default function RestaurantCard({ restaurant, initialOpen = false, rank =
     });
     const rows = [];
     menuCategories.forEach((c) => {
+      // Look up the raw seller-section to check the is_promo_section flag.
+      const sellerSection = (restaurant.menu_sections || []).find((s) => s.id === c.id);
+      if (sellerSection?.is_promo_section) {
+        const promoItems = filteredMenu.filter(hasLivePromo);
+        if (promoItems.length) rows.push({ cat: c, items: promoItems });
+        return;
+      }
       const items = buckets.get(c.id);
       if (items && items.length) rows.push({ cat: c, items });
     });
@@ -162,7 +185,7 @@ export default function RestaurantCard({ restaurant, initialOpen = false, rank =
       rows.push({ cat: { id: "_uncat", name: "Other" }, items: buckets.get("_uncat") });
     }
     return rows;
-  }, [filteredMenu, menuCategories, activeMenuCat, useSellerSections]);
+  }, [filteredMenu, menuCategories, activeMenuCat, useSellerSections, restaurant.menu_sections]);
 
   const addMenu = (item, sides) => {
     const success = addItem({
@@ -185,10 +208,28 @@ export default function RestaurantCard({ restaurant, initialOpen = false, rank =
       <div data-testid={`restaurant-card-${restaurant.id}`} className="js-card overflow-hidden flex flex-col group cursor-pointer" onClick={handleCardClick}>
         <div className="aspect-[16/10] overflow-hidden bg-[var(--js-subtle)] relative">
           <img src={restaurant.image_url} alt={restaurant.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" />
-          <div className="absolute top-3 left-3">
+          <div className="absolute top-3 left-3 flex items-center gap-2">
             <span data-testid={`restaurant-status-${restaurant.id}`} className={`text-xs font-bold px-3 py-1 rounded-full shadow-md ${restaurant.is_open ? "bg-[#2D6A4F] text-white" : "bg-[#A3A39E] text-white"}`}>
               {restaurant.is_open ? "● Open" : "● Closed"}
             </span>
+            {restaurant.is_ltg_partner && (
+              <span
+                data-testid={`restaurant-ltg-${restaurant.id}`}
+                className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full text-white shadow-lg bg-gradient-to-r from-[#D4AF37] via-[#E9C46A] to-[#B8860B]"
+                title="Part of LTG"
+              >
+                ★ PART OF LTG
+              </span>
+            )}
+            {restaurant.has_live_promo && (
+              <span
+                data-testid={`restaurant-deals-${restaurant.id}`}
+                className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full text-white shadow-[0_2px_8px_rgba(200,75,49,0.45)] bg-gradient-to-r from-[#E14B31] via-[#C84B31] to-[#B23A21]"
+                title="This restaurant has active promos"
+              >
+                <span aria-hidden style={{ fontSize: 10 }}>🔥</span>DEALS
+              </span>
+            )}
           </div>
           {/* Heart Icon for Favorites */}
           <button
@@ -391,6 +432,25 @@ export default function RestaurantCard({ restaurant, initialOpen = false, rank =
   );
 }
 
+function PromoBadge({ promo, rate, currency, className = "" }) {
+  // Iter 28 — Improved badge look: mini flame glyph + gradient + shadow +
+  // countdown-style feel. Reused everywhere (menu, product card, cart).
+  if (!promo) return null;
+  const label = promo.type === "percent"
+    ? `−${Math.round(promo.value || 0)}%`
+    : promo.type === "amount"
+      ? `−${formatPrice(promo.value || 0, rate, currency)}`
+      : `BUY ${promo.bogo_min_qty || 2}+ GET 1 FREE`;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full text-white shadow-[0_2px_6px_rgba(200,75,49,0.35)] bg-gradient-to-r from-[#E14B31] via-[#C84B31] to-[#B23A21] ${className}`}
+      title={promo.ends_at ? `Promo ends ${new Date(promo.ends_at).toLocaleString()}` : "Limited-time promo"}
+    >
+      <span aria-hidden style={{ fontSize: 10 }}>🔥</span>{label}
+    </span>
+  );
+}
+
 function MenuRow({ item, restaurant, addMenu, exchangeRate, currency }) {
   const hasSides = (item.side_items || []).length > 0;
   const sidesRequired = !!item.sides_required && hasSides;
@@ -417,9 +477,7 @@ function MenuRow({ item, restaurant, addMenu, exchangeRate, currency }) {
       ? Math.max(0, rawPrice * (1 - (p.value || 0) / 100))
       : Math.max(0, rawPrice - (p.value || 0))
   );
-  const promoLabel = promoLive
-    ? (p.type === "percent" ? `-${Math.round(p.value || 0)}%` : `-${formatPrice(p.value || 0, itemRate, currency)}`)
-    : null;
+  // Iter 28 — badge rendering delegated to <PromoBadge/> below.
 
   const toggleSide = (s) => {
     const exists = pickedSides.find((x) => x.name === s.name);
@@ -477,13 +535,7 @@ function MenuRow({ item, restaurant, addMenu, exchangeRate, currency }) {
               </span>
             )}
             {promoLive && (
-              <span
-                className="text-[9px] font-bold uppercase tracking-widest bg-emerald-600 text-white px-1.5 py-0.5 rounded"
-                title={p.ends_at ? `Promo ends ${new Date(p.ends_at).toLocaleString()}` : "Limited-time promo"}
-                data-testid={`menu-promo-badge-${item.id}`}
-              >
-                {promoLabel} PROMO
-              </span>
+              <PromoBadge promo={p} rate={itemRate} currency={currency} />
             )}
           </div>
           <p className="text-xs text-[var(--js-text-secondary)] line-clamp-2 mt-0.5">{item.description}</p>

@@ -437,13 +437,20 @@ export default function Orders() {
                   pending: { label: "Pending", bg: "bg-yellow-500" },
                   accepted: { label: "Accepted", bg: "bg-blue-500" },
                   cooking: { label: "Cooking", bg: "bg-orange-500" },
-                  ready: { label: "Ready", bg: "bg-green-500" },
-                  completed: { label: "Completed", bg: "bg-gray-500" },
+                  ready: { label: "Ready", bg: "bg-emerald-500" },
+                  out_for_delivery: { label: "Out for delivery", bg: "bg-blue-600" },
+                  delivered: { label: "Delivered", bg: "bg-emerald-600" },
+                  completed: { label: "Completed", bg: "bg-emerald-600" },
                   cancel_requested: { label: "Cancellation pending", bg: "bg-yellow-600" },
                   cancel_approved: { label: "Cancelled", bg: "bg-red-500" },
                   cancelled: { label: "Cancelled", bg: "bg-red-500" },
                 };
-                const config = STATUS_CONFIG[o.status] || STATUS_CONFIG.pending;
+                // Prefer delivery_status when it's a terminal state so the
+                // customer sees "Delivered" even if the DB status field is
+                // lagging. self-deliver-complete sets both, but this is
+                // defensive against legacy rows.
+                const effectiveStatus = o.delivery_status === "delivered" ? "delivered" : o.status;
+                const config = STATUS_CONFIG[effectiveStatus] || STATUS_CONFIG.pending;
                 const canReview = o.status === "completed" || o.delivery_status === "delivered";
                 const canCancel = CUSTOMER_CANCELLABLE_REST_STATUSES.has(o.status) && o.delivery_status !== "delivered";
 

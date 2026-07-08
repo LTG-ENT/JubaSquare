@@ -919,9 +919,10 @@ function ProductsTab({ currency, exchangeRate }) {
             active: true,
             type: form.promo.type || "percent",
             value: parseFloat(form.promo.value) || 0,
+            bogo_min_qty: parseInt(form.promo.bogo_min_qty || 2, 10) || 2,
             starts_at: form.promo.starts_at || null,
             ends_at: form.promo.ends_at || null,
-          } : { active: false, type: "percent", value: 0, starts_at: null, ends_at: null },
+          } : { active: false, type: "percent", value: 0, bogo_min_qty: 2, starts_at: null, ends_at: null },
         };
         if (editing?.kind === "menu") await api.put(`/menu-items/${editing.id}`, payload);
         else await api.post("/menu-items", payload);
@@ -947,9 +948,10 @@ function ProductsTab({ currency, exchangeRate }) {
             active: true,
             type: form.promo.type || "percent",
             value: parseFloat(form.promo.value) || 0,
+            bogo_min_qty: parseInt(form.promo.bogo_min_qty || 2, 10) || 2,
             starts_at: form.promo.starts_at || null,
             ends_at: form.promo.ends_at || null,
-          } : { active: false, type: "percent", value: 0, starts_at: null, ends_at: null },
+          } : { active: false, type: "percent", value: 0, bogo_min_qty: 2, starts_at: null, ends_at: null },
         };
         if (editing?.kind === "product") await api.put(`/products/${editing.id}`, payload);
         else await api.post("/products", payload);
@@ -2574,6 +2576,7 @@ function PromoEditor({ form, setForm }) {
                 {[
                   { id: "percent", label: "%" },
                   { id: "amount", label: "$" },
+                  { id: "bogo", label: "BOGO" },
                 ].map((opt) => (
                   <button
                     key={opt.id}
@@ -2587,21 +2590,41 @@ function PromoEditor({ form, setForm }) {
                 ))}
               </div>
             </div>
-            <div>
-              <span className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">
-                {promo.type === "percent" ? "Discount %" : "Discount $"}
-              </span>
-              <input
-                type="number"
-                min={0}
-                step={promo.type === "percent" ? 1 : 0.1}
-                max={promo.type === "percent" ? 100 : undefined}
-                value={promo.value ?? 0}
-                onChange={(e) => set({ value: e.target.value })}
-                data-testid="promo-value-input"
-                className="w-28 px-3 py-2 rounded-lg border border-[var(--js-border)] bg-white text-sm"
-              />
-            </div>
+            {promo.type !== "bogo" ? (
+              <div>
+                <span className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">
+                  {promo.type === "percent" ? "Discount %" : "Discount $"}
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  step={promo.type === "percent" ? 1 : 0.1}
+                  max={promo.type === "percent" ? 100 : undefined}
+                  value={promo.value ?? 0}
+                  onChange={(e) => set({ value: e.target.value })}
+                  data-testid="promo-value-input"
+                  className="w-28 px-3 py-2 rounded-lg border border-[var(--js-border)] bg-white text-sm"
+                />
+              </div>
+            ) : (
+              <div>
+                <span className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">
+                  Buy how many to get 1 free?
+                </span>
+                <input
+                  type="number"
+                  min={2}
+                  max={10}
+                  value={promo.bogo_min_qty ?? 2}
+                  onChange={(e) => set({ bogo_min_qty: e.target.value })}
+                  data-testid="promo-bogo-input"
+                  className="w-28 px-3 py-2 rounded-lg border border-[var(--js-border)] bg-white text-sm"
+                />
+                <p className="text-[10px] text-[var(--js-text-secondary)] mt-1">
+                  Ordering {promo.bogo_min_qty || 2}× charges for {(promo.bogo_min_qty || 2) - 1}× at checkout.
+                </p>
+              </div>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

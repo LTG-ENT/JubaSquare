@@ -115,8 +115,10 @@ export default function Restaurants() {
   );
 
   // NO FILTERING NEEDED - backend already filtered by category_id
-  // We just use restaurants directly
-  const filtered = restaurants;
+  // We just use restaurants directly, then optionally slice to only ones
+  // with a live promo (?deals=1).
+  const dealsOnly = searchParams.get("deals") === "1";
+  const filtered = dealsOnly ? restaurants.filter((r) => r.has_live_promo) : restaurants;
 
   // Backend already sorts verified-first; apply client sort on top.
   const sorted = useMemo(() => {
@@ -160,6 +162,21 @@ export default function Restaurants() {
         )}
 
         <div className="flex flex-wrap gap-2 mb-8 items-center">
+          <button
+            onClick={() => {
+              const next = new URLSearchParams(searchParams);
+              if (dealsOnly) next.delete("deals"); else next.set("deals", "1");
+              setSearchParams(next);
+            }}
+            data-testid="restaurant-cat-deals-only"
+            className={`inline-flex items-center gap-1 px-4 py-2 rounded-full text-sm font-bold transition ${
+              dealsOnly
+                ? "bg-gradient-to-r from-[#E14B31] via-[#C84B31] to-[#B23A21] text-white shadow-md"
+                : "bg-white border border-[#C84B31] text-[#C84B31] hover:bg-[#C84B31]/10"
+            }`}
+          >
+            <span aria-hidden>🔥</span> Deals
+          </button>
           {chips.map((chip) => {
             const slug = chip.name.replace(/\s+/g, "-").toLowerCase();
             const isActive = activeCatId === chip.id;

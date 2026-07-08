@@ -141,10 +141,12 @@ export default function ProductCard({ product, shop }) {
                   </p>
                   {promoLive && (
                     <span
-                      className="text-[9px] font-bold uppercase tracking-widest bg-emerald-600 text-white px-1.5 py-0.5 rounded"
+                      className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full text-white shadow-[0_2px_6px_rgba(200,75,49,0.35)] bg-gradient-to-r from-[#E14B31] via-[#C84B31] to-[#B23A21]"
                       data-testid={`product-promo-${product.id}`}
+                      title={p.ends_at ? `Ends ${new Date(p.ends_at).toLocaleString()}` : "Limited-time promo"}
                     >
-                      {p.type === "percent" ? `-${Math.round(p.value || 0)}%` : `-${formatPrice(p.value || 0, rate, currency)}`}
+                      <span aria-hidden style={{ fontSize: 10 }}>🔥</span>
+                      {p.type === "percent" ? `−${Math.round(p.value || 0)}%` : p.type === "amount" ? `−${formatPrice(p.value || 0, rate, currency)}` : `BUY ${p.bogo_min_qty || 2}+ GET 1 FREE`}
                     </span>
                   )}
                 </div>

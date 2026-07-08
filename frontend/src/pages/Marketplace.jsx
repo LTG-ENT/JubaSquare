@@ -94,8 +94,20 @@ export default function Marketplace() {
   const toggleCatExpanded = (id) =>
     setExpandedCats((e) => ({ ...e, [id]: !e[id] }));
 
+  // Iter 28 — "Deals only" filter chip (?deals=1). Shows only products
+  // whose promo is currently live.
+  const dealsOnly = searchParams.get("deals") === "1";
+  const nowIsoMkt = new Date().toISOString();
+  const isPromoLive = (p) => {
+    const pm = p.promo || {};
+    if (!pm.active) return false;
+    if (pm.starts_at && nowIsoMkt < pm.starts_at) return false;
+    if (pm.ends_at && nowIsoMkt > pm.ends_at) return false;
+    return true;
+  };
   const filtered = products.filter((p) => {
     if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false;
+    if (dealsOnly && !isPromoLive(p)) return false;
     return true;
   });
 
@@ -200,10 +212,25 @@ export default function Marketplace() {
               <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--js-text-secondary)] font-bold mb-3">Categories</p>
               <div className="flex flex-col gap-1">
                 <button
+                  onClick={() => {
+                    const next = new URLSearchParams(searchParams);
+                    next.set("deals", "1");
+                    setSearchParams(next);
+                  }}
+                  data-testid="category-deals-only"
+                  className={`text-left px-3 py-2 rounded-xl text-sm font-bold transition inline-flex items-center gap-2 ${
+                    dealsOnly
+                      ? "bg-gradient-to-r from-[#E14B31] via-[#C84B31] to-[#B23A21] text-white shadow-md"
+                      : "text-[#C84B31] border border-[#C84B31] hover:bg-[#C84B31]/10"
+                  }`}
+                >
+                  <span aria-hidden>🔥</span> Deals only
+                </button>
+                <button
                   onClick={() => setCategory("")}
                   data-testid="category-all"
                   className={`text-left px-3 py-2 rounded-xl text-sm font-medium transition ${
-                    !selectedCategoryId && !selectedCategoryLegacy ? "bg-[#1A1A1A] text-white" : "text-[var(--js-text)] hover:bg-[var(--js-subtle)]"
+                    !selectedCategoryId && !selectedCategoryLegacy && !dealsOnly ? "bg-[#1A1A1A] text-white" : "text-[var(--js-text)] hover:bg-[var(--js-subtle)]"
                   }`}
                 >All categories</button>
                 {sidebarCats.map((c) => {

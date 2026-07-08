@@ -3,6 +3,12 @@ import { Link } from "react-router-dom";
 
 export default function ShopCard({ shop, productsPreview = [] }) {
   const verified = shop.verification === "Verified";
+  // Iter 28 — Featured preview: keep only products WITH an image AND top
+  // 4 by orders_count (server-side sort keys). Callers upstream (Shops.jsx)
+  // now pass the shop's `top_products` field which is pre-sorted by orders.
+  const featured = (productsPreview || [])
+    .filter((p) => p && p.image_url)
+    .slice(0, 4);
   return (
     <div
       data-testid={`shop-card-${shop.id}`}
@@ -16,7 +22,16 @@ export default function ShopCard({ shop, productsPreview = [] }) {
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
             loading="lazy"
           />
-          <div className="absolute top-3 right-3">
+          <div className="absolute top-3 right-3 flex flex-col gap-1 items-end">
+            {shop.is_ltg_partner && (
+              <span
+                data-testid={`shop-ltg-${shop.id}`}
+                className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full text-white shadow-lg bg-gradient-to-r from-[#D4AF37] via-[#E9C46A] to-[#B8860B]"
+                title="Part of LTG"
+              >
+                ★ PART OF LTG
+              </span>
+            )}
             {verified ? (
               <span className="bg-[#2D6A4F] text-white text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1 shadow-md">
                 <CheckCircle2 className="w-3 h-3" /> Verified
@@ -52,9 +67,9 @@ export default function ShopCard({ shop, productsPreview = [] }) {
           )}
         </div>
 
-        {productsPreview.length > 0 && (
+        {featured.length > 0 && (
           <div className="mt-4 flex gap-2 overflow-hidden">
-            {productsPreview.slice(0, 4).map((p) => (
+            {featured.map((p) => (
               <Link
                 key={p.id}
                 to={`/product/${p.id}`}
