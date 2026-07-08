@@ -19,6 +19,26 @@ A multilingual (English/Arabic RTL) Juba-focused marketplace connecting shops, r
 - Cascade deletes on user removal.
 - Multilingual UI + Arabic RTL support.
 
+### Iter 29 — Seller onboarding wired + Soft-cascade user delete (Feb 8, 2026)
+19/19 backend tests pass (`/app/test_reports/iteration_30.json`).
+
+- ✅ **Seller onboarding (P2.1)** — Confirmed already wired end-to-end from prior work:
+  - `SellerFirstLoginWizard.jsx` — auto-showing 3-slide modal (setup shop → add product → configure delivery) on first login; persists dismissal server-side.
+  - `SellerDashboardTour.jsx` — react-joyride interactive tour hitting `data-testid`'s on every dashboard tab.
+  - `SellerOnboardingCard.jsx` — persistent progress card w/ % complete, per-step checklist, "Setup Verified" badge at 100%.
+  - `SellerGuide.jsx` — full-page fallback guide.
+  - Backend endpoints already exist: `GET /seller/onboarding/progress`, `POST /seller/onboarding/complete-step`, `.../uncheck-step`, `.../dismiss-wizard`, `.../complete-tour`.
+- ✅ **Soft-cascade user delete (P2.2, chose b + auto)** — `DELETE /api/admin/users/{id}` and `POST /api/admin/users/bulk-delete` now soft-delete:
+  - User record retained + anonymized (`email` → `deleted+{id}@removed.local`, `name` → `[Deleted user]`, `phone` → null, `password_hash` → `!disabled!`, `is_deleted=true`, `deleted_at`, `deleted_by`). `username`/`avatar_url` are `$unset` (not `$set:null`) to avoid unique-sparse index collisions.
+  - **Wiped**: notifications, favorites, email_verifications, password_resets, onboarding_progress, carts, web_push_subscriptions, shop_messages (as customer).
+  - **Soft-flagged** (`is_deleted=true`, `deleted_at`): owned shops, restaurants, products, menu_items — hidden from public listings but recoverable.
+  - **Retained** (for accounting): orders, restaurant_orders, seller_order_splits, seller_payouts, invoices, restaurant_invoices, reviews.
+  - Login blocked for soft-deleted users (401 "Invalid email or password"); `get_current_user` also rejects lingering sessions.
+  - `GET /api/admin/users` hides deleted by default; `include_deleted=true` shows them for audit.
+  - Bulk delete returns `{deleted, soft_deleted:true, succeeded:[...], failed:[...]}` with per-user error isolation.
+  - Idempotent: re-deleting already-deleted user returns `{ok:true, soft_deleted:true, already:true}` without erroring.
+
+
 ### Iter 28 — LTG partner, BOGO promo, favorites fixes, section limit → 10 (Feb 8, 2026)
 25/25 backend tests pass (`/app/test_reports/iteration_28.json`).
 
