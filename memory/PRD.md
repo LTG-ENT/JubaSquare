@@ -21,6 +21,18 @@ A multilingual (English/Arabic RTL) Juba-focused marketplace connecting shops, r
 
 ## Completed (Feb 2026, this fork)
 
+### Iter 26 — Menu categorization + required sides (Feb 8, 2026)
+13/13 backend tests pass (`/app/test_reports/iteration_26.json`).
+
+- ✅ **Menu grouped by category** — `RestaurantCard.jsx` menu drawer now looks up each item's `category_id` in `/categories/tree?group=restaurant`, renders a chip filter (All + one per category) and section headers when >1 category is present.
+- ✅ **Required sides on menu items** — three new `MenuItemIn` fields:
+  - `sides_required` (bool)
+  - `sides_min_choices` (int|null; default 1 when required)
+  - `sides_max_choices` (int|null; null = unlimited)
+- ✅ **Backend enforcement** — `POST /api/restaurant-orders` rejects orders that violate the min/max constraint or use invalid side names (400 error). Untrusted frontend can no longer bypass.
+- ✅ **Seller UI** — new `RequiredSidesEditor` in SellerDashboard menu-item form. Preset hints: "Pizza size → min 1, max 1", "Burger meal → min 1, max blank". Toggle only enabled once at least one side item exists.
+- ✅ **Customer UI** — `MenuRow` auto-expands when sides are required, shows "Required" badge + live counter (n/max), disables Add-to-cart until requirement met. For max=1 (e.g. pizza size), selecting a new side replaces the previous choice.
+
 ### Iter 25 — Kitchen PWA install + Odoo control + receipt logo + ETA + in-stock sort + favorites (Feb 7, 2026)
 22/22 backend tests pass (`/app/test_reports/iteration_25.json`).
 
