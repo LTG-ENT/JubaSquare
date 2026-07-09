@@ -248,4 +248,31 @@ Reported by user; all 11/11 backend tests pass (`/app/test_reports/iteration_23.
 - **New**: OpenStreetMap tiles via react-leaflet on the customer tracking map (no key needed).
 
 ## Test credentials
-See `/app/memory/test_credentials.md` — admin only.
+See `/app/memory/test_credentials.md` — admin + demo seller (Iter 33).
+
+## Iteration 33 (Jun 2026) — Dynamic Attribute System + Category DnD
+**What was built (all tested — backend 22/22 curl checks + testing agent iteration_36 + UI screenshots):**
+- New `backend/attributes_routes.py`: attribute & attribute-group engine.
+  - `attributes` collection: {id, key (stable slug), name, description, type, business_type (retail|wholesale|restaurant), category_ids (empty = whole business type), group_id, options, unit, required, filterable, searchable, order, is_active}.
+  - Types: text, number, decimal, dropdown, multi_select, boolean, color, date, measurement, dimensions, weight.
+  - Inheritance down the category tree via `path`; per-category exclusions stored in `categories.excluded_attribute_ids` (ancestors' exclusions also apply).
+  - Endpoints: GET `/api/categories/{id}/attributes` (effective + inherited flags), GET `/api/attributes/facets?category_id=|business_type=` (live value counts from products/menu_items subtree), admin CRUD `/api/admin/attributes`, `/api/admin/attribute-groups`, exclusion POST/DELETE `/api/admin/categories/{id}/excluded-attributes/{attr_id}`.
+  - `validate_attribute_values()` called on product & menu-item create/update: drops unknown keys, coerces types, enforces dropdown options + required.
+  - Idempotent seed (runs only when collection empty): retail Brand/Model/Storage/RAM (on Electronics) + Color/Condition (global), wholesale Material/Unit of Measure, restaurant Spice Level/Dietary Type/Portion Size; groups "Technical Specifications", "Physical Details", "Product Specifications", "Food Details".
+- `server.py`: ProductIn/MenuItemIn gained `attributes: Dict`; GET `/api/products` supports `include_descendants=true` (subtree) + `attrs` (JSON filter map); products reject restaurant-group categories; `_build_tree` fixed to be RECURSIVE (grandchildren were previously dropped from all tree endpoints!); wildcard indexes `attributes.$**` on products & menu_items.
+- Admin UI: new **Attributes tab** (`AdminAttributesTab.jsx`) — business-type tabs, group chips (create/rename/delete), attribute list with badges + reorder/toggle/edit/delete, editor modal with options editor + category checkbox tree.
+- **Categories tab**: HTML5 drag & drop (drop middle = nest inside, top/bottom = reorder siblings, root dropzone while dragging), depth-linter amber banner when depth ≥ 3 pointing admins to attributes.
+- Seller: `CategoryTreeSelect.jsx` (cascading selects, unlimited depth, path preview, testids `product-cat-level-N` / `food-category-level-N`) + `AttributeFieldsEditor.jsx` in product AND menu forms (typed inputs, grouped).
+- Customer: `AttributeFilterPanel.jsx` facet checkboxes in Marketplace sidebar (appears when a category is selected; parent categories include child products now); 3rd sidebar level; ProductDetail Specifications card lists attributes (`product-attr-{key}`).
+- Odoo: untouched — attributes are additive fields; sync payloads unchanged.
+
+**Gotchas for next agent:**
+- Parallel `search_replace` calls on the SAME file can silently lose edits — apply same-file edits sequentially and verify with grep.
+- The preview URL is the one in `frontend/.env` (`jubasquare-odoo-v2....`); do not trust other domains.
+- Attribute `key` is immutable after creation (renames change display name only) — this keeps stored product values safe.
+- Demo data left in preview DB: seller-attrtest@jubasquare.com + "Attr Demo Electronics" shop + 2 products (see test_credentials.md). Remove before/at next production deploy if user wants a clean catalog.
+
+**Remaining backlog (unchanged priority):**
+- P2: Backend performance at scale (materialized counters, Redis cache, background job runner for growth-insights, rate limiting).
+- P2: server.py refactor (8,500+ lines) into routers/ + models.py.
+- Optional: restaurant-page attribute filters (menu drawer), attribute display chips on menu items.

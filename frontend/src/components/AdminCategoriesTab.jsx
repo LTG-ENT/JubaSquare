@@ -246,24 +246,40 @@ export default function AdminCategoriesTab() {
             No categories yet. Add your first one with the button above.
           </div>
         ) : (
-          <ul className="divide-y divide-[var(--js-border)]">
-            {tree.map((root, idx) => (
-              <CategoryNode
-                key={root.id}
-                node={root}
-                depth={0}
-                siblings={tree}
-                index={idx}
-                expanded={expanded}
-                toggleExpanded={toggleExpanded}
-                setEditor={setEditor}
-                toggleActive={toggleActive}
-                deleteCategory={deleteCategory}
-                moveCategory={moveCategory}
-                parentId={null}
-              />
-            ))}
-          </ul>
+          <>
+            <ul className="divide-y divide-[var(--js-border)]">
+              {tree.map((root, idx) => (
+                <CategoryNode
+                  key={root.id}
+                  node={root}
+                  depth={0}
+                  siblings={tree}
+                  index={idx}
+                  expanded={expanded}
+                  toggleExpanded={toggleExpanded}
+                  setEditor={setEditor}
+                  toggleActive={toggleActive}
+                  deleteCategory={deleteCategory}
+                  moveCategory={moveCategory}
+                  parentId={null}
+                  dnd={dnd}
+                />
+              ))}
+            </ul>
+            {dragId && (
+              <div
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  handleDropToRoot();
+                }}
+                data-testid="cat-root-dropzone"
+                className="m-3 border-2 border-dashed border-[#C84B31] rounded-xl py-3 text-center text-xs font-bold text-[#C84B31] bg-[#C84B31]/5"
+              >
+                Drop here to make it a top-level category
+              </div>
+            )}
+          </>
         )}
       </div>
 

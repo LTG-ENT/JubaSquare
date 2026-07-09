@@ -103,10 +103,12 @@ export default function Marketplace() {
     // ?wholesale=1 chip: only meaningful when typeFilter is not already
     // constraining is_wholesale.
     if (searchParams.get("wholesale") && typeFilter !== "retail") params.is_wholesale = "true";
+    // Iter 33 — dynamic attribute filters
+    if (Object.keys(attrFilters).length) params.attrs = JSON.stringify(attrFilters);
     api.get("/products", { params: { ...params, limit: 200 } })
       .then((r) => setProducts(Array.isArray(r.data) ? r.data : []))
       .catch(() => setProducts([]));
-  }, [selectedCategoryId, selectedCategoryLegacy, selectedShop, typeFilter, searchParams]);
+  }, [selectedCategoryId, selectedCategoryLegacy, selectedShop, typeFilter, searchParams, attrFilters]);
 
   const categories = useMemo(() => {
     try {
