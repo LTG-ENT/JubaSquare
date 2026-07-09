@@ -7,7 +7,7 @@ import { X } from "lucide-react";
  * for the selected category (or business type) and renders checkbox facets.
  * `selected` = { attrKey: [values] }, controlled by the parent page.
  */
-export const AttributeFilterPanel = ({ categoryId, businessType, selected = {}, onChange }) => {
+export const AttributeFilterPanel = ({ categoryId, businessType, selected = {}, onChange, onFacets }) => {
   const [facets, setFacets] = useState([]);
 
   useEffect(() => {
@@ -16,8 +16,16 @@ export const AttributeFilterPanel = ({ categoryId, businessType, selected = {}, 
     else if (businessType) params.business_type = businessType;
     else { setFacets([]); return; }
     api.get("/attributes/facets", { params })
-      .then((r) => setFacets(r.data?.facets || []))
-      .catch(() => setFacets([]));
+      .then((r) => {
+        const f = r.data?.facets || [];
+        setFacets(f);
+        onFacets?.(f);
+      })
+      .catch(() => {
+        setFacets([]);
+        onFacets?.([]);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [categoryId, businessType]);
 
   if (!facets.length) return null;
@@ -81,6 +89,51 @@ export const AttributeFilterPanel = ({ categoryId, businessType, selected = {}, 
           </div>
         ))}
       </div>
+    </div>
+  );
+};
+
+/**
+ * Iter 33.1 — "Smart filter chips": active attribute filters rendered above
+ * the product grid. Each chip removes its own filter; state lives in the URL
+ * so filtered pages are shareable.
+ */
+export const ActiveAttributeChips = ({ facets = [], selected = {}, onChange }) => {
+  const entries = Object.entries(selected).flatMap(([k, vals]) =>
+    (Array.isArray(vals) ? vals : [vals]).map((v) => ({ key: k, value: v }))
+  );
+  if (!entries.length) return null;
+  const nameFor = (k) =>
+    facets.find((f) => f.key === k)?.name ||
+    k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const remove = (k, v) => {
+    const next = { ...selected, [k]: (selected[k] || []).filter((x) => x !== v) };
+    if (!next[k].length) delete next[k];
+    onChange(next);
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-2" data-testid="active-attr-chips">
+      {entries.map(({ key, value }) => (
+        <button
+          key={`${key}:${value}`}
+          onClick={() => remove(key, value)}
+          data-testid={`attr-chip-${key}-${String(value).replace(/\s+/g, "-").toLowerCase()}`}
+          title="Remove filter"
+          className="inline-flex items-center gap-1.5 pl-3 pr-2 py-1.5 rounded-full bg-[#1A1A1A] text-white text-xs font-semibold hover:bg-[#C84B31] transition-colors"
+        >
+          <span className="opacity-70">{nameFor(key)}:</span> {String(value)}
+          <X className="w-3 h-3" />
+        </button>
+      ))}
+      {entries.length > 1 && (
+        <button
+          onClick={() => onChange({})}
+          data-testid="attr-chips-clear-all"
+          className="text-xs font-bold text-[#C84B31] hover:underline"
+        >
+          Clear all
+        </button>
+      )}
     </div>
   );
 };

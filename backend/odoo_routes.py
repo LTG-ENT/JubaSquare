@@ -211,6 +211,14 @@ def create_odoo_routes(db, require_role):
                     product_data["side_items"] = [si.dict() for si in payload.side_items]
                 if payload.prep_time_minutes is not None:
                     product_data["prep_time_minutes"] = int(payload.prep_time_minutes)
+
+            # Iter 33 — dynamic attribute values. Only persisted when the
+            # payload includes the key, so older Odoo modules never wipe
+            # existing values. Required flags are not enforced for Odoo.
+            if payload.attributes is not None:
+                import attributes_routes as _attr
+                product_data["attributes"] = await _attr.validate_attribute_values(
+                    db, payload.category_id, payload.attributes, enforce_required=False)
             
             # Add entity-specific fields
             if entity_type == "shop":

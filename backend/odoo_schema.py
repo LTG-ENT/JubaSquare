@@ -4,7 +4,7 @@ Odoo Integration Schema and Models for JubaSquare
 This module defines all Odoo-related fields and models for shops, restaurants,
 products, orders, and sync logs. Admin-only configuration.
 """
-from typing import Optional, Literal, List
+from typing import Optional, Literal, List, Dict, Any
 from pydantic import BaseModel, Field
 from datetime import datetime
 
@@ -259,6 +259,12 @@ class OdooProductUpsert(BaseModel):
     sides_required: Optional[bool] = None
     side_items: Optional[List[OdooSideItem]] = None
     prep_time_minutes: Optional[int] = None
+    # Iter 33 — dynamic attribute values keyed by JubaSquare attribute `key`
+    # (e.g. {"brand": "Samsung", "storage": "256GB", "dietary_type": ["Halal"]}).
+    # Optional: omit entirely to leave existing values untouched on update.
+    # Unknown keys are dropped server-side; dropdown options are enforced;
+    # `required` flags are NOT enforced on the Odoo path.
+    attributes: Optional[Dict[str, Any]] = None
     # Admin-controlled 'Part of LTG' boost. Only trusted Odoo callers should
     # send this. JubaSquare's backend still gates changes behind
     # /admin/products/{id}/ltg-partner in the UI.

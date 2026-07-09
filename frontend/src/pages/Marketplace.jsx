@@ -8,7 +8,7 @@ import WholesaleCard from "@/components/WholesaleCard";
 import AreaSelector from "@/components/AreaSelector";
 import BadgeFilterBar from "@/components/BadgeFilterBar";
 import CategoryBreadcrumb from "@/components/CategoryBreadcrumb";
-import AttributeFilterPanel from "@/components/AttributeFilterPanel";
+import AttributeFilterPanel, { ActiveAttributeChips } from "@/components/AttributeFilterPanel";
 import { cachedGet } from "@/lib/cachedGet";
 import { useCart } from "@/context/CartContext";
 import { Search, X, Package, ChevronRight, ChevronDown } from "lucide-react";
@@ -27,7 +27,18 @@ export default function Marketplace() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState(searchParams.get("q") || "");
   const [showMobileCats, setShowMobileCats] = useState(false); // Iter 31
-  const [attrFilters, setAttrFilters] = useState({}); // Iter 33 — {attrKey: [values]}
+  // Iter 33.1 — attribute filters live in the URL (?attrs=...) so filtered
+  // pages are shareable/bookmarkable.
+  const parseAttrsParam = (sp) => {
+    try {
+      const parsed = JSON.parse(sp.get("attrs") || "{}");
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  };
+  const [attrFilters, setAttrFilters] = useState(() => parseAttrsParam(searchParams)); // {attrKey: [values]}
+  const [facetDefs, setFacetDefs] = useState([]); // Iter 33.1 — key→name lookup for chips
 
   // Iter 31 — sync ?q= URL param with local search state so the header
   // "See all results" jumps to /marketplace?q=<query> land pre-filtered.
@@ -46,10 +57,22 @@ export default function Marketplace() {
   const selectedCategoryLegacy = searchParams.get("category") || "";
   const selectedShop = searchParams.get("shop") || "";
 
-  // Iter 33 — reset attribute filters when the category changes
+  // Iter 33.1 — attribute filters live in the URL (?attrs=...) so filtered
+  // pages are shareable/bookmarkable. Keep local state in sync both ways.
+  // Keep local state in sync with URL changes (back/forward, category switch).
   useEffect(() => {
-    setAttrFilters({});
-  }, [selectedCategoryId]);
+    const fromUrl = parseAttrsParam(searchParams);
+    if (JSON.stringify(fromUrl) !== JSON.stringify(attrFilters)) setAttrFilters(fromUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  const applyAttrFilters = (next) => {
+    setAttrFilters(next);
+    const p = new URLSearchParams(searchParams);
+    if (next && Object.keys(next).length) p.set("attrs", JSON.stringify(next));
+    else p.delete("attrs");
+    setSearchParams(p, { replace: true });
+  };
 
   useEffect(() => {
     api.get("/shops?limit=200")
@@ -184,6 +207,7 @@ export default function Marketplace() {
       next.delete("category");
     }
     next.delete("shop");
+    next.delete("attrs"); // Iter 33.1 — attribute filters don't carry across categories
     // Iter 29 — "All categories" also clears the "Deals only" filter so
     // customers can escape the promo view with one click.
     next.delete("deals");
@@ -252,6 +276,13 @@ export default function Marketplace() {
         {selectedCategoryId && (
           <div className="mb-2">
             <CategoryBreadcrumb categoryId={selectedCategoryId} />
+          </div>
+        )}
+
+        {/* Iter 33.1 — active attribute filter chips (shareable via ?attrs=) */}
+        {Object.keys(attrFilters).length > 0 && (
+          <div className="mb-3">
+            <ActiveAttributeChips facets={facetDefs} selected={attrFilters} onChange={applyAttrFilters} />
           </div>
         )}
 
@@ -402,7 +433,8 @@ export default function Marketplace() {
               <AttributeFilterPanel
                 categoryId={selectedCategoryId}
                 selected={attrFilters}
-                onChange={setAttrFilters}
+                onChange={applyAttrFilters}
+                onFacets={setFacetDefs}
               />
             )}
 

@@ -89,7 +89,7 @@ async def get_effective_attributes(db, category_id: str):
     return cat, out
 
 
-async def validate_attribute_values(db, category_id: str, values: Any) -> dict:
+async def validate_attribute_values(db, category_id: str, values: Any, enforce_required: bool = True) -> dict:
     """Sanitize + validate a product/menu-item `attributes` dict against the
     effective attribute definitions of its category. Unknown keys are dropped,
     typed values coerced, dropdown options enforced, required enforced."""
@@ -131,7 +131,7 @@ async def validate_attribute_values(db, category_id: str, values: Any) -> dict:
         else:  # text, date, dimensions
             clean[k] = str(v).strip()[:500]
     for d in defs:
-        if d.get("required") and d["key"] not in clean:
+        if enforce_required and d.get("required") and d["key"] not in clean:
             raise HTTPException(400, f"Attribute '{d['name']}' is required for this category")
     return clean
 

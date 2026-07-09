@@ -276,3 +276,10 @@ See `/app/memory/test_credentials.md` — admin + demo seller (Iter 33).
 - P2: Backend performance at scale (materialized counters, Redis cache, background job runner for growth-insights, rate limiting).
 - P2: server.py refactor (8,500+ lines) into routers/ + models.py.
 - Optional: restaurant-page attribute filters (menu drawer), attribute display chips on menu items.
+
+## Iteration 33.1 (Jun 2026) — Smart filter chips + Odoo attributes
+- Marketplace attribute filters now live in the URL (`?attrs={"brand":["Samsung"]}`) — shareable/bookmarkable; state initialized from URL (no race) and synced on back/forward.
+- `ActiveAttributeChips` (exported from `AttributeFilterPanel.jsx`) renders removable chips ("Brand: Samsung ✕", "Clear all") above the product grid; `AttributeFilterPanel` gained `onFacets` callback for key→name lookup.
+- `setCategory` clears `attrs` param on category change.
+- Odoo: `OdooProductUpsert` accepts optional `attributes` dict → sanitized via `validate_attribute_values(..., enforce_required=False)`; omitted key = existing values untouched. Prompt for the user's Odoo addon: `/app/memory/odoo_iteration33_prompt.md`.
+- All verified: backend smoke suite re-passed (22/22), shareable-URL chip flow screenshot-tested end to end.
