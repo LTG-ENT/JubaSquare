@@ -293,9 +293,10 @@ See `/app/memory/test_credentials.md` — admin + demo seller (Iter 33).
 - All three fixes screenshot-verified in preview. NOT yet redeployed to production at time of writing.
 
 
-## Iteration 33.3 (Jul 2026) — UX polish: sidebar layout, search dismiss, homepage→marketplace linking
+## Iteration 33.3 (Jul 2026) — UX polish: sidebar layout, search dismiss, homepage→marketplace linking, mobile/tablet filters
 - Homepage category cards now navigate with `?category_id=<uuid>` (was `?category=<name>`) so the Marketplace sidebar highlights the correct node and the tree-based product filter matches by category id (breadcrumb also renders).
 - Marketplace sidebar: Categories is now a **collapsible** section (collapsed by default via `sidebar-categories-toggle`) so attribute filters are visible above the fold. Auto-expands when a category is preselected via URL. Removed the redundant "Filters" wrapper heading (AttributeFilterPanel provides its own).
 - `SearchButton.jsx` (header search modal on desktop): clicking the backdrop now closes the modal (`onClick` on backdrop + `stopPropagation` on inner panel). Backdrop has `data-testid="search-modal-backdrop"`.
 - `GlobalSearch.jsx` (mobile menu search): hardened outside-click with capture-phase `pointerdown`+`touchstart` handlers, auto-close on route change, and input blur on dismiss.
 - All three verified via Playwright: backdrop-click closes modal, category-card navigates with category_id, sidebar auto-expands.
+- Mobile/tablet (<lg) Marketplace: launcher renamed "Filters & categories" with an active-count badge; bottom-sheet now contains `AttributeFilterPanel` at the top and the category tree below, plus a sticky footer with `Reset filters` and `Show results` CTAs. Testids: `mobile-categories-btn`, `mobile-attribute-filters`, `mobile-drawer-reset`, `mobile-drawer-apply`. Verified at 390px and 820px viewports.

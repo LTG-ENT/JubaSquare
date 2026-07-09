@@ -301,23 +301,29 @@ export default function Marketplace() {
           <BadgeFilterBar showWholesale={typeFilter !== "retail"} />
         </div>
 
-        {/* Iter 31 — Mobile-only category launcher (desktop uses left rail) */}
-        <div className="lg:hidden mb-4 flex items-center gap-2">
+        {/* Iter 31 — Mobile/tablet launcher (desktop uses left rail).
+             Opens a bottom-sheet with attribute filters + category tree. */}
+        <div className="lg:hidden mb-4 flex items-center gap-2 flex-wrap">
           <button
             onClick={() => setShowMobileCats(true)}
             data-testid="mobile-categories-btn"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-[var(--js-border)] text-sm font-semibold text-[var(--js-text)] shadow-sm"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#1A1A1A] text-white text-sm font-semibold shadow-sm"
           >
             <Package className="w-4 h-4" />
-            Browse categories
-            {(selectedCategoryId || dealsOnly) && (
-              <span className="ml-1 inline-block w-2 h-2 rounded-full bg-[#C84B31]" aria-hidden />
+            Filters & categories
+            {(selectedCategoryId || dealsOnly || Object.keys(attrFilters).length > 0) && (
+              <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-[#C84B31] text-white text-[10px] font-bold" aria-hidden>
+                {(selectedCategoryId || selectedCategoryLegacy ? 1 : 0)
+                  + (dealsOnly ? 1 : 0)
+                  + Object.values(attrFilters).reduce((s, v) => s + (Array.isArray(v) ? v.length : 0), 0)}
+              </span>
             )}
           </button>
-          {(selectedCategoryId || selectedCategoryLegacy || dealsOnly) && (
+          {(selectedCategoryId || selectedCategoryLegacy || dealsOnly || Object.keys(attrFilters).length > 0) && (
             <button
-              onClick={() => { setSearchParams({}); }}
+              onClick={() => { setSearchParams({}); setAttrFilters({}); }}
               className="text-xs text-[#C84B31] font-bold underline"
+              data-testid="mobile-clear-all"
             >
               Clear
             </button>
@@ -514,7 +520,7 @@ export default function Marketplace() {
             className="absolute bottom-0 inset-x-0 max-h-[80vh] bg-white rounded-t-3xl shadow-2xl flex flex-col animate-in slide-in-from-bottom duration-200"
           >
             <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--js-border)] sticky top-0 bg-white rounded-t-3xl">
-              <h3 className="font-display font-bold text-lg text-[var(--js-text)]">Categories</h3>
+              <h3 className="font-display font-bold text-lg text-[var(--js-text)]">Filters & categories</h3>
               <button
                 onClick={() => setShowMobileCats(false)}
                 data-testid="mobile-categories-close"
@@ -523,64 +529,106 @@ export default function Marketplace() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-1">
-              <button
-                onClick={() => {
-                  const next = new URLSearchParams(searchParams);
-                  if (dealsOnly) next.delete("deals"); else next.set("deals", "1");
-                  setSearchParams(next);
-                  setShowMobileCats(false);
-                }}
-                className={`w-full text-left px-3 py-3 rounded-xl text-sm font-bold inline-flex items-center gap-2 ${
-                  dealsOnly ? "bg-gradient-to-r from-[#E14B31] via-[#C84B31] to-[#B23A21] text-white" : "text-[#C84B31] border border-[#C84B31]"
-                }`}
-              >
-                <span aria-hidden>🔥</span> Deals only
-              </button>
-              <button
-                onClick={() => { setCategory(""); setShowMobileCats(false); }}
-                className={`w-full text-left px-3 py-3 rounded-xl text-sm font-medium ${
-                  !selectedCategoryId && !selectedCategoryLegacy && !dealsOnly ? "bg-[#1A1A1A] text-white" : "text-[var(--js-text)] hover:bg-[var(--js-subtle)]"
-                }`}
-              >
-                All categories
-              </button>
-              {sidebarCats.map((c) => (
-                <div key={c.id}>
-                  <button
-                    onClick={() => { setCategory(c.id); setShowMobileCats(false); }}
-                    className={`w-full text-left px-3 py-3 rounded-xl text-sm font-medium ${
-                      selectedCategoryId === c.id ? "bg-[#1A1A1A] text-white" : "text-[var(--js-text)] hover:bg-[var(--js-subtle)]"
-                    }`}
-                    data-testid={`mobile-category-${c.name.replace(/\s+/g, "-").toLowerCase()}`}
-                  >
-                    {c.name}
-                  </button>
-                  {(c.children || []).map((sub) => (
-                    <div key={sub.id}>
-                      <button
-                        onClick={() => { setCategory(sub.id); setShowMobileCats(false); }}
-                        className={`w-full text-left px-6 py-2 rounded-xl text-xs font-medium ${
-                          selectedCategoryId === sub.id ? "bg-[#C84B31] text-white" : "text-[var(--js-text-secondary)] hover:bg-[var(--js-subtle)]"
-                        }`}
-                      >
-                        → {sub.name}
-                      </button>
-                      {(sub.children || []).map((leaf) => (
+            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+              {/* Attribute filters — top of the sheet, always visible. */}
+              <div data-testid="mobile-attribute-filters">
+                {selectedCategoryId ? (
+                  <AttributeFilterPanel
+                    categoryId={selectedCategoryId}
+                    selected={attrFilters}
+                    onChange={applyAttrFilters}
+                    onFacets={setFacetDefs}
+                  />
+                ) : (
+                  <AttributeFilterPanel
+                    businessType={typeFilter === "wholesale" ? "wholesale" : "retail"}
+                    selected={attrFilters}
+                    onChange={applyAttrFilters}
+                    onFacets={setFacetDefs}
+                  />
+                )}
+              </div>
+
+              <div className="pt-2 border-t border-[var(--js-border)]">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--js-text-secondary)] font-bold mb-2">Categories</p>
+                <div className="space-y-1">
+                <button
+                  onClick={() => {
+                    const next = new URLSearchParams(searchParams);
+                    if (dealsOnly) next.delete("deals"); else next.set("deals", "1");
+                    setSearchParams(next);
+                    setShowMobileCats(false);
+                  }}
+                  className={`w-full text-left px-3 py-3 rounded-xl text-sm font-bold inline-flex items-center gap-2 ${
+                    dealsOnly ? "bg-gradient-to-r from-[#E14B31] via-[#C84B31] to-[#B23A21] text-white" : "text-[#C84B31] border border-[#C84B31]"
+                  }`}
+                >
+                  <span aria-hidden>🔥</span> Deals only
+                </button>
+                <button
+                  onClick={() => { setCategory(""); setShowMobileCats(false); }}
+                  className={`w-full text-left px-3 py-3 rounded-xl text-sm font-medium ${
+                    !selectedCategoryId && !selectedCategoryLegacy && !dealsOnly ? "bg-[#1A1A1A] text-white" : "text-[var(--js-text)] hover:bg-[var(--js-subtle)]"
+                  }`}
+                >
+                  All categories
+                </button>
+                {sidebarCats.map((c) => (
+                  <div key={c.id}>
+                    <button
+                      onClick={() => { setCategory(c.id); setShowMobileCats(false); }}
+                      className={`w-full text-left px-3 py-3 rounded-xl text-sm font-medium ${
+                        selectedCategoryId === c.id ? "bg-[#1A1A1A] text-white" : "text-[var(--js-text)] hover:bg-[var(--js-subtle)]"
+                      }`}
+                      data-testid={`mobile-category-${c.name.replace(/\s+/g, "-").toLowerCase()}`}
+                    >
+                      {c.name}
+                    </button>
+                    {(c.children || []).map((sub) => (
+                      <div key={sub.id}>
                         <button
-                          key={leaf.id}
-                          onClick={() => { setCategory(leaf.id); setShowMobileCats(false); }}
-                          className={`w-full text-left px-9 py-1.5 rounded-xl text-[11px] font-medium ${
-                            selectedCategoryId === leaf.id ? "bg-[#C84B31] text-white" : "text-[var(--js-text-secondary)] hover:bg-[var(--js-subtle)]"
+                          onClick={() => { setCategory(sub.id); setShowMobileCats(false); }}
+                          className={`w-full text-left px-6 py-2 rounded-xl text-xs font-medium ${
+                            selectedCategoryId === sub.id ? "bg-[#C84B31] text-white" : "text-[var(--js-text-secondary)] hover:bg-[var(--js-subtle)]"
                           }`}
                         >
-                          →→ {leaf.name}
+                          → {sub.name}
                         </button>
-                      ))}
-                    </div>
-                  ))}
+                        {(sub.children || []).map((leaf) => (
+                          <button
+                            key={leaf.id}
+                            onClick={() => { setCategory(leaf.id); setShowMobileCats(false); }}
+                            className={`w-full text-left px-9 py-1.5 rounded-xl text-[11px] font-medium ${
+                              selectedCategoryId === leaf.id ? "bg-[#C84B31] text-white" : "text-[var(--js-text-secondary)] hover:bg-[var(--js-subtle)]"
+                            }`}
+                          >
+                            →→ {leaf.name}
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                ))}
                 </div>
-              ))}
+              </div>
+            </div>
+
+            {/* Sticky footer with Apply/Reset for a clear mobile CTA */}
+            <div className="border-t border-[var(--js-border)] px-5 py-3 flex items-center gap-2 bg-white">
+              <button
+                onClick={() => { setAttrFilters({}); applyAttrFilters({}); }}
+                className="flex-1 px-4 py-2.5 rounded-full text-sm font-semibold text-[var(--js-text)] border border-[var(--js-border)] hover:bg-[var(--js-subtle)]"
+                data-testid="mobile-drawer-reset"
+              >
+                Reset filters
+              </button>
+              <button
+                onClick={() => setShowMobileCats(false)}
+                className="flex-1 px-4 py-2.5 rounded-full text-sm font-bold text-white bg-[#C84B31] hover:bg-[#A83A23]"
+                data-testid="mobile-drawer-apply"
+              >
+                Show results
+              </button>
             </div>
           </div>
         </div>
