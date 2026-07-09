@@ -530,8 +530,87 @@ export default function Marketplace() {
               </button>
             </div>
             <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
-              {/* Attribute filters — top of the sheet, always visible. */}
-              <div data-testid="mobile-attribute-filters">
+              {/* Categories — top of the sheet, collapsed by default. */}
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setCatsOpen((v) => !v)}
+                  data-testid="mobile-categories-toggle"
+                  aria-expanded={catsOpen}
+                  className="w-full flex items-center justify-between mb-2"
+                >
+                  <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--js-text-secondary)] font-bold">Categories</span>
+                  {catsOpen ? (
+                    <ChevronDown className="w-4 h-4 text-[var(--js-text-secondary)]" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-[var(--js-text-secondary)]" />
+                  )}
+                </button>
+                {catsOpen && (
+                  <div className="space-y-1">
+                    <button
+                      onClick={() => {
+                        const next = new URLSearchParams(searchParams);
+                        if (dealsOnly) next.delete("deals"); else next.set("deals", "1");
+                        setSearchParams(next);
+                        setShowMobileCats(false);
+                      }}
+                      className={`w-full text-left px-3 py-3 rounded-xl text-sm font-bold inline-flex items-center gap-2 ${
+                        dealsOnly ? "bg-gradient-to-r from-[#E14B31] via-[#C84B31] to-[#B23A21] text-white" : "text-[#C84B31] border border-[#C84B31]"
+                      }`}
+                    >
+                      <span aria-hidden>🔥</span> Deals only
+                    </button>
+                    <button
+                      onClick={() => { setCategory(""); setShowMobileCats(false); }}
+                      className={`w-full text-left px-3 py-3 rounded-xl text-sm font-medium ${
+                        !selectedCategoryId && !selectedCategoryLegacy && !dealsOnly ? "bg-[#1A1A1A] text-white" : "text-[var(--js-text)] hover:bg-[var(--js-subtle)]"
+                      }`}
+                    >
+                      All categories
+                    </button>
+                    {sidebarCats.map((c) => (
+                      <div key={c.id}>
+                        <button
+                          onClick={() => { setCategory(c.id); setShowMobileCats(false); }}
+                          className={`w-full text-left px-3 py-3 rounded-xl text-sm font-medium ${
+                            selectedCategoryId === c.id ? "bg-[#1A1A1A] text-white" : "text-[var(--js-text)] hover:bg-[var(--js-subtle)]"
+                          }`}
+                          data-testid={`mobile-category-${c.name.replace(/\s+/g, "-").toLowerCase()}`}
+                        >
+                          {c.name}
+                        </button>
+                        {(c.children || []).map((sub) => (
+                          <div key={sub.id}>
+                            <button
+                              onClick={() => { setCategory(sub.id); setShowMobileCats(false); }}
+                              className={`w-full text-left px-6 py-2 rounded-xl text-xs font-medium ${
+                                selectedCategoryId === sub.id ? "bg-[#C84B31] text-white" : "text-[var(--js-text-secondary)] hover:bg-[var(--js-subtle)]"
+                              }`}
+                            >
+                              → {sub.name}
+                            </button>
+                            {(sub.children || []).map((leaf) => (
+                              <button
+                                key={leaf.id}
+                                onClick={() => { setCategory(leaf.id); setShowMobileCats(false); }}
+                                className={`w-full text-left px-9 py-1.5 rounded-xl text-[11px] font-medium ${
+                                  selectedCategoryId === leaf.id ? "bg-[#C84B31] text-white" : "text-[var(--js-text-secondary)] hover:bg-[var(--js-subtle)]"
+                                }`}
+                              >
+                                →→ {leaf.name}
+                              </button>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Attribute filters — below categories */}
+              <div data-testid="mobile-attribute-filters" className="pt-2 border-t border-[var(--js-border)]">
                 {selectedCategoryId ? (
                   <AttributeFilterPanel
                     categoryId={selectedCategoryId}
@@ -547,69 +626,6 @@ export default function Marketplace() {
                     onFacets={setFacetDefs}
                   />
                 )}
-              </div>
-
-              <div className="pt-2 border-t border-[var(--js-border)]">
-                <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--js-text-secondary)] font-bold mb-2">Categories</p>
-                <div className="space-y-1">
-                <button
-                  onClick={() => {
-                    const next = new URLSearchParams(searchParams);
-                    if (dealsOnly) next.delete("deals"); else next.set("deals", "1");
-                    setSearchParams(next);
-                    setShowMobileCats(false);
-                  }}
-                  className={`w-full text-left px-3 py-3 rounded-xl text-sm font-bold inline-flex items-center gap-2 ${
-                    dealsOnly ? "bg-gradient-to-r from-[#E14B31] via-[#C84B31] to-[#B23A21] text-white" : "text-[#C84B31] border border-[#C84B31]"
-                  }`}
-                >
-                  <span aria-hidden>🔥</span> Deals only
-                </button>
-                <button
-                  onClick={() => { setCategory(""); setShowMobileCats(false); }}
-                  className={`w-full text-left px-3 py-3 rounded-xl text-sm font-medium ${
-                    !selectedCategoryId && !selectedCategoryLegacy && !dealsOnly ? "bg-[#1A1A1A] text-white" : "text-[var(--js-text)] hover:bg-[var(--js-subtle)]"
-                  }`}
-                >
-                  All categories
-                </button>
-                {sidebarCats.map((c) => (
-                  <div key={c.id}>
-                    <button
-                      onClick={() => { setCategory(c.id); setShowMobileCats(false); }}
-                      className={`w-full text-left px-3 py-3 rounded-xl text-sm font-medium ${
-                        selectedCategoryId === c.id ? "bg-[#1A1A1A] text-white" : "text-[var(--js-text)] hover:bg-[var(--js-subtle)]"
-                      }`}
-                      data-testid={`mobile-category-${c.name.replace(/\s+/g, "-").toLowerCase()}`}
-                    >
-                      {c.name}
-                    </button>
-                    {(c.children || []).map((sub) => (
-                      <div key={sub.id}>
-                        <button
-                          onClick={() => { setCategory(sub.id); setShowMobileCats(false); }}
-                          className={`w-full text-left px-6 py-2 rounded-xl text-xs font-medium ${
-                            selectedCategoryId === sub.id ? "bg-[#C84B31] text-white" : "text-[var(--js-text-secondary)] hover:bg-[var(--js-subtle)]"
-                          }`}
-                        >
-                          → {sub.name}
-                        </button>
-                        {(sub.children || []).map((leaf) => (
-                          <button
-                            key={leaf.id}
-                            onClick={() => { setCategory(leaf.id); setShowMobileCats(false); }}
-                            className={`w-full text-left px-9 py-1.5 rounded-xl text-[11px] font-medium ${
-                              selectedCategoryId === leaf.id ? "bg-[#C84B31] text-white" : "text-[var(--js-text-secondary)] hover:bg-[var(--js-subtle)]"
-                            }`}
-                          >
-                            →→ {leaf.name}
-                          </button>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                ))}
-                </div>
               </div>
             </div>
 
