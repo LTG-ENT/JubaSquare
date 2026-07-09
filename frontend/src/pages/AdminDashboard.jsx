@@ -12,12 +12,13 @@ import AdminPagesTab from "@/components/AdminPagesTab";
 import AdminSettingsTab from "@/components/AdminSettingsTab";
 import AdminFooterTab from "@/components/AdminFooterTab";
 import AdminCategoriesTab from "@/components/AdminCategoriesTab";
+import AdminAttributesTab from "@/components/AdminAttributesTab";
 import AdminDeliveryTab from "@/components/AdminDeliveryTab";
 import AdminDeliveryPricingTab from "@/components/AdminDeliveryPricingTab";
 import AdminHomepageTab from "@/components/AdminHomepageTab";
 import AdminReportsTab from "@/components/AdminReportsTab";
 import AdminOdooTokenManager from "@/components/AdminOdooTokenManager";
-import { Store, Mail, CheckCircle2, XCircle, Clock, Plus, Trash2, X, BarChart3, Settings as SettingsIcon, BookOpen, Sliders, PanelBottom, FolderTree, Ban, Activity, Truck, MapPin, Key, Image as ImageIcon, Flag } from "lucide-react";
+import { Store, Mail, CheckCircle2, XCircle, Clock, Plus, Trash2, X, BarChart3, Settings as SettingsIcon, BookOpen, Sliders, SlidersHorizontal, PanelBottom, FolderTree, Ban, Activity, Truck, MapPin, Key, Image as ImageIcon, Flag } from "lucide-react";
 import { toast } from "sonner";
 
 const TABS = [
@@ -25,6 +26,7 @@ const TABS = [
   { id: "performance", label: "Performance", icon: Activity },
   { id: "shops", label: "Shops & Restaurants", icon: Store },
   { id: "categories", label: "Categories", icon: FolderTree },
+  { id: "attributes", label: "Attributes", icon: SlidersHorizontal },
   { id: "delivery", label: "Delivery & Payouts", icon: Truck },
   { id: "delivery-pricing", label: "Delivery Pricing", icon: MapPin },
   { id: "cancellations", label: "Cancellation Requests", icon: Ban },
@@ -151,6 +153,7 @@ export default function AdminDashboard() {
           {tab === "performance" && <PerformanceMonitor />}
           {tab === "shops" && <AdminShopsTab />}
           {tab === "categories" && <AdminCategoriesTab />}
+          {tab === "attributes" && <AdminAttributesTab />}
           {tab === "delivery" && <AdminDeliveryTab />}
           {tab === "delivery-pricing" && <AdminDeliveryPricingTab />}
           {tab === "cancellations" && <AdminCancellationsTab />}

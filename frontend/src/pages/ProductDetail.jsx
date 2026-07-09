@@ -69,6 +69,15 @@ export default function ProductDetail() {
     }).catch(() => {});
   }, [user, product]);
 
+  // Iter 33 — dynamic attribute display (labels from category attribute defs)
+  const [attrDefs, setAttrDefs] = useState([]);
+  useEffect(() => {
+    if (!product?.category_id) { setAttrDefs([]); return; }
+    api.get(`/categories/${product.category_id}/attributes`)
+      .then((r) => setAttrDefs(r.data?.attributes || []))
+      .catch(() => setAttrDefs([]));
+  }, [product?.category_id]);
+
   if (!product) {
     return (
       <div className="min-h-screen flex flex-col">
@@ -138,6 +147,19 @@ export default function ProductDetail() {
       setSubmitting(false);
     }
   };
+
+  // Iter 33 — dynamic attribute display (labels from category attribute defs)
+  const attrDefByKey = {};
+  attrDefs.forEach((d) => { attrDefByKey[d.key] = d; });
+  const attrEntries = Object.entries(product?.attributes || {})
+    .filter(([, v]) => v !== "" && v != null && !(Array.isArray(v) && !v.length))
+    .map(([k, v]) => {
+      const d = attrDefByKey[k];
+      let text = Array.isArray(v) ? v.join(", ") : typeof v === "boolean" ? (v ? "Yes" : "No") : String(v);
+      if (d?.unit) text = `${text} ${d.unit}`;
+      const label = d?.name || k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+      return { key: k, label, text };
+    });
 
   // Build "specs" from description (split by sentence/period for display)
   const specsFromDesc = (product.description || "")
@@ -326,6 +348,12 @@ export default function ProductDetail() {
             <h2 className="font-display font-semibold text-xl text-[var(--js-text)]">Specifications</h2>
             <ul className="mt-3 space-y-2 text-sm">
               <li className="flex justify-between gap-2"><span className="text-[var(--js-text-secondary)]">Category</span><span className="font-semibold text-right">{product.category}</span></li>
+              {attrEntries.map((a) => (
+                <li key={a.key} className="flex justify-between gap-2" data-testid={`product-attr-${a.key}`}>
+                  <span className="text-[var(--js-text-secondary)]">{a.label}</span>
+                  <span className="font-semibold text-right">{a.text}</span>
+                </li>
+              ))}
               <li className="flex justify-between gap-2"><span className="text-[var(--js-text-secondary)]">Type</span><span className="font-semibold text-right">{isWholesale ? "Wholesale" : "Retail"}</span></li>
               {isWholesale && <li className="flex justify-between gap-2"><span className="text-[var(--js-text-secondary)]">Min order</span><span className="font-semibold text-right">{minQty}</span></li>}
               <li className="flex justify-between gap-2"><span className="text-[var(--js-text-secondary)]">Stock</span><span className="font-semibold text-right">{product.stock ?? "—"}</span></li>

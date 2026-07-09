@@ -15,6 +15,8 @@ import PasswordChangeForm from "@/components/PasswordChangeForm";
 import SellerOnboardingCard from "@/components/SellerOnboardingCard";
 import SellerFirstLoginWizard from "@/components/SellerFirstLoginWizard";
 import SellerDashboardTour from "@/components/SellerDashboardTour";
+import CategoryTreeSelect from "@/components/CategoryTreeSelect";
+import AttributeFieldsEditor from "@/components/AttributeFieldsEditor";
 import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle, ExternalLink, MessageCircle, Mail, Phone, ChefHat, Wallet, MapPin, Upload, TrendingUp, PackageCheck, GraduationCap, Printer } from "lucide-react";
 import { useSearchParams, Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -732,6 +734,7 @@ function ProductsTab({ currency, exchangeRate }) {
       sides_max_choices: null,
       menu_section_id: "",
       promo: { active: false, type: "percent", value: 0, starts_at: "", ends_at: "" },
+      attributes: {},  // Iter 33 — dynamic attribute values
     };
   }
 
@@ -870,6 +873,7 @@ function ProductsTab({ currency, exchangeRate }) {
       pricing_tiers: p.pricing_tiers || [],
       product_section_id: p.product_section_id || "",
       promo: p.promo || { active: false, type: "percent", value: 0, starts_at: "", ends_at: "" },
+      attributes: p.attributes || {},
     });
     setShowForm(true);
   };
@@ -891,6 +895,7 @@ function ProductsTab({ currency, exchangeRate }) {
       sides_max_choices: m.sides_max_choices ?? null,
       menu_section_id: m.menu_section_id || "",
       promo: m.promo || { active: false, type: "percent", value: 0, starts_at: "", ends_at: "" },
+      attributes: m.attributes || {},
     });
     setShowForm(true);
   };
@@ -923,6 +928,7 @@ function ProductsTab({ currency, exchangeRate }) {
             starts_at: form.promo.starts_at || null,
             ends_at: form.promo.ends_at || null,
           } : { active: false, type: "percent", value: 0, bogo_min_qty: 2, starts_at: null, ends_at: null },
+          attributes: form.attributes || {},
         };
         if (editing?.kind === "menu") await api.put(`/menu-items/${editing.id}`, payload);
         else await api.post("/menu-items", payload);
@@ -952,6 +958,7 @@ function ProductsTab({ currency, exchangeRate }) {
             starts_at: form.promo.starts_at || null,
             ends_at: form.promo.ends_at || null,
           } : { active: false, type: "percent", value: 0, bogo_min_qty: 2, starts_at: null, ends_at: null },
+          attributes: form.attributes || {},
         };
         if (editing?.kind === "product") await api.put(`/products/${editing.id}`, payload);
         else await api.post("/products", payload);
@@ -1162,52 +1169,21 @@ function ProductsTab({ currency, exchangeRate }) {
             {mode === "restaurant" ? (
               <>
                 <Input label="Food name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required testId="product-name-input" />
-                {(() => {
-                  // Get available main restaurant categories (parent categories)
-                  const mainCategoryIds = Object.keys(restaurantCategoriesMap);
-                  
-                  if (mainCategoryIds.length === 0) {
-                    return (
-                      <div className="block">
-                        <span className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Food category</span>
-                        <div className="js-input text-[#A3A39E] italic">
-                          No Categories! :C
-                        </div>
-                      </div>
-                    );
-                  }
-                  
-                  // Build options array: [{value: id, label: name}, ...]
-                  const options = mainCategoryIds.map(id => ({
-                    value: id,
-                    label: restaurantCategoriesMap[id].name
-                  }));
-                  
-                  return (
-                    <div>
-                      <span className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Food category</span>
-                      <select 
-                        value={form.category_id_menu} 
-                        onChange={(e) => {
-                          const selectedId = e.target.value;
-                          const selectedCat = restaurantCategoriesMap[selectedId];
-                          setForm({ 
-                            ...form, 
-                            category_id_menu: selectedId,
-                            food_category: selectedCat ? selectedCat.name : ""
-                          });
-                        }}
-                        className="js-input w-full"
-                        data-testid="food-category-select"
-                        required
-                      >
-                        {options.map(opt => (
-                          <option key={opt.value} value={opt.value}>{opt.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                  );
-                })()}
+                {/* Iter 33 — hierarchical restaurant category selector */}
+                <CategoryTreeSelect
+                  group="restaurant"
+                  value={form.category_id_menu}
+                  onChange={(id, pathName) => setForm({ ...form, category_id_menu: id, food_category: pathName, attributes: id === form.category_id_menu ? form.attributes : {} })}
+                  testIdPrefix="food-category"
+                />
+                {/* Iter 33 — dynamic category attributes */}
+                {form.category_id_menu && (
+                  <AttributeFieldsEditor
+                    categoryId={form.category_id_menu}
+                    values={form.attributes}
+                    onChange={(v) => setForm({ ...form, attributes: v })}
+                  />
+                )}
                 <Input label="Price (USD)" type="number" step="0.01" value={form.price_usd} onChange={(v) => setForm({ ...form, price_usd: v })} required testId="product-price-input" />
                 <Input label="Prep time (minutes)" type="number" min="1" step="1" value={form.prep_time_minutes} onChange={(v) => setForm({ ...form, prep_time_minutes: v })} testId="menu-prep-time-input" placeholder="e.g. 15" />
                 <ImageUpload label="Food photo" value={form.image_url} onChange={(v) => setForm({ ...form, image_url: v })} testId="product-image-upload" />
@@ -1232,128 +1208,23 @@ function ProductsTab({ currency, exchangeRate }) {
             ) : (
               <>
                 <Input label="Name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required testId="product-name-input" />
-                
-                {/* Dynamic category with sub-categories */}
-                {(() => {
-                  // Determine which categories map to use based on mode
-                  const isWholesale = mode === "wholesale";
-                  const categoriesMap = isWholesale ? wholesaleCategoriesMap : retailCategoriesMap;
-                  
-                  const parentCategoryIds = Object.keys(categoriesMap);
-                  
-                  if (parentCategoryIds.length === 0) {
-                    return (
-                      <div className="block">
-                        <span className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Category</span>
-                        <div className="js-input text-[#A3A39E] italic">
-                          No Categories! :C
-                        </div>
-                      </div>
-                    );
-                  }
-                  
-                  // Find which parent this category_id belongs to
-                  let selectedParentId = "";
-                  let selectedChildId = "";
-                  
-                  for (const parentId of parentCategoryIds) {
-                    const parent = categoriesMap[parentId];
-                    if (parent.id === form.category_id) {
-                      selectedParentId = parentId;
-                      break;
-                    }
-                    const child = parent.children.find(c => c.id === form.category_id);
-                    if (child) {
-                      selectedParentId = parentId;
-                      selectedChildId = child.id;
-                      break;
-                    }
-                  }
-                  
-                  // If no match found, default to first parent
-                  if (!selectedParentId && parentCategoryIds.length > 0) {
-                    selectedParentId = parentCategoryIds[0];
-                  }
-                  
-                  const currentParent = categoriesMap[selectedParentId];
-                  const hasChildren = currentParent && currentParent.children.length > 0;
-                  
-                  // If has children and no child selected, default to first child
-                  if (hasChildren && !selectedChildId) {
-                    selectedChildId = currentParent.children[0].id;
-                  }
-                  
-                  // Build parent options
-                  const parentOptions = parentCategoryIds.map(id => ({
-                    value: id,
-                    label: categoriesMap[id].name
-                  }));
-                  
-                  // Build child options for selected parent
-                  const childOptions = currentParent && currentParent.children.length > 0 
-                    ? currentParent.children.map(c => ({ value: c.id, label: c.name }))
-                    : [];
-                  
-                  return (
-                    <>
-                      <div>
-                        <span className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Category</span>
-                        <select
-                          value={selectedParentId}
-                          onChange={(e) => {
-                            const newParentId = e.target.value;
-                            const newParent = categoriesMap[newParentId];
-                            // If has children, select first child; otherwise select parent
-                            const newCatId = newParent.children.length > 0 
-                              ? newParent.children[0].id 
-                              : newParent.id;
-                            const newCatName = newParent.children.length > 0
-                              ? `${newParent.name} > ${newParent.children[0].name}`
-                              : newParent.name;
-                            setForm({ 
-                              ...form, 
-                              category_id: newCatId,
-                              category: newCatName
-                            });
-                          }}
-                          className="js-input w-full"
-                          data-testid="product-cat-select"
-                          required
-                        >
-                          {parentOptions.map(opt => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                          ))}
-                        </select>
-                      </div>
-                      
-                      {hasChildren && childOptions.length > 0 && (
-                        <div>
-                          <span className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">Sub-category</span>
-                          <select
-                            value={selectedChildId || childOptions[0].value}
-                            onChange={(e) => {
-                              const newChildId = e.target.value;
-                              const child = currentParent.children.find(c => c.id === newChildId);
-                              setForm({ 
-                                ...form, 
-                                category_id: newChildId,
-                                category: `${currentParent.name} > ${child.name}`
-                              });
-                            }}
-                            className="js-input w-full"
-                            data-testid="product-subcat-select"
-                            required
-                          >
-                            {childOptions.map(opt => (
-                              <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
-                
+
+                {/* Iter 33 — hierarchical category selector (unlimited depth) */}
+                <CategoryTreeSelect
+                  group={mode === "wholesale" ? "wholesale" : "retail"}
+                  value={form.category_id}
+                  onChange={(id, pathName) => setForm({ ...form, category_id: id, category: pathName, attributes: id === form.category_id ? form.attributes : {} })}
+                  testIdPrefix="product-cat"
+                />
+                {/* Iter 33 — dynamic category attributes */}
+                {form.category_id && (
+                  <AttributeFieldsEditor
+                    categoryId={form.category_id}
+                    values={form.attributes}
+                    onChange={(v) => setForm({ ...form, attributes: v })}
+                  />
+                )}
+
                 <div className="grid grid-cols-2 gap-3">
                   <Input label="Price (USD)" type="number" step="0.01" value={form.price_usd} onChange={(v) => setForm({ ...form, price_usd: v })} required testId="product-price-input" />
                   <Input label="Stock" type="number" value={form.stock} onChange={(v) => setForm({ ...form, stock: v })} testId="product-stock-input" />

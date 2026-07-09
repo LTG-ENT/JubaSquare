@@ -17,6 +17,8 @@ import {
   FolderTree,
   Tag,
   Loader2,
+  GripVertical,
+  AlertTriangle,
 } from "lucide-react";
 
 const GROUPS = [
@@ -25,12 +27,23 @@ const GROUPS = [
   { id: "restaurant", label: "Restaurants" },
 ];
 
+// Iter 33 — drag-and-drop: which zone of a row the cursor is over.
+const zoneFromEvent = (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  const y = e.clientY - r.top;
+  if (y < r.height * 0.3) return "before";
+  if (y > r.height * 0.7) return "after";
+  return "into";
+};
+
 export default function AdminCategoriesTab() {
   const [group, setGroup] = useState("retail");
   const [tree, setTree] = useState([]);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState({}); // {parentId: true}
   const [editor, setEditor] = useState(null); // {mode:'add-top'|'add-sub'|'edit', parent_id?, category?}
+  const [dragId, setDragId] = useState(null); // Iter 33 — DnD source category id
+  const [dragOver, setDragOver] = useState(null); // {id, zone: 'before'|'after'|'into'}
 
   const load = async () => {
     setLoading(true);
@@ -57,6 +70,62 @@ export default function AdminCategoriesTab() {
   }, [tree]);
 
   const toggleExpanded = (id) => setExpanded((e) => ({ ...e, [id]: !e[id] }));
+
+  // Iter 33 — depth linter: warn when any subtree exceeds 3 levels (depth ≥ 3).
+  const maxDepth = useMemo(() => {
+    let max = 0;
+    const walk = (nodes, d) => (nodes || []).forEach((n) => {
+      if (d > max) max = d;
+      if (n.children?.length) walk(n.children, d + 1);
+    });
+    walk(tree, 0);
+    return max;
+  }, [tree]);
+
+  // Iter 33 — drop onto a row. zone 'into' = become child; 'before'/'after' =
+  // reorder among (and move to) the target's siblings.
+  const handleDropOnNode = async (targetNode, targetParentId, targetSiblings, zone) => {
+    const src = dragId;
+    setDragId(null);
+    setDragOver(null);
+    if (!src || src === targetNode.id) return;
+    try {
+      if (zone === "into") {
+        await api.post(`/admin/categories/${src}/move`, { parent_id: targetNode.id });
+        toast.success(`Moved under "${targetNode.name}"`);
+      } else {
+        const sameParent = targetSiblings.some((s) => s.id === src);
+        if (!sameParent) {
+          await api.post(`/admin/categories/${src}/move`, { parent_id: targetParentId });
+        }
+        const ids = targetSiblings.map((s) => s.id).filter((id) => id !== src);
+        const idx = ids.indexOf(targetNode.id);
+        ids.splice(zone === "before" ? idx : idx + 1, 0, src);
+        await api.post("/admin/categories/reorder", { group, parent_id: targetParentId, ids });
+        toast.success(sameParent ? "Reordered" : "Category moved");
+      }
+      await load();
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail || err.message));
+      await load();
+    }
+  };
+
+  const handleDropToRoot = async () => {
+    const src = dragId;
+    setDragId(null);
+    setDragOver(null);
+    if (!src) return;
+    try {
+      await api.post(`/admin/categories/${src}/move`, { parent_id: null });
+      toast.success("Moved to top level");
+      await load();
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail || err.message));
+    }
+  };
+
+  const dnd = { dragId, dragOver, setDragId, setDragOver, handleDropOnNode };
 
   const moveCategory = async (parentId, list, fromIdx, dir) => {
     const toIdx = fromIdx + dir;
@@ -144,6 +213,28 @@ export default function AdminCategoriesTab() {
         </span>
       </div>
 
+      {/* Iter 33 — depth linter banner */}
+      {maxDepth >= 3 && (
+        <div
+          className="flex items-start gap-3 bg-amber-50 border border-amber-300 text-amber-900 rounded-2xl px-4 py-3"
+          data-testid="cat-depth-warning"
+        >
+          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+          <div className="text-sm">
+            <p className="font-bold">This category structure is deeper than recommended (more than 3 levels).</p>
+            <p className="text-xs mt-0.5">
+              Categories should describe <em>what a product is</em>. For characteristics like
+              Brand, Size, Storage or Material, use <strong>Attributes</strong> (Admin → Attributes tab)
+              — they automatically become customer filters.
+            </p>
+          </div>
+        </div>
+      )}
+
+      <p className="text-[11px] text-[var(--js-text-secondary)]">
+        Tip: drag any row to reorder it, or drop it onto another category to nest it inside.
+      </p>
+
       {/* Tree */}
       <div className="bg-white border border-[var(--js-border)] rounded-2xl overflow-hidden">
         {loading ? (
@@ -199,7 +290,8 @@ export default function AdminCategoriesTab() {
  */
 const MAX_UI_DEPTH = 4; // matches backend MAX_CATEGORY_DEPTH - 1
 
-function CategoryNode({
+function CategoryNode(props) { return CategoryNodeInner(props); }
+function CategoryNodeInner({
   node,
   depth,
   siblings,
@@ -211,6 +303,7 @@ function CategoryNode({
   toggleActive,
   deleteCategory,
   moveCategory,
+  dnd,
 }) {
   const isRoot = depth === 0;
   const hasChildren = !!node.children?.length;
@@ -230,6 +323,9 @@ function CategoryNode({
       onToggleActive={() => toggleActive(node)}
       onDelete={() => deleteCategory(node)}
       depth={depth}
+      dnd={dnd}
+      parentId={parentId}
+      siblings={siblings}
     >
       {hasChildren && expanded[node.id] && (
         <ul className="bg-[var(--js-bg)] border-t border-[var(--js-border)] divide-y divide-[var(--js-border)]">
@@ -247,6 +343,7 @@ function CategoryNode({
               toggleActive={toggleActive}
               deleteCategory={deleteCategory}
               moveCategory={moveCategory}
+              dnd={dnd}
             />
           ))}
         </ul>
@@ -270,16 +367,57 @@ function CategoryRow({
   onDelete,
   children,
   depth = 0,
+  dnd,
+  parentId,
+  siblings,
 }) {
   const childCount = cat.children?.length || 0;
   const canExpand = childCount > 0;
+  const over = dnd?.dragOver?.id === cat.id ? dnd.dragOver.zone : null;
   return (
     <li>
       <div
-        className={`flex items-center gap-3 px-4 sm:px-5 py-3 ${cat.is_active ? "" : "opacity-60"}`}
+        className={`flex items-center gap-3 px-4 sm:px-5 py-3 ${cat.is_active ? "" : "opacity-60"} ${
+          dnd?.dragId === cat.id ? "opacity-40" : ""
+        } ${over === "into" ? "ring-2 ring-inset ring-[#C84B31] bg-[#C84B31]/5" : ""} ${
+          over === "before" ? "shadow-[inset_0_3px_0_#C84B31]" : ""
+        } ${over === "after" ? "shadow-[inset_0_-3px_0_#C84B31]" : ""}`}
         style={{ paddingLeft: `${16 + depth * 20}px` }}
         data-testid={`cat-row-${cat.id}`}
+        draggable
+        onDragStart={(e) => {
+          e.stopPropagation();
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", cat.id);
+          dnd?.setDragId(cat.id);
+        }}
+        onDragEnd={() => {
+          dnd?.setDragId(null);
+          dnd?.setDragOver(null);
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!dnd?.dragId || dnd.dragId === cat.id) return;
+          const zone = zoneFromEvent(e);
+          if (dnd.dragOver?.id !== cat.id || dnd.dragOver?.zone !== zone) {
+            dnd.setDragOver({ id: cat.id, zone });
+          }
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dnd?.handleDropOnNode(cat, parentId, siblings, zoneFromEvent(e));
+        }}
       >
+        {/* Drag handle */}
+        <span
+          className="w-5 shrink-0 flex items-center justify-center text-[var(--js-text-secondary)] cursor-grab active:cursor-grabbing"
+          data-testid={`cat-drag-${cat.id}`}
+          title="Drag to move / reorder"
+        >
+          <GripVertical className="w-4 h-4" />
+        </span>
         {/* Expand toggle — shown at every depth when the node has children */}
         {canExpand ? (
           <button

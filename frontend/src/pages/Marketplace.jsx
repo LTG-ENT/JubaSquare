@@ -8,6 +8,7 @@ import WholesaleCard from "@/components/WholesaleCard";
 import AreaSelector from "@/components/AreaSelector";
 import BadgeFilterBar from "@/components/BadgeFilterBar";
 import CategoryBreadcrumb from "@/components/CategoryBreadcrumb";
+import AttributeFilterPanel from "@/components/AttributeFilterPanel";
 import { cachedGet } from "@/lib/cachedGet";
 import { useCart } from "@/context/CartContext";
 import { Search, X, Package, ChevronRight, ChevronDown } from "lucide-react";
@@ -26,6 +27,7 @@ export default function Marketplace() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState(searchParams.get("q") || "");
   const [showMobileCats, setShowMobileCats] = useState(false); // Iter 31
+  const [attrFilters, setAttrFilters] = useState({}); // Iter 33 — {attrKey: [values]}
 
   // Iter 31 — sync ?q= URL param with local search state so the header
   // "See all results" jumps to /marketplace?q=<query> land pre-filtered.
@@ -43,6 +45,11 @@ export default function Marketplace() {
   const selectedCategoryId = searchParams.get("category_id") || "";
   const selectedCategoryLegacy = searchParams.get("category") || "";
   const selectedShop = searchParams.get("shop") || "";
+
+  // Iter 33 — reset attribute filters when the category changes
+  useEffect(() => {
+    setAttrFilters({});
+  }, [selectedCategoryId]);
 
   useEffect(() => {
     api.get("/shops?limit=200")
@@ -76,9 +83,11 @@ export default function Marketplace() {
 
   useEffect(() => {
     const params = {};
-    // PRIMARY: Use category_id for filtering
+    // PRIMARY: Use category_id for filtering. Iter 33 — parent categories
+    // include products from their whole subtree.
     if (selectedCategoryId) {
       params.category_id = selectedCategoryId;
+      params.include_descendants = "true";
     } 
     // LEGACY: Fall back to category name if category_id not present
     else if (selectedCategoryLegacy) {
@@ -345,17 +354,37 @@ export default function Marketplace() {
                           {c.children.map((sub) => {
                             const subSlug = sub.name.replace(/\s+/g, "-").toLowerCase();
                             const subSelected = selectedCategoryId === sub.id;
+                            const subKids = sub.children || [];
+                            const subOpen = subSelected || subKids.some((k) => k.id === selectedCategoryId);
                             return (
-                              <button
-                                key={sub.id}
-                                onClick={() => setCategory(sub.id)}
-                                data-testid={`subcategory-filter-${subSlug}`}
-                                className={`text-left px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-                                  subSelected
-                                    ? "bg-[#C84B31] text-white"
-                                    : "text-[var(--js-text-secondary)] hover:bg-[var(--js-subtle)] hover:text-[var(--js-text)]"
-                                }`}
-                              >{sub.name}</button>
+                              <div key={sub.id}>
+                                <button
+                                  onClick={() => setCategory(sub.id)}
+                                  data-testid={`subcategory-filter-${subSlug}`}
+                                  className={`w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                                    subSelected
+                                      ? "bg-[#C84B31] text-white"
+                                      : "text-[var(--js-text-secondary)] hover:bg-[var(--js-subtle)] hover:text-[var(--js-text)]"
+                                  }`}
+                                >{sub.name}</button>
+                                {/* Iter 33 — 3rd level (sub-sub-categories) */}
+                                {subKids.length > 0 && subOpen && (
+                                  <div className="mt-0.5 ml-3 pl-2 border-l border-[var(--js-border)] flex flex-col gap-0.5">
+                                    {subKids.map((leaf) => (
+                                      <button
+                                        key={leaf.id}
+                                        onClick={() => setCategory(leaf.id)}
+                                        data-testid={`subsubcategory-filter-${leaf.name.replace(/\s+/g, "-").toLowerCase()}`}
+                                        className={`text-left px-2.5 py-1 rounded-lg text-[11px] font-medium transition ${
+                                          selectedCategoryId === leaf.id
+                                            ? "bg-[#C84B31] text-white"
+                                            : "text-[var(--js-text-secondary)] hover:bg-[var(--js-subtle)]"
+                                        }`}
+                                      >{leaf.name}</button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
                             );
                           })}
                         </div>
@@ -366,9 +395,18 @@ export default function Marketplace() {
               </div>
             </div>
 
+            {/* Iter 33 — dynamic attribute filters for the selected category */}
+            {selectedCategoryId && (
+              <AttributeFilterPanel
+                categoryId={selectedCategoryId}
+                selected={attrFilters}
+                onChange={setAttrFilters}
+              />
+            )}
+
             {((selectedCategoryId || selectedCategoryLegacy) || selectedShop || search) && (
               <button
-                onClick={() => { setSearchParams({}); setSearch(""); }}
+                onClick={() => { setSearchParams({}); setSearch(""); setAttrFilters({}); }}
                 data-testid="clear-filters"
                 className="text-xs text-[#C84B31] font-bold flex items-center gap-1 hover:underline"
               >
@@ -452,15 +490,27 @@ export default function Marketplace() {
                     {c.name}
                   </button>
                   {(c.children || []).map((sub) => (
-                    <button
-                      key={sub.id}
-                      onClick={() => { setCategory(sub.id); setShowMobileCats(false); }}
-                      className={`w-full text-left px-6 py-2 rounded-xl text-xs font-medium ${
-                        selectedCategoryId === sub.id ? "bg-[#C84B31] text-white" : "text-[var(--js-text-secondary)] hover:bg-[var(--js-subtle)]"
-                      }`}
-                    >
-                      → {sub.name}
-                    </button>
+                    <div key={sub.id}>
+                      <button
+                        onClick={() => { setCategory(sub.id); setShowMobileCats(false); }}
+                        className={`w-full text-left px-6 py-2 rounded-xl text-xs font-medium ${
+                          selectedCategoryId === sub.id ? "bg-[#C84B31] text-white" : "text-[var(--js-text-secondary)] hover:bg-[var(--js-subtle)]"
+                        }`}
+                      >
+                        → {sub.name}
+                      </button>
+                      {(sub.children || []).map((leaf) => (
+                        <button
+                          key={leaf.id}
+                          onClick={() => { setCategory(leaf.id); setShowMobileCats(false); }}
+                          className={`w-full text-left px-9 py-1.5 rounded-xl text-[11px] font-medium ${
+                            selectedCategoryId === leaf.id ? "bg-[#C84B31] text-white" : "text-[var(--js-text-secondary)] hover:bg-[var(--js-subtle)]"
+                          }`}
+                        >
+                          →→ {leaf.name}
+                        </button>
+                      ))}
+                    </div>
                   ))}
                 </div>
               ))}

@@ -9,7 +9,7 @@ import uuid
 import logging
 import json
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional, Literal, Dict
+from typing import List, Optional, Literal, Dict, Any
 
 import bcrypt
 import jwt
@@ -41,6 +41,7 @@ async def _seller_manages_delivery_for(shop=None, restaurant=None) -> bool:
     sysettings = await db.settings.find_one({"id": "system"}, {"_id": 0}) or {}
     return not bool(sysettings.get("admin_manages_delivery", False))
 import odoo_routes
+import attributes_routes
 import storage
 from pages_seed import PAGES_DEFAULT, PAGE_SLUGS
 from footer_seed import FOOTER_DEFAULT
@@ -769,6 +770,9 @@ class ProductIn(BaseModel):
     # boosts the product to the top of /api/products lists in addition to
     # any shop-level LTG boost.
     is_ltg_partner: bool = False
+    # Iter 33 — Dynamic attribute values keyed by attribute `key`
+    # (validated server-side against the category's effective attributes).
+    attributes: Dict[str, Any] = Field(default_factory=dict)
 
 
 class SideItem(BaseModel):
@@ -862,6 +866,8 @@ class MenuItemIn(BaseModel):
     menu_section_id: Optional[str] = None
     # Iter 27 — Time-limited promotional discount.
     promo: Optional[Promo] = None
+    # Iter 33 — Dynamic attribute values keyed by attribute `key`.
+    attributes: Dict[str, Any] = Field(default_factory=dict)
 
 
 class OrderItemIn(BaseModel):
@@ -1729,16 +1735,18 @@ async def _categories_query(group: Optional[str], active_only: bool) -> list:
 
 
 def _build_tree(flat: list) -> list:
-    """Group sub-categories under parents. 1-level deep only."""
+    """Group sub-categories under parents, RECURSIVELY (Iter 33 fix — the old
+    version only attached 1 level, so grandchildren were dropped from every
+    tree endpoint)."""
     by_parent = {}
     for c in flat:
         by_parent.setdefault(c.get("parent_id"), []).append(c)
-    tops = by_parent.get(None, [])
-    out = []
-    for top in tops:
-        children = by_parent.get(top["id"], [])
-        out.append({**top, "children": children})
-    return out
+
+    def _attach(node, guard=0):
+        kids = by_parent.get(node["id"], []) if guard < 10 else []
+        return {**node, "children": [_attach(k, guard + 1) for k in kids]}
+
+    return [_attach(t) for t in by_parent.get(None, [])]
 
 
 @api.get("/meta/categories")
@@ -2832,17 +2840,26 @@ async def list_products(category_id: Optional[str] = None, category: Optional[st
                         # Iter 30 Wave 2 — badge filters
                         ltg: Optional[bool] = None,
                         deals: Optional[bool] = None,
+                        # Iter 33 — category-aware search + attribute filters
+                        include_descendants: Optional[bool] = None,
+                        attrs: Optional[str] = None,
                         limit: Optional[int] = None, skip: Optional[int] = None):
     """
     List products with filtering.
     PRIMARY FILTER: category_id (UUID from categories table)
+    include_descendants=true expands the filter to the whole category subtree.
+    attrs is a JSON object of {attribute_key: value | [values]} filters.
     DEPRECATED: category (string name, kept for backward compat only)
     """
     lim, off = clamp_pagination(limit, skip)
     q: dict = {}
     # PRIMARY: filter by category_id (single source of truth)
     if category_id:
-        q["category_id"] = category_id
+        if include_descendants:
+            _desc = await db.categories.find({"path": category_id}, {"_id": 0, "id": 1}).to_list(2000)
+            q["category_id"] = {"$in": [category_id] + [d["id"] for d in _desc]}
+        else:
+            q["category_id"] = category_id
     # DEPRECATED: legacy category name filter (backward compat only)
     elif category:
         q["category"] = category
@@ -2856,6 +2873,34 @@ async def list_products(category_id: Optional[str] = None, category: Optional[st
         # Live promo — Mongo can't compare against now for the date window,
         # so filter loosely here and re-check with promo_is_live below.
         q["promo.active"] = True
+    # Iter 33 — dynamic attribute filters, e.g. attrs={"brand":["Samsung"]}
+    if attrs:
+        try:
+            _af = json.loads(attrs)
+        except Exception:
+            _af = None
+        if isinstance(_af, dict):
+            for _k, _v in list(_af.items())[:20]:
+                _k = re.sub(r"[^a-zA-Z0-9_]", "", str(_k))[:64]
+                if not _k:
+                    continue
+                _vals = _v if isinstance(_v, list) else [_v]
+                _expanded = []
+                for _val in _vals[:25]:
+                    _expanded.append(_val)
+                    if isinstance(_val, str):
+                        _low = _val.strip().lower()
+                        if _low == "true":
+                            _expanded.append(True)
+                        elif _low == "false":
+                            _expanded.append(False)
+                        else:
+                            try:
+                                _expanded.append(float(_val))
+                            except ValueError:
+                                pass
+                if _expanded:
+                    q[f"attributes.{_k}"] = {"$in": _expanded}
     # Hide deactivated products from public listings (still queryable when caller
     # explicitly targets a single shop_id so the owner can manage them).
     if not shop_id:
@@ -3248,13 +3293,19 @@ async def create_product(body: ProductIn, user: dict = Depends(require_role("sel
     cat = await db.categories.find_one({"id": body.category_id})
     if not cat:
         raise HTTPException(400, f"Invalid category_id: {body.category_id}. Category does not exist.")
-    
+    if cat.get("group") == "restaurant":
+        raise HTTPException(400, "Products cannot use restaurant categories. Pick a retail/wholesale category.")
+
+    body_data = body.model_dump()
+    body_data["attributes"] = await attributes_routes.validate_attribute_values(
+        db, body.category_id, body_data.get("attributes") or {})
+
     product = {
         "id": str(uuid.uuid4()),
         "seller_id": shop["seller_id"],
         "shop_kind": shop.get("kind", "retail"),
         "created_at": now_iso(),
-        **body.model_dump(),
+        **body_data,
     }
     await db.products.insert_one(product)
     product.pop("_id", None)
@@ -3440,8 +3491,14 @@ async def update_product(product_id: str, body: ProductIn, user: dict = Depends(
     cat = await db.categories.find_one({"id": body.category_id})
     if not cat:
         raise HTTPException(400, f"Invalid category_id: {body.category_id}. Category does not exist.")
-    
-    await db.products.update_one({"id": product_id}, {"$set": body.model_dump()})
+    if cat.get("group") == "restaurant":
+        raise HTTPException(400, "Products cannot use restaurant categories. Pick a retail/wholesale category.")
+
+    body_data = body.model_dump()
+    body_data["attributes"] = await attributes_routes.validate_attribute_values(
+        db, body.category_id, body_data.get("attributes") or {})
+
+    await db.products.update_one({"id": product_id}, {"$set": body_data})
     return await db.products.find_one({"id": product_id}, {"_id": 0})
 
 
@@ -3901,12 +3958,16 @@ async def create_menu_item(body: MenuItemIn, user: dict = Depends(require_role("
         raise HTTPException(400, f"Invalid category_id: {body.category_id}. Category does not exist.")
     if cat.get("group") != "restaurant":
         raise HTTPException(400, f"Invalid category_id: {body.category_id}. Must be a restaurant/food category (group=restaurant).")
-    
+
+    body_data = body.model_dump()
+    body_data["attributes"] = await attributes_routes.validate_attribute_values(
+        db, body.category_id, body_data.get("attributes") or {})
+
     item = {
         "id": str(uuid.uuid4()),
         "seller_id": r["seller_id"],
         "created_at": now_iso(),
-        **body.model_dump(),
+        **body_data,
     }
     await db.menu_items.insert_one(item)
     item.pop("_id", None)
@@ -3927,8 +3988,12 @@ async def update_menu_item(item_id: str, body: MenuItemIn, user: dict = Depends(
         raise HTTPException(400, f"Invalid category_id: {body.category_id}. Category does not exist.")
     if cat.get("group") != "restaurant":
         raise HTTPException(400, f"Invalid category_id: {body.category_id}. Must be a restaurant/food category (group=restaurant).")
-    
-    await db.menu_items.update_one({"id": item_id}, {"$set": body.model_dump()})
+
+    body_data = body.model_dump()
+    body_data["attributes"] = await attributes_routes.validate_attribute_values(
+        db, body.category_id, body_data.get("attributes") or {})
+
+    await db.menu_items.update_one({"id": item_id}, {"$set": body_data})
     return await db.menu_items.find_one({"id": item_id}, {"_id": 0})
 
 
@@ -7705,6 +7770,12 @@ async def seed_production():
     await db.products.create_index([("promo.active", 1)])
     await db.menu_items.create_index([("restaurant_id", 1), ("is_deleted", 1)])
     await db.menu_items.create_index([("restaurant_id", 1), ("menu_section_id", 1)])
+    # Iter 33 — dynamic attribute system
+    await db.attributes.create_index("id", unique=True)
+    await db.attributes.create_index([("business_type", 1), ("is_active", 1)])
+    await db.attribute_groups.create_index("id", unique=True)
+    await db.products.create_index([("attributes.$**", 1)])
+    await db.menu_items.create_index([("attributes.$**", 1)])
     await db.menu_items.create_index([("promo.active", 1)])
     await db.shops.create_index([("seller_id", 1)])
     await db.shops.create_index([("verification", 1), ("is_deleted", 1)])
@@ -7876,6 +7947,14 @@ async def on_startup():
     app.include_router(odoo_webhook_router)
     app.include_router(odoo_admin_router)
     log.info("✅ Odoo integration routes registered")
+
+    # Iter 33 — Dynamic attribute system routes + one-time example seed
+    app.include_router(attributes_routes.create_attribute_routes(db, require_role))
+    try:
+        await attributes_routes.seed_example_attributes(db)
+    except Exception as exc:
+        log.warning(f"Attribute seed skipped: {exc}")
+    log.info("✅ Attribute routes registered")
     
     # Backfill existing shops/restaurants with default Odoo connection settings
     try:
