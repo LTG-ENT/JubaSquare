@@ -206,6 +206,19 @@ export default function Marketplace() {
   const shopForProduct = (p) => shops.find((s) => s.id === p.shop_id);
   const activeShop = selectedShop ? shops.find((s) => s.id === selectedShop) : null;
 
+  // Iter 33.4 — find selected category's display name from the tree (any depth)
+  const findCatName = (nodes, id) => {
+    for (const n of nodes || []) {
+      if (n.id === id) return n.name;
+      const child = findCatName(n.children, id);
+      if (child) return child;
+    }
+    return null;
+  };
+  const selectedCategoryName = selectedCategoryId
+    ? findCatName(categoryTree, selectedCategoryId) || null
+    : null;
+
   // Update to use category_id instead of category name
   const setCategory = (catId) => {
     const next = new URLSearchParams(searchParams);
@@ -289,10 +302,52 @@ export default function Marketplace() {
           </div>
         )}
 
-        {/* Iter 33.1 — active attribute filter chips (shareable via ?attrs=) */}
-        {Object.keys(attrFilters).length > 0 && (
-          <div className="mb-3">
-            <ActiveAttributeChips facets={facetDefs} selected={attrFilters} onChange={applyAttrFilters} />
+        {/* Iter 33.1 + 33.4 — unified active filter chip row. Includes
+             the selected category, "Deals only" and per-attribute chips.
+             Each chip removes only its own filter with one tap. */}
+        {(selectedCategoryName || selectedCategoryLegacy || dealsOnly || Object.keys(attrFilters).length > 0) && (
+          <div className="mb-3 flex flex-wrap items-center gap-2" data-testid="active-filter-chips">
+            {(selectedCategoryName || selectedCategoryLegacy) && (
+              <button
+                onClick={() => setCategory("")}
+                data-testid="active-chip-category"
+                title="Remove category filter"
+                className="inline-flex items-center gap-1.5 pl-3 pr-2 py-1.5 rounded-full bg-[#1A1A1A] text-white text-xs font-semibold hover:bg-[#C84B31] transition-colors"
+              >
+                <span className="opacity-70">Category:</span> {selectedCategoryName || selectedCategoryLegacy}
+                <X className="w-3 h-3" />
+              </button>
+            )}
+            {dealsOnly && (
+              <button
+                onClick={() => {
+                  const next = new URLSearchParams(searchParams);
+                  next.delete("deals");
+                  setSearchParams(next);
+                }}
+                data-testid="active-chip-deals"
+                title="Remove deals filter"
+                className="inline-flex items-center gap-1.5 pl-3 pr-2 py-1.5 rounded-full bg-[#C84B31] text-white text-xs font-semibold hover:bg-[#A83A23] transition-colors"
+              >
+                <span aria-hidden>🔥</span> Deals only
+                <X className="w-3 h-3" />
+              </button>
+            )}
+            {Object.keys(attrFilters).length > 0 && (
+              <ActiveAttributeChips facets={facetDefs} selected={attrFilters} onChange={applyAttrFilters} />
+            )}
+            {/* Universal clear-all */}
+            {((selectedCategoryName || selectedCategoryLegacy ? 1 : 0)
+              + (dealsOnly ? 1 : 0)
+              + Object.values(attrFilters).reduce((s, v) => s + (Array.isArray(v) ? v.length : 0), 0)) > 1 && (
+              <button
+                onClick={() => { setSearchParams({}); setAttrFilters({}); }}
+                data-testid="active-chips-clear-all"
+                className="text-xs font-bold text-[#C84B31] hover:underline"
+              >
+                Clear all
+              </button>
+            )}
           </div>
         )}
 
