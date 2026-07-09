@@ -73,8 +73,15 @@ export default function SearchButton() {
 
       {/* Search Modal */}
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 backdrop-blur-sm">
-          <div className="w-full max-w-2xl mx-4 mt-20 bg-white rounded-2xl shadow-2xl overflow-hidden">
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 backdrop-blur-sm"
+          onClick={() => setIsOpen(false)}
+          data-testid="search-modal-backdrop"
+        >
+          <div
+            className="w-full max-w-2xl mx-4 mt-20 bg-white rounded-2xl shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Search Input */}
             <div className="relative border-b border-[var(--js-border)]">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--js-text-secondary)]" />

@@ -291,3 +291,11 @@ See `/app/memory/test_credentials.md` — admin + demo seller (Iter 33).
 - IMPORTANT: filters only appear when products/menu items actually HAVE attribute values. Production catalog has none yet — sellers/Odoo must fill them.
 - Demo data in preview: "Attr Demo Kitchen" restaurant (2 menu items with attributes) added alongside "Attr Demo Electronics" shop, owned by seller-attrtest@jubasquare.com.
 - All three fixes screenshot-verified in preview. NOT yet redeployed to production at time of writing.
+
+
+## Iteration 33.3 (Jul 2026) — UX polish: sidebar layout, search dismiss, homepage→marketplace linking
+- Homepage category cards now navigate with `?category_id=<uuid>` (was `?category=<name>`) so the Marketplace sidebar highlights the correct node and the tree-based product filter matches by category id (breadcrumb also renders).
+- Marketplace sidebar: Categories is now a **collapsible** section (collapsed by default via `sidebar-categories-toggle`) so attribute filters are visible above the fold. Auto-expands when a category is preselected via URL. Removed the redundant "Filters" wrapper heading (AttributeFilterPanel provides its own).
+- `SearchButton.jsx` (header search modal on desktop): clicking the backdrop now closes the modal (`onClick` on backdrop + `stopPropagation` on inner panel). Backdrop has `data-testid="search-modal-backdrop"`.
+- `GlobalSearch.jsx` (mobile menu search): hardened outside-click with capture-phase `pointerdown`+`touchstart` handlers, auto-close on route change, and input blur on dismiss.
+- All three verified via Playwright: backdrop-click closes modal, category-card navigates with category_id, sidebar auto-expands.

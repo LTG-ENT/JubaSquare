@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Search, X, UtensilsCrossed, Store, Package } from "lucide-react";
 import api from "@/lib/api";
 
@@ -17,11 +17,13 @@ import api from "@/lib/api";
  */
 export default function GlobalSearch() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [q, setQ] = useState("");
   const [results, setResults] = useState({ restaurants: [], shops: [], products: [] });
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const boxRef = useRef(null);
+  const inputRef = useRef(null);
   const timerRef = useRef(null);
 
   // Debounced fetch — 250ms, slightly slower for less request volume.
@@ -42,14 +44,27 @@ export default function GlobalSearch() {
     return () => timerRef.current && clearTimeout(timerRef.current);
   }, [q]);
 
-  // Click-outside to close
+  // Click-outside to close — capture-phase to run before other handlers,
+  // handles pointer/touch so mobile also works reliably.
   useEffect(() => {
-    const onClick = (e) => {
-      if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false);
+    const onOutside = (e) => {
+      if (boxRef.current && !boxRef.current.contains(e.target)) {
+        setOpen(false);
+        if (inputRef.current) inputRef.current.blur();
+      }
     };
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
+    document.addEventListener("pointerdown", onOutside, true);
+    document.addEventListener("touchstart", onOutside, true);
+    return () => {
+      document.removeEventListener("pointerdown", onOutside, true);
+      document.removeEventListener("touchstart", onOutside, true);
+    };
   }, []);
+
+  // Close dropdown whenever the route changes (e.g. clicking a nav link).
+  useEffect(() => {
+    setOpen(false);
+  }, [location.pathname, location.search]);
 
   const go = (path) => {
     setOpen(false);
@@ -76,6 +91,7 @@ export default function GlobalSearch() {
       <div className="relative">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-white/60 pointer-events-none" />
         <input
+          ref={inputRef}
           type="search"
           value={q}
           onChange={(e) => { setQ(e.target.value); setOpen(true); }}

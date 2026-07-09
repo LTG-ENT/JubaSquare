@@ -39,6 +39,16 @@ export default function Marketplace() {
   };
   const [attrFilters, setAttrFilters] = useState(() => parseAttrsParam(searchParams)); // {attrKey: [values]}
   const [facetDefs, setFacetDefs] = useState([]); // Iter 33.1 — key→name lookup for chips
+  const [catsOpen, setCatsOpen] = useState(false); // Sidebar Categories collapsed by default
+
+  // If a category is preselected via URL, expand the sidebar Categories section
+  // so users can see their current selection in context.
+  useEffect(() => {
+    if (searchParams.get("category_id") || searchParams.get("category")) {
+      setCatsOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Iter 31 — sync ?q= URL param with local search state so the header
   // "See all results" jumps to /marketplace?q=<query> land pre-filtered.
@@ -329,7 +339,21 @@ export default function Marketplace() {
             </div>
 
             <div>
-              <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--js-text-secondary)] font-bold mb-3">Categories</p>
+              <button
+                type="button"
+                onClick={() => setCatsOpen((v) => !v)}
+                data-testid="sidebar-categories-toggle"
+                className="w-full flex items-center justify-between mb-3 group"
+                aria-expanded={catsOpen}
+              >
+                <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--js-text-secondary)] font-bold group-hover:text-[var(--js-text)] transition">Categories</span>
+                {catsOpen ? (
+                  <ChevronDown className="w-4 h-4 text-[var(--js-text-secondary)]" />
+                ) : (
+                  <ChevronRight className="w-4 h-4 text-[var(--js-text-secondary)]" />
+                )}
+              </button>
+              {catsOpen && (
               <div className="flex flex-col gap-1">
                 <button
                   onClick={() => {
@@ -426,6 +450,7 @@ export default function Marketplace() {
                   );
                 })}
               </div>
+              )}
             </div>
 
             {/* Iter 33 — dynamic attribute filters. Category-specific when a

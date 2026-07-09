@@ -96,8 +96,8 @@ export default function Home() {
   const shopCategories = [...new Set(shops.map((s) => s.category))].filter(Boolean);
   const categories =
     retailCats.length > 0
-      ? retailCats.map((c) => ({ name: c.name, image_url: c.image_url || CATEGORY_ICONS[c.name] || "" }))
-      : shopCategories.map((name) => ({ name, image_url: CATEGORY_ICONS[name] || "" }));
+      ? retailCats.map((c) => ({ id: c.id, name: c.name, image_url: c.image_url || CATEGORY_ICONS[c.name] || "" }))
+      : shopCategories.map((name) => ({ id: null, name, image_url: CATEGORY_ICONS[name] || "" }));
   const productsByShop = (shopId) =>
     allProducts
       .filter((p) => p.shop_id === shopId && p.image_url)
@@ -214,8 +214,8 @@ export default function Home() {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
           {categories.map((cat) => (
             <Link
-              key={cat.name}
-              to={`/marketplace?category=${encodeURIComponent(cat.name)}`}
+              key={cat.id || cat.name}
+              to={cat.id ? `/marketplace?category_id=${cat.id}` : `/marketplace?category=${encodeURIComponent(cat.name)}`}
               data-testid={`category-card-${cat.name.replace(/\s+/g, "-").toLowerCase()}`}
               className="js-card overflow-hidden flex flex-col hover:-translate-y-1 hover:shadow-xl transition-all duration-300"
             >
