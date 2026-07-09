@@ -19,6 +19,25 @@ A multilingual (English/Arabic RTL) Juba-focused marketplace connecting shops, r
 - Cascade deletes on user removal.
 - Multilingual UI + Arabic RTL support.
 
+### Iter 32 — Section limit 20 + hierarchical categories (Feb 8, 2026)
+22/22 backend tests pass (`/app/test_reports/iteration_35.json` + fix + retest).
+
+- ✅ **Section limit raised 10→20** for both shop `product_sections` and restaurant `menu_sections`. 21+ sections rejected with 400.
+- ✅ **Category hierarchy extended from 2 → 5 levels** (3 recommended, DB unlimited, API caps at 5).
+- ✅ **Added `path` + `depth` fields** to categories with idempotent startup backfill — no existing data reset; every legacy category becomes a root (depth=0, path=[]).
+- ✅ **New endpoints**:
+  - `POST /api/admin/categories/{id}/move` — re-parent with cycle + depth + same-group checks. `parent_id=null` promotes to root. Cascades path/depth refresh through the moved subtree.
+  - `GET /api/categories/{id}/breadcrumb` — returns ancestor chain root→self.
+- ✅ **PUT /api/admin/categories/{id}** now also accepts `parent_id` for inline re-parenting (uses the shared move helper).
+- ✅ **Force-delete cascades entire subtree** via `path` index (was only direct children before).
+- ✅ **Cycle prevention** — cannot move under self or any descendant.
+- ✅ **Same-parent uniqueness** honored — the update flow now checks against the new parent, not the old one.
+- ✅ **Admin UI** — `CategoryNode` renders recursively (unlimited depth). "Add sub-category" now shows on every level except the deepest allowed. Indentation scales with depth.
+- ✅ **Storefront breadcrumb** — new `<CategoryBreadcrumb />` component wired above Marketplace product grid; shows Home → Root → Sub → Sub-sub with clickable links.
+- ✅ **Mongo indexes** on `categories.path` and `categories.depth` for O(1) subtree queries at 10K+ categories scale.
+- ⏭️ **Deferred to next iter**: drag-and-drop UI (needs `react-dnd`), Dynamic Attributes system (new collections `attributes`, `category_attributes`, `product_attribute_values` + admin CRUD + storefront filter UI).
+
+
 ### Iter 31 — Low-stock report, shop sections tabs, admin LTG toggle, search + mobile, perf, Odoo diff (Feb 8, 2026)
 18/18 backend tests pass (`/app/test_reports/iteration_34.json`).
 

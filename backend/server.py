@@ -1871,11 +1871,14 @@ async def _compute_ancestors(cat_id: Optional[str]) -> tuple[list[str], int]:
 
 
 async def _recompute_subtree_paths(root_id: str) -> int:
-    """Iter 32 — recursively refresh `path` and `depth` on every descendant
-    of `root_id` after a re-parent. Returns count of documents touched."""
-    root = await db.categories.find_one({"id": root_id}, {"_id": 0})
+    """Iter 32 — recursively refresh `path` and `depth` on `root_id` AND every
+    descendant after a re-parent. Root's ancestor list is recomputed LIVE
+    from parent_id (not read from the possibly-stale stored `path`) since
+    the whole reason we're called is that path is out of date."""
+    root = await db.categories.find_one({"id": root_id}, {"_id": 0, "parent_id": 1})
     if not root:
         return 0
+
     # Depth-first traversal; small trees so recursion is fine.
     async def _walk(node_id: str, ancestors: list[str]) -> int:
         touched = 0
@@ -1891,7 +1894,8 @@ async def _recompute_subtree_paths(root_id: str) -> int:
             touched += await _walk(c["id"], next_ancestors)
         return touched
 
-    root_ancestors = root.get("path") or []
+    # Live-recompute root's ancestor chain from parent_id (fresh, not stored path).
+    root_ancestors, _ = await _compute_ancestors(root_id)
     return await _walk(root_id, root_ancestors)
 
 
