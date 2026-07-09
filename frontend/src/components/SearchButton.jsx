@@ -83,6 +83,12 @@ export default function SearchButton() {
                 type="search"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && q.trim().length >= 2) {
+                    e.preventDefault();
+                    go(`/marketplace?q=${encodeURIComponent(q.trim())}`);
+                  }
+                }}
                 placeholder="Search restaurants, shops, products…"
                 data-testid="search-modal-input"
                 className="w-full pl-12 pr-12 py-4 text-base text-[var(--js-text)] placeholder:text-[var(--js-text-secondary)] focus:outline-none"
@@ -123,8 +129,12 @@ export default function SearchButton() {
                           onClick={() => go(`/restaurants?focus=${r.id}`)}
                           className="w-full flex items-center gap-3 px-3 py-3 hover:bg-[var(--js-subtle)] rounded-lg transition text-left"
                         >
-                          <div className="w-10 h-10 rounded-full bg-[#C84B31]/10 flex items-center justify-center shrink-0">
-                            <UtensilsCrossed className="w-5 h-5 text-[#C84B31]" />
+                          <div className="w-10 h-10 rounded-full bg-[#C84B31]/10 flex items-center justify-center shrink-0 overflow-hidden">
+                            {r.image_url ? (
+                              <img src={r.image_url} alt="" loading="lazy" className="w-full h-full object-cover" />
+                            ) : (
+                              <UtensilsCrossed className="w-5 h-5 text-[#C84B31]" />
+                            )}
                           </div>
                           <div className="min-w-0 flex-1">
                             <p className="font-semibold text-[var(--js-text)] truncate">{r.name}</p>
@@ -149,8 +159,12 @@ export default function SearchButton() {
                           onClick={() => go(`/shop/${s.id}`)}
                           className="w-full flex items-center gap-3 px-3 py-3 hover:bg-[var(--js-subtle)] rounded-lg transition text-left"
                         >
-                          <div className="w-10 h-10 rounded-full bg-[#2A9D8F]/10 flex items-center justify-center shrink-0">
-                            <Store className="w-5 h-5 text-[#2A9D8F]" />
+                          <div className="w-10 h-10 rounded-full bg-[#2A9D8F]/10 flex items-center justify-center shrink-0 overflow-hidden">
+                            {s.image_url ? (
+                              <img src={s.image_url} alt="" loading="lazy" className="w-full h-full object-cover" />
+                            ) : (
+                              <Store className="w-5 h-5 text-[#2A9D8F]" />
+                            )}
                           </div>
                           <div className="min-w-0 flex-1">
                             <p className="font-semibold text-[var(--js-text)] truncate">{s.name}</p>
@@ -175,8 +189,12 @@ export default function SearchButton() {
                           onClick={() => go(`/product/${p.id}`)}
                           className="w-full flex items-center gap-3 px-3 py-3 hover:bg-[var(--js-subtle)] rounded-lg transition text-left"
                         >
-                          <div className="w-10 h-10 rounded-full bg-[#E9C46A]/20 flex items-center justify-center shrink-0">
-                            <Package className="w-5 h-5 text-[#E9C46A]" />
+                          <div className="w-10 h-10 rounded-full bg-[#E9C46A]/20 flex items-center justify-center shrink-0 overflow-hidden">
+                            {p.image_url ? (
+                              <img src={p.image_url} alt="" loading="lazy" className="w-full h-full object-cover" />
+                            ) : (
+                              <Package className="w-5 h-5 text-[#E9C46A]" />
+                            )}
                           </div>
                           <div className="min-w-0 flex-1">
                             <p className="font-semibold text-[var(--js-text)] truncate">{p.name}</p>
@@ -189,6 +207,17 @@ export default function SearchButton() {
                     </div>
                   )}
                 </div>
+              )}
+
+              {/* See all results */}
+              {!loading && totalCount > 0 && (
+                <button
+                  onClick={() => go(`/marketplace?q=${encodeURIComponent(q.trim())}`)}
+                  data-testid="search-modal-see-all"
+                  className="w-full px-4 py-3 border-t border-[var(--js-border)] bg-[var(--js-subtle)] hover:bg-[#F4F1EA] text-center text-sm font-bold text-[#C84B31]"
+                >
+                  See all results for &ldquo;{q}&rdquo; →
+                </button>
               )}
 
               {/* Hint when empty */}

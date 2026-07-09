@@ -428,10 +428,18 @@ export default function Marketplace() {
               </div>
             </div>
 
-            {/* Iter 33 — dynamic attribute filters for the selected category */}
-            {selectedCategoryId && (
+            {/* Iter 33 — dynamic attribute filters. Category-specific when a
+                 category is selected, otherwise business-type-wide facets. */}
+            {selectedCategoryId ? (
               <AttributeFilterPanel
                 categoryId={selectedCategoryId}
+                selected={attrFilters}
+                onChange={applyAttrFilters}
+                onFacets={setFacetDefs}
+              />
+            ) : (
+              <AttributeFilterPanel
+                businessType={typeFilter === "wholesale" ? "wholesale" : "retail"}
                 selected={attrFilters}
                 onChange={applyAttrFilters}
                 onFacets={setFacetDefs}

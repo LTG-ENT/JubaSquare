@@ -37,6 +37,7 @@ export default function RestaurantCard({ restaurant, initialOpen = false, rank =
   const [menuCategories, setMenuCategories] = useState([]);  // {id, name}
   const [activeMenuCat, setActiveMenuCat] = useState("all");
   const [search, setSearch] = useState("");
+  const [attrSel, setAttrSel] = useState({}); // Iter 33.2 — {attrKey: [values]} menu filters
   const [isFavorite, setIsFavorite] = useState(false);
   const [favoriteId, setFavoriteId] = useState(null);
   const [reviewsOpen, setReviewsOpen] = useState(false);
@@ -144,11 +145,39 @@ export default function RestaurantCard({ restaurant, initialOpen = false, rank =
     setOpen(true);
   };
 
+  // Iter 33.2 — attribute filter chips derived from the menu items themselves
+  // (no extra API call): distinct values per attribute key.
+  const menuFacets = useMemo(() => {
+    const map = new Map();
+    menu.forEach((m) => {
+      Object.entries(m.attributes || {}).forEach(([k, v]) => {
+        const vals = Array.isArray(v) ? v : [v];
+        vals.forEach((val) => {
+          if (val === "" || val == null) return;
+          if (!map.has(k)) map.set(k, new Set());
+          map.get(k).add(String(val));
+        });
+      });
+    });
+    return [...map.entries()].map(([k, set]) => ({
+      key: k,
+      name: k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      values: [...set].sort(),
+    }));
+  }, [menu]);
+
   // Iter 27 — When the restaurant has seller-defined sections, filter by
   // menu_section_id (fall back to category_id on legacy items).
   const useSellerSections = (restaurant.menu_sections || []).length > 0;
   const filteredMenu = menu.filter((m) => {
     if (search && !m.name.toLowerCase().includes(search.toLowerCase())) return false;
+    // Iter 33.2 — attribute chip filters (AND across keys, OR within a key)
+    for (const [k, vals] of Object.entries(attrSel)) {
+      if (!vals.length) continue;
+      const v = (m.attributes || {})[k];
+      const list = Array.isArray(v) ? v : v != null ? [v] : [];
+      if (!vals.some((x) => list.map(String).includes(x))) return false;
+    }
     if (activeMenuCat === "all") return true;
     if (useSellerSections) return m.menu_section_id === activeMenuCat;
     return m.category_id === activeMenuCat;
@@ -395,6 +424,45 @@ export default function RestaurantCard({ restaurant, initialOpen = false, rank =
                   className="w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-full pl-11 pr-4 py-2.5 text-sm focus:outline-none focus:border-[#C84B31]"
                 />
               </div>
+
+              {/* Iter 33.2 — attribute filter chips (Spice Level, Dietary...) */}
+              {menuFacets.length > 0 && (
+                <div className="mt-3 space-y-2" data-testid="menu-attr-filters">
+                  {menuFacets.map((f) => (
+                    <div key={f.key} className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">
+                        {f.name}:
+                      </span>
+                      {f.values.map((v) => {
+                        const on = (attrSel[f.key] || []).includes(v);
+                        return (
+                          <button
+                            key={v}
+                            onClick={() =>
+                              setAttrSel((prev) => {
+                                const cur = prev[f.key] || [];
+                                const next = on ? cur.filter((x) => x !== v) : [...cur, v];
+                                const out = { ...prev };
+                                if (next.length) out[f.key] = next;
+                                else delete out[f.key];
+                                return out;
+                              })
+                            }
+                            data-testid={`menu-attr-${f.key}-${v.replace(/\s+/g, "-").toLowerCase()}`}
+                            className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition ${
+                              on
+                                ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
+                                : "bg-white text-[var(--js-text)] border-[var(--js-border)] hover:border-[#1A1A1A]"
+                            }`}
+                          >
+                            {v}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <div className="flex items-center justify-between mt-6 mb-3">
                 <h3 className="font-display font-semibold text-lg text-[var(--js-text)]">Menu</h3>

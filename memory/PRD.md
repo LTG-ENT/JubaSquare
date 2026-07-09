@@ -283,3 +283,11 @@ See `/app/memory/test_credentials.md` — admin + demo seller (Iter 33).
 - `setCategory` clears `attrs` param on category change.
 - Odoo: `OdooProductUpsert` accepts optional `attributes` dict → sanitized via `validate_attribute_values(..., enforce_required=False)`; omitted key = existing values untouched. Prompt for the user's Odoo addon: `/app/memory/odoo_iteration33_prompt.md`.
 - All verified: backend smoke suite re-passed (22/22), shareable-URL chip flow screenshot-tested end to end.
+
+## Iteration 33.2 (Jun 2026) — Search & filter visibility fixes (user-reported)
+- `SearchButton.jsx` (header search modal): Enter now navigates to `/marketplace?q=...`; result rows show image thumbnails (image_url with icon fallback); added "See all results" footer. (GlobalSearch already had these — the modal didn't.)
+- Marketplace: `AttributeFilterPanel` now also renders when NO category is selected (business-type facets: wholesale when typeFilter=wholesale, else retail).
+- `RestaurantCard.jsx`: client-side attribute filter chips (Spice Level / Dietary Type / Portion Size...) derived from the open restaurant's menu items — AND across keys, OR within a key. testids: `menu-attr-filters`, `menu-attr-{key}-{value}`.
+- IMPORTANT: filters only appear when products/menu items actually HAVE attribute values. Production catalog has none yet — sellers/Odoo must fill them.
+- Demo data in preview: "Attr Demo Kitchen" restaurant (2 menu items with attributes) added alongside "Attr Demo Electronics" shop, owned by seller-attrtest@jubasquare.com.
+- All three fixes screenshot-verified in preview. NOT yet redeployed to production at time of writing.
