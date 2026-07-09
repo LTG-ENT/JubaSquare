@@ -7,6 +7,7 @@ import ProductCard from "@/components/ProductCard";
 import WholesaleCard from "@/components/WholesaleCard";
 import AreaSelector from "@/components/AreaSelector";
 import BadgeFilterBar from "@/components/BadgeFilterBar";
+import CategoryBreadcrumb from "@/components/CategoryBreadcrumb";
 import { cachedGet } from "@/lib/cachedGet";
 import { useCart } from "@/context/CartContext";
 import { Search, X, Package, ChevronRight, ChevronDown } from "lucide-react";
@@ -233,6 +234,15 @@ export default function Marketplace() {
             </select>
           </div>
         </div>
+
+        {/* Iter 32 — Category breadcrumb (only shown when a category is
+             selected). Sits above the badge filter row so customers see the
+             path they're browsing at a glance. */}
+        {selectedCategoryId && (
+          <div className="mb-2">
+            <CategoryBreadcrumb categoryId={selectedCategoryId} />
+          </div>
+        )}
 
         {/* Iter 30 Wave 2 — Filter-by-badge chip row */}
         <div className="mb-4">

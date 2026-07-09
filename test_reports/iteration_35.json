@@ -1,0 +1,40 @@
+{
+  "summary": "Iter 32 backend testing — category hierarchy + section-limit bump. 19/22 tests passed. 3 failures ALL trace to a single critical bug in _recompute_subtree_paths: it uses the moved node's STALE `path` field (pre-move) as the starting ancestor list instead of recomputing from the new parent chain. Result: after re-parenting, the moved node keeps its OLD path/depth and every descendant is refreshed relative to that stale path. Affects both POST /admin/categories/{id}/move and PUT /admin/categories/{id} (re-parent via parent_id) — cycle-prevention, self-parent-prevention, depth-cap, backfill, breadcrumb, cascade-delete, 20-section limits (shop + restaurant), and admin authorization all work correctly.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/admin/categories/{id}/move  AND  PUT /api/admin/categories/{id} (with parent_id)",
+        "issue": "After re-parenting, moved node's `path`/`depth` are NOT refreshed to reflect the new parent. Root cause: _recompute_subtree_paths(root_id) reads `root.get('path')` (STALE — still the OLD path since the update_one only sets parent_id/order, never touches path) and uses it as the seed ancestor list for the walk. Descendants get their paths recomputed relative to this stale seed, so every node in the moved subtree ends up with an incorrect path/depth. Move-to-root also broken: moved node stays at depth=1 with old parent still in its path. Reproduced by TestMoveCategory.test_move_refreshes_subtree, TestMoveCategory.test_move_to_root, TestPutReparent.test_put_with_parent_id_reparents.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter32_category_hierarchy.py",
+    "/app/test_reports/pytest/iter32_results.xml"
+  ],
+  "action_items": [
+    "Fix /app/backend/server.py::_recompute_subtree_paths (~line 1873): replace `root_ancestors = root.get('path') or []` with a fresh live recomputation from the current parent chain. Suggested fix:\n```python\nasync def _recompute_subtree_paths(root_id: str) -> int:\n    root = await db.categories.find_one({'id': root_id}, {'_id': 0, 'parent_id': 1})\n    if not root:\n        return 0\n    # Iter32 fix — recompute root's ancestor chain fresh from parent_id,\n    # since the stored `path` may be stale (this is the whole reason we\n    # were called). Then walk & persist path/depth for root + descendants.\n    root_ancestors, _ = await _compute_ancestors(root_id)\n    # NOTE: _compute_ancestors returns ancestors NOT including root itself,\n    # so passing it into _walk correctly sets root.path = root_ancestors,\n    # root.depth = len(root_ancestors).\n    return await _walk(root_id, root_ancestors)\n```\nAlternative fix: update path/depth for the moved node inline in _move_category BEFORE calling _recompute_subtree_paths (compute via _compute_ancestors after the parent_id write).",
+    "After fix, re-run /app/backend/tests/test_iter32_category_hierarchy.py — expect all 22 to pass."
+  ],
+  "critical_code_review_comments": [
+    "_recompute_subtree_paths is the ONLY code path that refreshes path/depth after a move. Since it seeds off stored root.path instead of live parent_id, the entire iter 32 hierarchy invariant (path always reflects true ancestor chain) is broken for any re-parented category.",
+    "MAX_CATEGORY_DEPTH depth guard on POST /admin/categories: condition is `parent_depth + 1 >= 5`, so new depth 5+ is blocked. In practice this allows depths 0-4 (5 levels total). This matches the review-request phrasing '5th nesting must fail'. OK.",
+    "PUT /admin/categories/{id} — when body contains only parent_id (no name/image/etc), the code path still writes updates dict with just updated_at. The move helper runs first — but the subsequent `update_one({'id': cat_id}, {'$set': updates})` DOES NOT touch path/depth. Correct in intent, but combined with the _recompute bug above, the update result is wrong. Fixing _recompute_subtree_paths resolves both.",
+    "_subtree_height uses unbounded recursion + N async DB round-trips per node. Fine for trees ≤5 deep as capped, but note the O(nodes) query fan-out on every move; consider a single find({'path': cat_id}) count/height calculation instead.",
+    "server.py is now 8347 lines — still overdue for modular split (called out in iter 34 report as well).",
+    "_walk inside _recompute_subtree_paths recursively awaits per-child DB updates in series; a bulk update_many keyed on the `path` array match (with $set derived from stored path prefix rewrite) would be dramatically faster on large subtrees. Not blocking, but worth noting once the correctness bug above is fixed."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter32_category_hierarchy.py"
+  ],
+  "success_rate": {"backend": "86% (19/22)", "frontend": "not tested (skipped per request)"},
+  "test_credentials": "admin@jubasquare.com / 1234 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "All rows tagged TEST_iter32_<hex> in categories/users/shops/restaurants; cleaned up in db fixture teardown. Includes: 1 seller, 1 customer, 1 shop, 1 restaurant (direct insert), and ~20 categories across all sub-tests.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "After main agent fixes _recompute_subtree_paths, re-run: pytest /app/backend/tests/test_iter32_category_hierarchy.py -v — the 3 failing tests (test_move_refreshes_subtree, test_move_to_root, test_put_with_parent_id_reparents) should turn green. All other iter32 assertions (backfill, depth cap, breadcrumb, cascade delete, admin guard, 20-section limits) already pass on current code.",
+  "rca of the issue": "Reproduction: create A (root), B (child of A), C (child of B). B has path=[A], depth=1. Now POST /admin/categories/B/move with parent_id=D (root). Server does: update_one({id:B}, {$set:{parent_id:D, order:X}}) — parent_id changed to D, but path/depth fields still say [A]/1. Then _recompute_subtree_paths(B) runs: reads B doc, root_ancestors = B.path = [A] (STALE). Walk sets B.path=[A], B.depth=1 (should be [D], 1 — happens to look right here only because both are depth 1). Then walks children: C gets path=[A, B], depth=2 (should be [D, B]). Move-to-root case: parent_id=null, but stale path still [old_parent], so depth stays 1 not 0. Mitigation: recompute root ancestors live from parent_id inside _recompute_subtree_paths (see action_items for exact patch)."
+}

@@ -709,7 +709,7 @@ class ShopIn(BaseModel):
     eta_fixed_minutes: Optional[int] = None
     eta_min_minutes: Optional[int] = None
     eta_max_minutes: Optional[int] = None
-    # Iter 28 — seller-defined PRODUCT SECTIONS (max 10). Groups products
+    # Iter 32 — seller-defined PRODUCT SECTIONS (max 20). Groups products
     # within THIS shop (Featured, On Sale, Accessories…). Distinct from the
     # marketplace-level shop_category. Each product references one section
     # via product.product_section_id.
@@ -826,7 +826,7 @@ class RestaurantIn(BaseModel):
     eta_fixed_minutes: Optional[int] = None
     eta_min_minutes: Optional[int] = None
     eta_max_minutes: Optional[int] = None
-    # Iter 28 — seller-defined MENU SECTIONS (max 10). Sellers create their
+    # Iter 32 — seller-defined MENU SECTIONS (max 20). Sellers create their
     # own groups like Starter / Recommendation / Promo and assign each
     # menu item to one via menu_item.menu_section_id.
     menu_sections: List[SellerSection] = Field(default_factory=list)
@@ -1704,6 +1704,10 @@ def _category_doc(c: dict) -> dict:
         "name": c.get("name", ""),
         "group": c.get("group", "retail"),
         "parent_id": c.get("parent_id"),
+        # Iter 32 — hierarchical fields (backfilled at startup for legacy rows)
+        "path": c.get("path") or [],
+        "depth": int(c.get("depth") or 0),
+        "description": c.get("description"),
         "order": c.get("order", 0),
         "image_url": c.get("image_url") or "",
         "is_active": bool(c.get("is_active", True)),
@@ -1803,14 +1807,25 @@ class CategoryCreateIn(BaseModel):
     image_url: Optional[str] = ""
     is_active: Optional[bool] = True
     order: Optional[int] = None
+    description: Optional[str] = None  # Iter 32 — long-form description
 
 
 class CategoryUpdateIn(BaseModel):
+    """PATCH-ish update. Iter 32 — `parent_id` is now accepted so admins can
+    re-parent a category (and its subtree) from a single endpoint.
+    Cycle + max-depth checks run before persistence."""
     name: Optional[str] = None
     image_url: Optional[str] = None
     is_active: Optional[bool] = None
     order: Optional[int] = None
-    # parent_id intentionally NOT updatable in MVP — keeps tree integrity simple.
+    parent_id: Optional[str] = None
+    description: Optional[str] = None
+
+
+class CategoryMoveIn(BaseModel):
+    """Iter 32 — dedicated move endpoint. parent_id=null promotes to root."""
+    parent_id: Optional[str] = None
+    order: Optional[int] = None
 
 
 class CategoryReorderIn(BaseModel):
@@ -1819,12 +1834,65 @@ class CategoryReorderIn(BaseModel):
     ids: List[str]
 
 
+# Iter 32 — max recommended hierarchy depth. The DB allows deeper via
+# parent_id chains, but the API refuses new inserts / moves beyond this
+# to keep navigation fast and SEO-friendly.
+MAX_CATEGORY_DEPTH = 5
+
+
 async def _next_order(group: str, parent_id: Optional[str]) -> int:
     last = await db.categories.find_one(
         {"group": group, "parent_id": parent_id},
         sort=[("order", -1)],
     )
     return (last.get("order", 0) + 1) if last else 1
+
+
+async def _compute_ancestors(cat_id: Optional[str]) -> tuple[list[str], int]:
+    """Iter 32 — walk parent chain to compute (path[], depth). path is the
+    list of ancestor ids ordered ROOT→PARENT (not including cat_id itself).
+    depth is len(path). Returns ([], 0) for root categories."""
+    if not cat_id:
+        return [], 0
+    path: list[str] = []
+    cursor_id: Optional[str] = cat_id
+    guard = 0
+    while cursor_id and guard < 32:
+        guard += 1
+        doc = await db.categories.find_one({"id": cursor_id}, {"_id": 0, "parent_id": 1})
+        if not doc:
+            break
+        parent = doc.get("parent_id")
+        if not parent:
+            break
+        path.insert(0, parent)
+        cursor_id = parent
+    return path, len(path)
+
+
+async def _recompute_subtree_paths(root_id: str) -> int:
+    """Iter 32 — recursively refresh `path` and `depth` on every descendant
+    of `root_id` after a re-parent. Returns count of documents touched."""
+    root = await db.categories.find_one({"id": root_id}, {"_id": 0})
+    if not root:
+        return 0
+    # Depth-first traversal; small trees so recursion is fine.
+    async def _walk(node_id: str, ancestors: list[str]) -> int:
+        touched = 0
+        depth = len(ancestors)
+        await db.categories.update_one(
+            {"id": node_id},
+            {"$set": {"path": ancestors, "depth": depth}},
+        )
+        touched += 1
+        children = await db.categories.find({"parent_id": node_id}, {"_id": 0, "id": 1}).to_list(1000)
+        next_ancestors = ancestors + [node_id]
+        for c in children:
+            touched += await _walk(c["id"], next_ancestors)
+        return touched
+
+    root_ancestors = root.get("path") or []
+    return await _walk(root_id, root_ancestors)
 
 
 @api.post("/admin/categories")
@@ -1842,8 +1910,15 @@ async def admin_create_category(body: CategoryCreateIn, user: dict = Depends(req
             raise HTTPException(status_code=404, detail="Parent category not found")
         if parent.get("group") != body.group:
             raise HTTPException(status_code=400, detail="Parent must be in the same group")
-        if parent.get("parent_id"):
-            raise HTTPException(status_code=400, detail="Sub-categories cannot have sub-categories (1 level only)")
+        # Iter 32 — enforce recommended depth (default 5). Recommend 3 for
+        # navigation-friendly UX; DB supports more but /admin blocks it.
+        parent_path, parent_depth = await _compute_ancestors(body.parent_id)
+        # parent's own depth = parent_depth; new node's depth = parent_depth + 1.
+        if parent_depth + 1 >= MAX_CATEGORY_DEPTH:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Maximum category depth is {MAX_CATEGORY_DEPTH}. Use product attributes/filters for finer classification.",
+            )
 
     # Uniqueness within (group, parent_id)
     dup = await db.categories.find_one({
@@ -1853,13 +1928,22 @@ async def admin_create_category(body: CategoryCreateIn, user: dict = Depends(req
         raise HTTPException(status_code=400, detail="A category with this name already exists in this group/parent")
 
     order_val = body.order if body.order is not None else await _next_order(body.group, body.parent_id)
+    # Iter 32 — persist `path` (array of ancestor ids) and `depth` alongside
+    # parent_id so tree queries are O(1) instead of O(depth).
+    path, depth = await _compute_ancestors(body.parent_id)
+    if body.parent_id:
+        path = path + [body.parent_id]
+        depth = len(path)
     doc = {
         "id": str(uuid.uuid4()),
         "name": name,
         "group": body.group,
         "parent_id": body.parent_id,
+        "path": path,
+        "depth": depth,
         "order": order_val,
         "image_url": (body.image_url or "").strip(),
+        "description": (body.description or "").strip() or None,
         "is_active": True if body.is_active is None else bool(body.is_active),
         "created_at": now_iso(),
         "updated_at": now_iso(),
@@ -1881,9 +1965,10 @@ async def admin_update_category(cat_id: str, body: CategoryUpdateIn, user: dict 
         if not new_name:
             raise HTTPException(status_code=400, detail="Name cannot be empty")
         # Uniqueness check (within same group/parent)
+        new_parent = body.parent_id if body.parent_id is not None else existing.get("parent_id")
         dup = await db.categories.find_one({
             "group": existing.get("group"),
-            "parent_id": existing.get("parent_id"),
+            "parent_id": new_parent,
             "name": new_name,
             "id": {"$ne": cat_id},
         })
@@ -1892,15 +1977,114 @@ async def admin_update_category(cat_id: str, body: CategoryUpdateIn, user: dict 
         updates["name"] = new_name
     if body.image_url is not None:
         updates["image_url"] = body.image_url.strip()
+    if body.description is not None:
+        updates["description"] = body.description.strip() or None
     if body.is_active is not None:
         updates["is_active"] = bool(body.is_active)
     if body.order is not None:
         updates["order"] = int(body.order)
 
-    await db.categories.update_one({"id": cat_id}, {"$set": updates})
+    # Iter 32 — re-parenting via PUT: extract parent change and delegate to
+    # the shared _move_category helper so cycle + depth checks run.
+    moved = False
+    if "parent_id" in body.__fields_set__:
+        target_parent = body.parent_id
+        # Only touch if actually changing; setting the same parent is a no-op.
+        if target_parent != existing.get("parent_id"):
+            await _move_category(cat_id, target_parent, order=updates.get("order"))
+            moved = True
+
+    if updates:
+        await db.categories.update_one({"id": cat_id}, {"$set": updates})
     cache_invalidate("cat:")
     saved = await db.categories.find_one({"id": cat_id}, {"_id": 0})
     return _category_doc(saved)
+
+
+async def _move_category(cat_id: str, new_parent_id: Optional[str], order: Optional[int] = None) -> None:
+    """Iter 32 — shared move logic used by both PUT /admin/categories/{id}
+    and POST /admin/categories/{id}/move. Runs cycle-prevention + max-depth
+    checks, then updates the moved node AND every descendant's `path` +
+    `depth` fields.
+    """
+    doc = await db.categories.find_one({"id": cat_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    # Same-parent no-op.
+    if doc.get("parent_id") == new_parent_id:
+        if order is not None:
+            await db.categories.update_one({"id": cat_id}, {"$set": {"order": int(order)}})
+        return
+
+    # Validate new parent (if provided)
+    new_parent_doc = None
+    if new_parent_id:
+        new_parent_doc = await db.categories.find_one({"id": new_parent_id})
+        if not new_parent_doc:
+            raise HTTPException(status_code=404, detail="New parent not found")
+        if new_parent_doc.get("group") != doc.get("group"):
+            raise HTTPException(status_code=400, detail="New parent must be in the same group")
+        # Cycle detection: new_parent's ancestor chain must NOT include cat_id.
+        new_parent_path, _ = await _compute_ancestors(new_parent_id)
+        if cat_id in new_parent_path or new_parent_id == cat_id:
+            raise HTTPException(status_code=400, detail="Cannot move a category under itself or a descendant (cycle)")
+        # Depth check — this category's subtree cannot exceed MAX_CATEGORY_DEPTH.
+        # Compute the moved subtree's height (0 = leaf).
+        subtree_height = await _subtree_height(cat_id)
+        new_depth_of_moved = len(new_parent_path) + 1  # +1 because it becomes a child of new_parent
+        if new_depth_of_moved + subtree_height >= MAX_CATEGORY_DEPTH:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Move would exceed max depth ({MAX_CATEGORY_DEPTH}). Flatten first or use attributes.",
+            )
+
+    # Persist parent_id + refresh path/depth on moved node
+    new_order = order if order is not None else await _next_order(doc.get("group"), new_parent_id)
+    await db.categories.update_one(
+        {"id": cat_id},
+        {"$set": {"parent_id": new_parent_id, "order": int(new_order), "updated_at": now_iso()}},
+    )
+    # Cascade path/depth refresh on moved node + every descendant.
+    await _recompute_subtree_paths(cat_id)
+
+
+async def _subtree_height(cat_id: str) -> int:
+    """Depth of the deepest descendant relative to cat_id. Root = 0."""
+    children = await db.categories.find({"parent_id": cat_id}, {"_id": 0, "id": 1}).to_list(1000)
+    if not children:
+        return 0
+    return 1 + max([await _subtree_height(c["id"]) for c in children])
+
+
+@api.post("/admin/categories/{cat_id}/move")
+async def admin_move_category(cat_id: str, body: CategoryMoveIn, _: dict = Depends(require_role("admin"))):
+    """Iter 32 — re-parent a category (and its subtree). parent_id=null promotes to root."""
+    await _move_category(cat_id, body.parent_id, order=body.order)
+    cache_invalidate("cat:")
+    saved = await db.categories.find_one({"id": cat_id}, {"_id": 0})
+    return _category_doc(saved)
+
+
+@api.get("/categories/{cat_id}/breadcrumb")
+async def category_breadcrumb(cat_id: str):
+    """Iter 32 — return the ancestor chain from ROOT down to cat_id
+    (inclusive). Uses stored `path` when present, falls back to a live walk."""
+    doc = await db.categories.find_one({"id": cat_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Category not found")
+    ancestor_ids = doc.get("path")
+    if ancestor_ids is None:
+        ancestor_ids, _ = await _compute_ancestors(cat_id)
+    ancestors = []
+    if ancestor_ids:
+        docs = await db.categories.find({"id": {"$in": ancestor_ids}}, {"_id": 0}).to_list(len(ancestor_ids))
+        by_id = {d["id"]: d for d in docs}
+        for a in ancestor_ids:
+            if a in by_id:
+                ancestors.append(_category_doc(by_id[a]))
+    ancestors.append(_category_doc(doc))
+    return {"category_id": cat_id, "breadcrumb": ancestors}
 
 
 @api.delete("/admin/categories/{cat_id}")
@@ -1909,7 +2093,8 @@ async def admin_delete_category(cat_id: str, force: bool = False, user: dict = D
     if not existing:
         raise HTTPException(status_code=404, detail="Category not found")
 
-    # Block delete if it has children (unless force=true → also delete the children)
+    # Iter 32 — block delete if it has children (unless force=true → delete
+    # every descendant in the subtree via `path` array match).
     child_count = await db.categories.count_documents({"parent_id": cat_id})
     if child_count > 0 and not force:
         raise HTTPException(
@@ -1917,11 +2102,13 @@ async def admin_delete_category(cat_id: str, force: bool = False, user: dict = D
             detail=f"Cannot delete: this category has {child_count} sub-category(ies). Pass ?force=true to delete them all.",
         )
 
+    deleted_descendants = 0
     if child_count > 0 and force:
-        await db.categories.delete_many({"parent_id": cat_id})
+        res = await db.categories.delete_many({"path": cat_id})
+        deleted_descendants = res.deleted_count
     await db.categories.delete_one({"id": cat_id})
     cache_invalidate("cat:")
-    return {"ok": True, "deleted_children": child_count if force else 0}
+    return {"ok": True, "deleted_children": deleted_descendants}
 
 
 @api.post("/admin/categories/reorder")
@@ -2374,8 +2561,8 @@ async def update_shop(shop_id: str, body: ShopIn, user: dict = Depends(require_r
             "sort_order": int(s.get("sort_order") or 0),
             "is_promo_section": bool(s.get("is_promo_section")),
         })
-    if len(clean_ps) > 10:
-        raise HTTPException(400, "Maximum 10 product sections allowed")
+    if len(clean_ps) > 20:
+        raise HTTPException(400, "Maximum 20 product sections allowed")
     updates["product_sections"] = clean_ps
     # LTG partner status is ADMIN-ONLY (set via /admin/shops/{id}/ltg-partner).
     # Strip the field from a seller's payload so they can't self-award.
@@ -3659,8 +3846,8 @@ async def update_restaurant(restaurant_id: str, body: RestaurantIn, user: dict =
             "sort_order": int(s.get("sort_order") or 0),
             "is_promo_section": bool(s.get("is_promo_section")),
         })
-    if len(clean_ms) > 10:
-        raise HTTPException(400, "Maximum 10 menu sections allowed")
+    if len(clean_ms) > 20:
+        raise HTTPException(400, "Maximum 20 menu sections allowed")
     update_data["menu_sections"] = clean_ms
     # LTG partner status is ADMIN-ONLY. Only add to update when caller is admin.
     if user["role"] == "admin" and body.is_ltg_partner is not None:
@@ -7524,6 +7711,10 @@ async def seed_production():
     await db.seller_order_splits.create_index([("seller_id", 1), ("created_at", -1)])
     await db.seller_order_splits.create_index([("order_id", 1)])
     await db.users.create_index([("role", 1), ("is_deleted", 1)])
+    # Iter 32 — hierarchy indexes for category tree lookups
+    await db.categories.create_index([("group", 1), ("parent_id", 1), ("order", 1)])
+    await db.categories.create_index([("path", 1)])
+    await db.categories.create_index([("depth", 1)])
 
     # `order_id_1` used to be a NON-sparse unique index intended for
     # restaurant reviews (one review per order). Product reviews don't
@@ -7734,6 +7925,27 @@ async def on_startup():
             log.info(f"✅ Backfilled shop ratings for {len(pending)} shops")
     except Exception as exc:  # pragma: no cover — startup best-effort
         log.warning(f"shop rating backfill skipped: {exc}")
+
+    # Iter 32 — backfill hierarchical fields `path` and `depth` on legacy
+    # category rows. Idempotent: skips rows where `path` is already set.
+    try:
+        legacy = await db.categories.find(
+            {"$or": [{"path": {"$exists": False}}, {"depth": {"$exists": False}}]},
+            {"_id": 0, "id": 1, "parent_id": 1},
+        ).to_list(50000)
+        touched = 0
+        for c in legacy:
+            path_ids, depth = await _compute_ancestors(c["id"])
+            await db.categories.update_one(
+                {"id": c["id"]},
+                {"$set": {"path": path_ids, "depth": depth}},
+            )
+            touched += 1
+        if touched:
+            log.info(f"✅ Backfilled category path/depth for {touched} categories")
+    except Exception as exc:
+        log.warning(f"category hierarchy backfill skipped: {exc}")
+
 
 
 @app.on_event("shutdown")

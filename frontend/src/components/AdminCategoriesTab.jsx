@@ -109,7 +109,9 @@ export default function AdminCategoriesTab() {
             <FolderTree className="w-6 h-6" /> Categories
           </h2>
           <p className="text-sm text-[var(--js-text-secondary)] mt-1">
-            Manage shop & product categories. Each category can have one level of sub-categories.
+            Manage shop & product categories. Up to 5 levels of nesting are
+            supported (3 recommended). Use product attributes/filters for
+            variations like size, color, or brand.
           </p>
         </div>
         <button
@@ -154,41 +156,21 @@ export default function AdminCategoriesTab() {
           </div>
         ) : (
           <ul className="divide-y divide-[var(--js-border)]">
-            {tree.map((parent, idx) => (
-              <CategoryRow
-                key={parent.id}
-                cat={parent}
-                isFirst={idx === 0}
-                isLast={idx === tree.length - 1}
-                expanded={!!expanded[parent.id]}
-                onToggleExpanded={() => toggleExpanded(parent.id)}
-                onMoveUp={() => moveCategory(null, tree, idx, -1)}
-                onMoveDown={() => moveCategory(null, tree, idx, +1)}
-                onEdit={() => setEditor({ mode: "edit", category: parent })}
-                onAddSub={() => setEditor({ mode: "add-sub", parent_id: parent.id, parentName: parent.name })}
-                onToggleActive={() => toggleActive(parent)}
-                onDelete={() => deleteCategory(parent)}
-                isParent
-              >
-                {/* Children */}
-                {!!parent.children?.length && expanded[parent.id] && (
-                  <ul className="bg-[var(--js-bg)] border-t border-[var(--js-border)] divide-y divide-[var(--js-border)]">
-                    {parent.children.map((child, cidx) => (
-                      <CategoryRow
-                        key={child.id}
-                        cat={child}
-                        isFirst={cidx === 0}
-                        isLast={cidx === parent.children.length - 1}
-                        onMoveUp={() => moveCategory(parent.id, parent.children, cidx, -1)}
-                        onMoveDown={() => moveCategory(parent.id, parent.children, cidx, +1)}
-                        onEdit={() => setEditor({ mode: "edit", category: child })}
-                        onToggleActive={() => toggleActive(child)}
-                        onDelete={() => deleteCategory(child)}
-                      />
-                    ))}
-                  </ul>
-                )}
-              </CategoryRow>
+            {tree.map((root, idx) => (
+              <CategoryNode
+                key={root.id}
+                node={root}
+                depth={0}
+                siblings={tree}
+                index={idx}
+                expanded={expanded}
+                toggleExpanded={toggleExpanded}
+                setEditor={setEditor}
+                toggleActive={toggleActive}
+                deleteCategory={deleteCategory}
+                moveCategory={moveCategory}
+                parentId={null}
+              />
             ))}
           </ul>
         )}
@@ -210,6 +192,69 @@ export default function AdminCategoriesTab() {
   );
 }
 
+/**
+ * Recursive category node — renders itself, then recurses into
+ * `node.children`. Supports arbitrary depth (Iter 32). Level 0 = root; the
+ * "Add sub-category" action shows on every level except the deepest allowed.
+ */
+const MAX_UI_DEPTH = 4; // matches backend MAX_CATEGORY_DEPTH - 1
+
+function CategoryNode({
+  node,
+  depth,
+  siblings,
+  index,
+  parentId,
+  expanded,
+  toggleExpanded,
+  setEditor,
+  toggleActive,
+  deleteCategory,
+  moveCategory,
+}) {
+  const isRoot = depth === 0;
+  const hasChildren = !!node.children?.length;
+  const canAddSub = depth < MAX_UI_DEPTH;
+  return (
+    <CategoryRow
+      cat={node}
+      isParent={isRoot}
+      isFirst={index === 0}
+      isLast={index === siblings.length - 1}
+      expanded={!!expanded[node.id]}
+      onToggleExpanded={hasChildren ? () => toggleExpanded(node.id) : undefined}
+      onMoveUp={() => moveCategory(parentId, siblings, index, -1)}
+      onMoveDown={() => moveCategory(parentId, siblings, index, +1)}
+      onEdit={() => setEditor({ mode: "edit", category: node })}
+      onAddSub={canAddSub ? () => setEditor({ mode: "add-sub", parent_id: node.id, parentName: node.name }) : undefined}
+      onToggleActive={() => toggleActive(node)}
+      onDelete={() => deleteCategory(node)}
+      depth={depth}
+    >
+      {hasChildren && expanded[node.id] && (
+        <ul className="bg-[var(--js-bg)] border-t border-[var(--js-border)] divide-y divide-[var(--js-border)]">
+          {node.children.map((child, cidx) => (
+            <CategoryNode
+              key={child.id}
+              node={child}
+              depth={depth + 1}
+              siblings={node.children}
+              index={cidx}
+              parentId={node.id}
+              expanded={expanded}
+              toggleExpanded={toggleExpanded}
+              setEditor={setEditor}
+              toggleActive={toggleActive}
+              deleteCategory={deleteCategory}
+              moveCategory={moveCategory}
+            />
+          ))}
+        </ul>
+      )}
+    </CategoryRow>
+  );
+}
+
 function CategoryRow({
   cat,
   isParent = false,
@@ -224,30 +269,26 @@ function CategoryRow({
   onToggleActive,
   onDelete,
   children,
+  depth = 0,
 }) {
   const childCount = cat.children?.length || 0;
+  const canExpand = childCount > 0;
   return (
     <li>
       <div
         className={`flex items-center gap-3 px-4 sm:px-5 py-3 ${cat.is_active ? "" : "opacity-60"}`}
+        style={{ paddingLeft: `${16 + depth * 20}px` }}
         data-testid={`cat-row-${cat.id}`}
       >
-        {/* Expand toggle */}
-        {isParent ? (
+        {/* Expand toggle — shown at every depth when the node has children */}
+        {canExpand ? (
           <button
             onClick={onToggleExpanded}
             className="w-7 h-7 rounded-lg border border-[var(--js-border)] flex items-center justify-center hover:bg-[var(--js-bg)] shrink-0"
             data-testid={`cat-expand-${cat.id}`}
             aria-label="Toggle children"
-            disabled={childCount === 0}
           >
-            {childCount === 0 ? (
-              <Tag className="w-3.5 h-3.5 text-[var(--js-text-secondary)]" />
-            ) : expanded ? (
-              <ChevronDown className="w-4 h-4" />
-            ) : (
-              <ChevronRight className="w-4 h-4" />
-            )}
+            {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
           </button>
         ) : (
           <span className="w-7 shrink-0" />
@@ -306,7 +347,7 @@ function CategoryRow({
           >
             <ArrowDown className="w-4 h-4" />
           </button>
-          {isParent && (
+          {onAddSub && (
             <button
               onClick={onAddSub}
               data-testid={`cat-add-sub-${cat.id}`}
