@@ -323,13 +323,33 @@ def create_attribute_routes(db, require_role):
         if body.type not in ATTRIBUTE_TYPES:
             raise HTTPException(400, f"Unknown attribute type. Must be one of: {sorted(ATTRIBUTE_TYPES)}")
         key = _slug(name)
-        if await db.attributes.find_one({"business_type": body.business_type, "key": key}):
-            raise HTTPException(400, f"An attribute with key '{key}' already exists in {body.business_type}")
-        category_ids = await _validate_category_ids(body.category_ids, body.business_type)
+        # Iter 33.8 — Allow the same attribute NAME in different groups. The
+        # storage key must still be unique per business_type so product
+        # attribute values don't collide, so we auto-suffix the key with the
+        # target group's slug when we detect a clash. Same name in the SAME
+        # group is still rejected as an obvious duplicate.
         if body.group_id:
             g = await db.attribute_groups.find_one({"id": body.group_id})
             if not g:
                 raise HTTPException(404, "Attribute group not found")
+        else:
+            g = None
+        clash = await db.attributes.find_one({"business_type": body.business_type, "key": key})
+        if clash:
+            if clash.get("group_id") == body.group_id:
+                # Same group + same name → true duplicate.
+                raise HTTPException(400, f"An attribute named '{name}' already exists in this group.")
+            # Different group → append group slug to keep the key unique.
+            suffix = _slug((g or {}).get("name", "")) if g else "ungrouped"
+            candidate = f"{key}_{suffix}" if suffix else key
+            # Guard against a second-level collision (rare: two groups with
+            # identical slug or an existing suffixed key).
+            n = 2
+            while await db.attributes.find_one({"business_type": body.business_type, "key": candidate}):
+                candidate = f"{key}_{suffix}_{n}"
+                n += 1
+            key = candidate
+        category_ids = await _validate_category_ids(body.category_ids, body.business_type)
         order_val = body.order
         if order_val is None:
             last = await db.attributes.find_one({"business_type": body.business_type}, sort=[("order", -1)])

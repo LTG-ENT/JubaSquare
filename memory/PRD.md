@@ -340,3 +340,11 @@ See `/app/memory/test_credentials.md` — admin + demo seller (Iter 33).
 - **Admin Attributes tab** (`AdminAttributesTab.jsx`): Groups is now a top-level tab strip (`attr-groups-tabs`) with tabs `All groups`, one per group (`attr-group-select-<id>` including inline rename + delete), and `Ungrouped · <n>` when relevant. Selecting a group filters the attribute list to just that group. The attribute editor gains a `Show in Marketplace when no category is selected` checkbox (`attr-editor-show_on_all`), and the list row displays an indigo pill `Show on "All"` when it's enabled.
 - Verified in preview: `admin` login → Attributes tab renders groups strip + editor now shows the toggle; Marketplace at `/marketplace` has no attribute panel visible when the DB has no `show_on_all=true` attributes.
 
+
+## Iteration 33.8 (Jul 2026) — Same-name attributes across groups
+
+- **Backend** (`attributes_routes.py`): the create-attribute uniqueness check used to be at `(business_type, key)` — a single "Gender" attribute anywhere in the business type blocked any other. Now:
+  - Same name in the SAME group → still rejected (`"An attribute named '<name>' already exists in this group."`).
+  - Same name in a DIFFERENT group → allowed. The storage `key` is auto-suffixed with the group's slug (e.g. `gender_clothing`, `gender_beauty`) so product attribute values never collide across groups. Second-level collisions are handled with a numeric suffix.
+- Verified end-to-end via curl: two "Gender" attributes in different groups both persist with distinct keys; third attempt in the same group returns 400 with a helpful message.
+
