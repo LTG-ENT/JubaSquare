@@ -60,12 +60,12 @@ export default function Login() {
 
         <form onSubmit={handleSubmit} className="bg-white border border-[var(--js-border)] rounded-3xl p-6 sm:p-8 shadow-[0_8px_32px_rgba(0,0,0,0.06)]">
           <label className="block mb-4">
-            <span className="text-xs font-semibold text-[var(--js-text-secondary)] uppercase tracking-wider">{t("email")} / Username</span>
+            <span className="text-xs font-semibold text-[var(--js-text-secondary)] uppercase tracking-wider">{t("email")}</span>
             <input
               type="text"
               value={identifier}
               onChange={(e) => setIdentifier(e.target.value)}
-              placeholder="you@example.com or admin"
+              placeholder="you@example.com"
               data-testid="login-email"
               autoComplete="username"
               required

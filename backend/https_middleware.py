@@ -50,13 +50,24 @@ class HTTPSAndCanonicalMiddleware(BaseHTTPMiddleware):
         # local envs pass through untouched (still get headers below).
         prod = host.split(":")[0] in _PROD_HOSTS
         if prod:
-            # http:// → https://  OR  apex → www  →  single 301 to the canonical origin.
+            # http:// → https://  OR  apex → www  →  single redirect to canonical origin.
             wants_https = proto != "https"
             wants_www = host.split(":")[0] != CANONICAL_HOST
             if wants_https or wants_www:
                 new_url = f"https://{CANONICAL_HOST}{request.url.path}"
                 if request.url.query:
                     new_url = f"{new_url}?{request.url.query}"
+                # 33.6.1 — Use 308 (Permanent Redirect) so POST/PUT/DELETE
+                # preserve their method + body. Browsers converting a 301 to
+                # GET on redirect broke /api/auth/login (405 Method Not
+                # Allowed). 308 is treated as canonical-permanent by Google
+                # for SEO, same as 301, but keeps the method.
+                # Also: skip /api requests entirely for CORS preflight safety
+                # — the API accepts either host, and the SPA only ever calls
+                # its own origin. Only browser-navigable page requests need
+                # to be canonicalised.
+                if request.url.path.startswith("/api/") or request.method not in ("GET", "HEAD"):
+                    return RedirectResponse(new_url, status_code=308)
                 return RedirectResponse(new_url, status_code=301)
 
         response = await call_next(request)
