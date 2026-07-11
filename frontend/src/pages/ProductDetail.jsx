@@ -199,6 +199,7 @@ export default function ProductDetail() {
     <div className="min-h-screen flex flex-col">
       {product && typeof window !== "undefined" && (
         <SeoMeta
+          pageKey="product_detail"
           title={`${product.name} — JubaSquare`}
           description={(product.description || `Buy ${product.name} on JubaSquare.`).slice(0, 200)}
           canonical={`${window.location.origin}/product/${product.id}`}

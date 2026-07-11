@@ -7,6 +7,7 @@ import "@/App.css";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { CartProvider } from "@/context/CartContext";
 import { SystemProvider, useSystem } from "@/context/SystemContext";
+import { SeoProvider } from "@/context/SeoContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import RouteLoader from "@/components/RouteLoader";
@@ -123,6 +124,7 @@ export default function App() {
     <ErrorBoundary>
       <AuthProvider>
         <SystemProvider>
+          <SeoProvider>
           <CartProvider>
             <BrowserRouter>
               <Suspense fallback={<RouteLoader />}>
@@ -175,6 +177,7 @@ export default function App() {
               }}
             />
           </CartProvider>
+          </SeoProvider>
         </SystemProvider>
       </AuthProvider>
     </ErrorBoundary>

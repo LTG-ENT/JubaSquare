@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import api from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import SeoMeta from "@/components/SeoMeta";
 import ShopCard from "@/components/ShopCard";
 import BadgeFilterBar from "@/components/BadgeFilterBar";
 import AreaSelector from "@/components/AreaSelector";
@@ -103,6 +104,7 @@ export default function Shops() {
 
   return (
     <div className="min-h-screen flex flex-col">
+      <SeoMeta pageKey="shops" title="Shops — JubaSquare" description="Discover verified local shops in South Sudan on JubaSquare." />
       <Header />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full flex-1">
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8">

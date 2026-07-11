@@ -18,7 +18,8 @@ import AdminDeliveryPricingTab from "@/components/AdminDeliveryPricingTab";
 import AdminHomepageTab from "@/components/AdminHomepageTab";
 import AdminReportsTab from "@/components/AdminReportsTab";
 import AdminOdooTokenManager from "@/components/AdminOdooTokenManager";
-import { Store, Mail, CheckCircle2, XCircle, Clock, Plus, Trash2, X, BarChart3, Settings as SettingsIcon, BookOpen, Sliders, SlidersHorizontal, PanelBottom, FolderTree, Ban, Activity, Truck, MapPin, Key, Image as ImageIcon, Flag } from "lucide-react";
+import AdminSeoTab from "@/components/AdminSeoTab";
+import { Store, Mail, CheckCircle2, XCircle, Clock, Plus, Trash2, X, BarChart3, Settings as SettingsIcon, BookOpen, Sliders, SlidersHorizontal, PanelBottom, FolderTree, Ban, Activity, Truck, MapPin, Key, Image as ImageIcon, Flag, Search as SearchIcon } from "lucide-react";
 import { toast } from "sonner";
 
 const TABS = [
@@ -35,6 +36,7 @@ const TABS = [
   { id: "footer", label: "Footer", icon: PanelBottom },
   { id: "homepage", label: "Homepage", icon: ImageIcon },
   { id: "reports", label: "Reports", icon: Flag },
+  { id: "seo", label: "SEO", icon: SearchIcon },
   { id: "settings", label: "Settings", icon: Sliders },
   { id: "integrations", label: "Integrations", icon: SettingsIcon },
   { id: "odoo", label: "Odoo Integration", icon: Key },
@@ -162,6 +164,7 @@ export default function AdminDashboard() {
           {tab === "footer" && <AdminFooterTab />}
           {tab === "homepage" && <AdminHomepageTab />}
           {tab === "reports" && <AdminReportsTab />}
+          {tab === "seo" && <AdminSeoTab />}
           {tab === "settings" && <AdminSettingsTab onGoToShop={() => setTab("shops")} />}
           {tab === "integrations" && <AdminIntegrations />}
           {tab === "odoo" && <AdminOdooTokenManager />}

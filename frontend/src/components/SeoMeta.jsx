@@ -1,8 +1,14 @@
 import { Helmet } from "react-helmet-async";
+import { useSeo } from "@/context/SeoContext";
 
 /**
  * Renders JSON-LD structured data + basic per-page meta.
  * Props:
+ *   pageKey     — Iter 33.6 — matches an admin per-page override
+ *                 ("home" | "marketplace" | "shops" | "restaurants" |
+ *                  "product_detail" | "shop_detail" | "restaurant_detail" |
+ *                  "cart" | "login" | ...). Admin values ALWAYS win over
+ *                 the caller-provided props below.
  *   title       — page title (fallback to app default)
  *   description — meta description
  *   image       — social image URL
@@ -10,25 +16,38 @@ import { Helmet } from "react-helmet-async";
  *   type        — Open Graph type ("website" | "product" | "restaurant.restaurant")
  *   schema      — either a single JSON-LD object OR an array of them
  */
-export default function SeoMeta({ title, description, image, canonical, type = "website", schema }) {
+export default function SeoMeta({ pageKey, title, description, image, canonical, type = "website", schema }) {
+  const { settings, getPageSeo } = useSeo();
+  const admin = pageKey ? getPageSeo(pageKey, {}) : {};
+  const perPage = pageKey ? (settings?.pages || {})[pageKey] || {} : {};
+
+  // Admin overrides win when set; otherwise fall back to caller props;
+  // otherwise fall back to the global site defaults.
+  const finalTitle = perPage.title || title || settings?.site_title;
+  const finalDescription = perPage.description || description || settings?.meta_description;
+  const finalImage = perPage.social_image_url || image || settings?.default_social_image;
+  const finalCanonical = perPage.canonical_url || canonical || admin.canonical;
+
   const schemas = schema ? (Array.isArray(schema) ? schema : [schema]) : [];
+  const org = settings?.organization_name || "JubaSquare";
+
   return (
     <Helmet>
-      {title && <title>{title}</title>}
-      {description && <meta name="description" content={description} />}
-      {canonical && <link rel="canonical" href={canonical} />}
+      {finalTitle && <title>{finalTitle}</title>}
+      {finalDescription && <meta name="description" content={finalDescription} />}
+      {finalCanonical && <link rel="canonical" href={finalCanonical} />}
       {/* Open Graph */}
       <meta property="og:type" content={type} />
-      {title && <meta property="og:title" content={title} />}
-      {description && <meta property="og:description" content={description} />}
-      {image && <meta property="og:image" content={image} />}
-      {canonical && <meta property="og:url" content={canonical} />}
-      <meta property="og:site_name" content="JubaSquare" />
+      {finalTitle && <meta property="og:title" content={finalTitle} />}
+      {finalDescription && <meta property="og:description" content={finalDescription} />}
+      {finalImage && <meta property="og:image" content={finalImage} />}
+      {finalCanonical && <meta property="og:url" content={finalCanonical} />}
+      <meta property="og:site_name" content={org} />
       {/* Twitter */}
       <meta name="twitter:card" content="summary_large_image" />
-      {title && <meta name="twitter:title" content={title} />}
-      {description && <meta name="twitter:description" content={description} />}
-      {image && <meta name="twitter:image" content={image} />}
+      {finalTitle && <meta name="twitter:title" content={finalTitle} />}
+      {finalDescription && <meta name="twitter:description" content={finalDescription} />}
+      {finalImage && <meta name="twitter:image" content={finalImage} />}
       {/* JSON-LD */}
       {schemas.map((s, i) => (
         <script key={i} type="application/ld+json">

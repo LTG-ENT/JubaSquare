@@ -107,6 +107,7 @@ export default function Home() {
   return (
     <div className="min-h-screen flex flex-col">
       <SeoMeta
+        pageKey="home"
         title="JubaSquare — Juba's Trusted Marketplace | Retail, Wholesale & Food"
         description="Shop groceries, electronics, fashion, wholesale bulk deals and food delivery from trusted local shops and restaurants in Juba, South Sudan. By L.T.G Enterprise."
         canonical={typeof window !== "undefined" ? window.location.origin + "/" : undefined}

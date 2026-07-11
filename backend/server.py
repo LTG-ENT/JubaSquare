@@ -7962,6 +7962,14 @@ async def on_startup():
     except Exception as exc:
         log.warning(f"Attribute seed skipped: {exc}")
     log.info("✅ Attribute routes registered")
+
+    # Iter 33.6 — SEO settings + website-status (admin CRUD under /api).
+    # sitemap.xml + robots.txt are already served by server.py directly on
+    # the `api` router (see below) — with admin's custom robots override.
+    from seo_routes import create_router as create_seo_router
+    seo_router = create_seo_router(db, require_role("admin"), get_current_user)
+    app.include_router(seo_router, prefix="/api")
+    log.info("✅ SEO admin routes registered")
     
     # Backfill existing shops/restaurants with default Odoo connection settings
     try:
@@ -8048,11 +8056,11 @@ async def on_shutdown():
 @api.get("/sitemap.xml", include_in_schema=False)
 async def sitemap_xml(request: Request):
     """Dynamic sitemap of shops, restaurants, and products.
-    Google can crawl a non-root sitemap as long as robots.txt points to it.
+    Iter 33.6 — canonical HTTPS/www URLs only (via CANONICAL_ORIGIN).
     """
     from fastapi.responses import Response as _Resp
-    base = os.environ.get("FRONTEND_URL") or f"{request.url.scheme}://{request.headers.get('host','')}"
-    base = base.rstrip("/")
+    from seo_routes import CANONICAL_ORIGIN as _CANON
+    base = _CANON.rstrip("/")
     now = now_iso()
     static_paths = ["/", "/marketplace", "/shops", "/restaurants", "/about", "/contact", "/terms", "/privacy", "/returns"]
     urls = []
@@ -8064,6 +8072,14 @@ async def sitemap_xml(request: Request):
         for s in shops:
             lastmod = (s.get("updated_at") or s.get("created_at") or now)[:10]
             urls.append(f"<url><loc>{base}/shop/{s['id']}</loc><lastmod>{lastmod}</lastmod><changefreq>daily</changefreq><priority>0.8</priority></url>")
+    except Exception:
+        pass
+    # Restaurants
+    try:
+        restaurants = await db.restaurants.find({"is_active": {"$ne": False}}, {"_id": 0, "id": 1, "updated_at": 1, "created_at": 1}).to_list(1000)
+        for r in restaurants:
+            lastmod = (r.get("updated_at") or r.get("created_at") or now)[:10]
+            urls.append(f"<url><loc>{base}/restaurants/{r['id']}</loc><lastmod>{lastmod}</lastmod><changefreq>daily</changefreq><priority>0.8</priority></url>")
     except Exception:
         pass
     # Products
@@ -8086,9 +8102,21 @@ async def sitemap_xml(request: Request):
 
 @api.get("/robots.txt", include_in_schema=False)
 async def robots_txt(request: Request):
+    """Iter 33.6 — respects admin's custom robots.txt override from
+    seo_settings when non-empty; falls back to a sensible default that
+    always references the canonical sitemap URL."""
     from fastapi.responses import PlainTextResponse
-    base = os.environ.get("FRONTEND_URL") or f"{request.url.scheme}://{request.headers.get('host','')}"
-    base = base.rstrip("/")
+    from seo_routes import CANONICAL_ORIGIN as _CANON
+    base = _CANON.rstrip("/")
+    # Custom override from admin (Advanced SEO tab)
+    try:
+        doc = await db.seo_settings.find_one({"id": "global"}, {"_id": 0, "robots_txt": 1})
+        raw = (doc or {}).get("robots_txt", "") or ""
+        raw = raw.strip()
+        if raw:
+            return PlainTextResponse(raw, media_type="text/plain")
+    except Exception:
+        pass
     txt = (
         "User-agent: *\n"
         "Allow: /\n"
@@ -8426,6 +8454,11 @@ async def complete_onboarding_tour(user: dict = Depends(require_role("seller", "
 # Storage (canonical) with a legacy fallback to /app/backend/uploads/.
 
 app.include_router(api)
+
+# Iter 33.6 — HTTPS + canonical redirect + security headers.
+# Middleware runs in REVERSE order of addition, so add this LAST to run FIRST.
+from https_middleware import HTTPSAndCanonicalMiddleware  # noqa: E402
+app.add_middleware(HTTPSAndCanonicalMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import api from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import SeoMeta from "@/components/SeoMeta";
 import RestaurantCard from "@/components/RestaurantCard";
 import TrendingRestaurants from "@/components/TrendingRestaurants";
 import AreaSelector from "@/components/AreaSelector";
@@ -179,6 +180,7 @@ export default function Restaurants() {
 
   return (
     <div className="min-h-screen flex flex-col">
+      <SeoMeta pageKey="restaurants" title="Restaurants — JubaSquare" description="Order from top-rated restaurants in Juba and across South Sudan." />
       <Header />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full flex-1">
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8">

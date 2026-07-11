@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import api from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import SeoMeta from "@/components/SeoMeta";
 import ProductCard from "@/components/ProductCard";
 import WholesaleCard from "@/components/WholesaleCard";
 import AreaSelector from "@/components/AreaSelector";
@@ -285,6 +286,7 @@ export default function Marketplace() {
 
   return (
     <div className="min-h-screen flex flex-col">
+      <SeoMeta pageKey="marketplace" title="Marketplace — JubaSquare" description="Browse thousands of products from trusted South Sudan sellers." />
       <Header />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full flex-1">
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">

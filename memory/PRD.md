@@ -311,3 +311,24 @@ See `/app/memory/test_credentials.md` — admin + demo seller (Iter 33).
 - Pagination — 40 items per fetch on Marketplace, Shops, Restaurants with "Load more" CTA (`data-testid="load-more-products"|"load-more-shops"|"load-more-restaurants"`). Backend `DEFAULT_PAGE_LIMIT` lowered from 50 → 40.
 - All changes verified in preview via screenshots (seller dashboard dark mode + wallet cards + Marketplace with pagination). NOT yet redeployed to production.
 
+
+## Iteration 33.6 (Jul 2026) — SEO admin + HTTPS enforcement + Website Status
+
+**Backend**
+- `/app/backend/seo_routes.py` — `seo_settings` collection (single doc `id="global"`) with Basic, Per-page, Advanced sections. Endpoints: `GET /api/seo/public`, `GET /api/admin/seo`, `PUT /api/admin/seo`, `GET /api/admin/website-status` (read-only diagnostic).
+- `/app/backend/https_middleware.py` — `HTTPSAndCanonicalMiddleware` enforces http→https + apex→www 301 redirects for `jubasquare.com` / `www.jubasquare.com` only (dev/preview hosts pass through). Adds HSTS (`max-age=63072000; includeSubDomains; preload`), X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy on every response.
+- `server.py` — existing `/api/sitemap.xml` and `/api/robots.txt` updated to use `CANONICAL_ORIGIN=https://www.jubasquare.com` and to serve the admin's custom robots.txt when set.
+
+**Frontend**
+- `SeoContext` (`/app/frontend/src/context/SeoContext.jsx`) loads `/api/seo/public` on boot, exposes `getPageSeo(pageKey)`, and installs GA4 / GTM / Meta Pixel / GSC + Bing verification / favicon / custom header + footer scripts on demand.
+- `SeoMeta.jsx` extended with a `pageKey` prop — admin per-page overrides now layer on top of caller-provided title/description/image/canonical values.
+- `AdminSeoTab.jsx` — full editor with sub-tabs Basic / Per-page / Advanced / Website Status. Registered as `SEO` tab in the admin dashboard.
+- Pages wired: Home, Marketplace, Shops, Restaurants, ProductDetail all now use `<SeoMeta pageKey="…" />`.
+- `public/robots.txt` updated to point sitemap to `/api/sitemap.xml`.
+
+**Canonical domain**: `https://www.jubasquare.com`. All sitemap URLs, canonical link tags, and 301 redirects use it.
+
+**Known limitation**: SPA per-page OG image previews still won't be seen by social crawlers that don't run JS (Facebook, X, LinkedIn). Google indexes titles/descriptions fine. Follow-up: edge-level prerender or SSR for shop/restaurant/product detail routes.
+
+**Verified in preview**: SEO tab renders, save persists (`site_title` PUT round-trip verified), Website Status shows HTTPS/SSL/redirect/canonical/sitemap/robots/mixed-content all green, sitemap and robots.txt serve canonical URLs.
+

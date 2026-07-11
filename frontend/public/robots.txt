@@ -1,5 +1,7 @@
 User-agent: *
 Allow: /
+
+# Block internal / auth-only areas
 Disallow: /admin
 Disallow: /seller
 Disallow: /driver
@@ -8,4 +10,4 @@ Disallow: /orders
 Disallow: /settings
 Disallow: /api/
 
-Sitemap: /api/sitemap.xml
+Sitemap: https://www.jubasquare.com/api/sitemap.xml
