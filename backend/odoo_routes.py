@@ -607,10 +607,106 @@ def create_odoo_routes(db, require_role):
     
     @router.post("/delivery/status-update")
     async def odoo_delivery_status_update(
-        _verified: bool = Depends(verify_odoo_webhook)
+        payload: dict = Body(default_factory=dict),
+        _verified: bool = Depends(verify_odoo_webhook),
     ):
-        """Webhook: Odoo sends delivery status update (placeholder)"""
-        return {"status": "placeholder", "message": "Delivery status update endpoint - to be implemented"}
+        """Odoo → JubaSquare: mark a delivery done (or failed/returned) from
+        the Odoo module without going through the JubaSquare driver flow.
+
+        Body:
+          {order_id: str, sub_order_id?: str,
+           delivery_status: 'delivered'|'delivery_failed'|'returned_to_seller',
+           cash_collected?: bool (default True when delivery_status=delivered),
+           reason?: str}
+
+        When `delivery_status == "delivered"` and `cash_collected` is truthy
+        (default), we also mark:
+          payment_status = 'collected_by_seller'
+          cash_collected_at = now
+          delivered_at = now
+        so the seller's wallet immediately clears the "Pending cash
+        collection" bucket.
+
+        Targets a `seller_order_splits` row when `sub_order_id` is supplied,
+        otherwise a `restaurant_orders` row keyed by `order_id`.
+        """
+        order_id = (payload or {}).get("order_id")
+        sub_order_id = (payload or {}).get("sub_order_id")
+        delivery_status = ((payload or {}).get("delivery_status") or "").strip().lower()
+        if not order_id:
+            raise HTTPException(400, "order_id is required")
+        VALID = {"delivered", "delivery_failed", "returned_to_seller"}
+        if delivery_status not in VALID:
+            raise HTTPException(400, f"delivery_status must be one of {sorted(VALID)}")
+
+        cash_collected_flag = (payload or {}).get("cash_collected")
+        if cash_collected_flag is None:
+            cash_collected_flag = (delivery_status == "delivered")
+
+        now = datetime.now(timezone.utc)
+        now_iso_str = now.isoformat()
+        set_fields: dict = {
+            "delivery_status": delivery_status,
+            "status": delivery_status,
+            "updated_at": now_iso_str,
+            "delivery_status_source": "odoo",
+        }
+        if delivery_status == "delivered":
+            set_fields["delivered_at"] = now_iso_str
+            if cash_collected_flag:
+                set_fields["payment_status"] = "collected_by_seller"
+                set_fields["cash_collected_at"] = now_iso_str
+                # Prevent seller_earning from getting stuck in "pending_payout"
+                # limbo — Odoo-completed orders are payout-ready immediately.
+                set_fields["payout_status"] = "ready_for_payout"
+        elif delivery_status == "delivery_failed":
+            set_fields["failed_at"] = now_iso_str
+            reason = (payload or {}).get("reason") or "Marked failed via Odoo"
+            set_fields["failure_reason"] = str(reason)[:500]
+        elif delivery_status == "returned_to_seller":
+            set_fields["returned_to_seller_at"] = now_iso_str
+            set_fields["return_status"] = "returned"
+            set_fields["payout_status"] = "cancelled"
+
+        entity_type: str
+        matched = 0
+        if sub_order_id:
+            res = await db.seller_order_splits.update_one(
+                {"id": sub_order_id, "order_id": order_id},
+                {"$set": set_fields},
+            )
+            entity_type = "seller_order_split"
+            matched = res.modified_count
+        else:
+            res = await db.restaurant_orders.update_one(
+                {"id": order_id}, {"$set": set_fields}
+            )
+            entity_type = "restaurant_order"
+            matched = res.modified_count
+
+        log_id = str(uuid.uuid4())
+        await db.odoo_sync_logs.insert_one({
+            "id": log_id,
+            "kind": "delivery_status_update",
+            "delivery_status": delivery_status,
+            "cash_collected": bool(cash_collected_flag),
+            "entity_type": entity_type,
+            "order_id": order_id,
+            "sub_order_id": sub_order_id,
+            "matched": bool(matched),
+            "created_at": now,
+        })
+
+        if not matched:
+            raise HTTPException(404, f"Order not found: order_id={order_id} sub_order_id={sub_order_id}")
+
+        return {
+            "status": "success",
+            "delivery_status": delivery_status,
+            "cash_collected": bool(cash_collected_flag),
+            "entity_type": entity_type,
+            "log_id": log_id,
+        }
     
     @router.post("/invoice/status-update")
     async def odoo_invoice_status_update(

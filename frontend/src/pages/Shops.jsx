@@ -18,18 +18,50 @@ export default function Shops() {
   const [activeCat, setActiveCat] = useState("All");
   const [searchParams] = useSearchParams();
   const { area, setArea } = useCart();
+  const [shopsSkip, setShopsSkip] = useState(0);
+  const [hasMoreShops, setHasMoreShops] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const PAGE_SIZE = 40; // Iter 33.5
 
   useEffect(() => {
     // Iter 30 Wave 2 — pass badge chip params through so backend filters +
     // ranks appropriately.
     const qs = new URLSearchParams();
-    qs.set("limit", "200");
+    qs.set("limit", String(PAGE_SIZE));
+    qs.set("skip", "0");
     ["ltg", "deals", "wholesale", "verified"].forEach((k) => {
       if (searchParams.get(k)) qs.set(k, "true");
     });
-    api.get(`/shops?${qs.toString()}`).then((r) => setShops(r.data));
-    api.get("/products?limit=200").then((r) => setProducts(r.data));
+    setShopsSkip(0);
+    setHasMoreShops(true);
+    api.get(`/shops?${qs.toString()}`).then((r) => {
+      const arr = Array.isArray(r.data) ? r.data : [];
+      setShops(arr);
+      setHasMoreShops(arr.length === PAGE_SIZE);
+    });
+    api.get(`/products?limit=${PAGE_SIZE * 3}`).then((r) => setProducts(r.data));
   }, [searchParams]);
+
+  const loadMoreShops = () => {
+    if (loadingMore || !hasMoreShops) return;
+    setLoadingMore(true);
+    const nextSkip = shopsSkip + PAGE_SIZE;
+    const qs = new URLSearchParams();
+    qs.set("limit", String(PAGE_SIZE));
+    qs.set("skip", String(nextSkip));
+    ["ltg", "deals", "wholesale", "verified"].forEach((k) => {
+      if (searchParams.get(k)) qs.set(k, "true");
+    });
+    api.get(`/shops?${qs.toString()}`)
+      .then((r) => {
+        const arr = Array.isArray(r.data) ? r.data : [];
+        setShops((prev) => [...prev, ...arr]);
+        setShopsSkip(nextSkip);
+        setHasMoreShops(arr.length === PAGE_SIZE);
+      })
+      .catch(() => setHasMoreShops(false))
+      .finally(() => setLoadingMore(false));
+  };
 
   // Get unique categories from products (not shops)
   const cats = useMemo(() => {
@@ -128,9 +160,23 @@ export default function Shops() {
             <p className="mt-3">No shops found.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filtered.map((s) => <ShopCard key={s.id} shop={s} productsPreview={productsByShop(s.id)} />)}
-          </div>
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filtered.map((s) => <ShopCard key={s.id} shop={s} productsPreview={productsByShop(s.id)} />)}
+            </div>
+            {hasMoreShops && (
+              <div className="mt-8 flex justify-center">
+                <button
+                  onClick={loadMoreShops}
+                  disabled={loadingMore}
+                  data-testid="load-more-shops"
+                  className="px-6 py-3 rounded-full bg-[#1A1A1A] text-white text-sm font-bold hover:bg-black disabled:opacity-60 disabled:cursor-not-allowed shadow-md"
+                >
+                  {loadingMore ? "Loading…" : `Load more (${PAGE_SIZE} at a time)`}
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
       <Footer />

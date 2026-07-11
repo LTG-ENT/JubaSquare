@@ -395,7 +395,7 @@ function DeliveryEditor({ form, setForm }) {
         <Field label="Delivery fee (USD)">
           <input
             type="number"
-            step="0.01"
+            step="0.0000000000000001"
             min="0"
             value={form.delivery_fee_usd ?? 0}
             onChange={(e) => setForm({ ...form, delivery_fee_usd: e.target.value })}
@@ -423,7 +423,7 @@ function DeliveryEditor({ form, setForm }) {
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-[var(--js-text-secondary)]">USD</span>
                 <input
                   type="number"
-                  step="0.01"
+                  step="0.0000000000000001"
                   min="0"
                   value={entry.fee_usd ?? 0}
                   onChange={(e) => updateAreaFee(idx, "fee_usd", e.target.value)}

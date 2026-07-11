@@ -31,10 +31,11 @@ export default function SellerShopEdit() {
     delivery_per_area: [],
     receipt_show_logo: false,
     receipt_logo_url: "",
-    eta_mode: "off",
-    eta_fixed_minutes: 30,
-    eta_min_minutes: 25,
-    eta_max_minutes: 45,
+    // Shop delivery timeframe is in DAYS (not minutes). Restaurants keep ETA in minutes.
+    delivery_days_mode: "off",     // 'off' | 'fixed' | 'range'
+    delivery_days_fixed: 1,
+    delivery_days_min: 1,
+    delivery_days_max: 3,
     product_sections: [],
   });
 
@@ -59,10 +60,10 @@ export default function SellerShopEdit() {
           delivery_per_area: s.delivery_per_area || [],
           receipt_show_logo: !!s.receipt_show_logo,
           receipt_logo_url: s.receipt_logo_url || "",
-          eta_mode: s.eta_mode || "off",
-          eta_fixed_minutes: s.eta_fixed_minutes ?? 30,
-          eta_min_minutes: s.eta_min_minutes ?? 25,
-          eta_max_minutes: s.eta_max_minutes ?? 45,
+          delivery_days_mode: s.delivery_days_mode || "off",
+          delivery_days_fixed: s.delivery_days_fixed ?? 1,
+          delivery_days_min: s.delivery_days_min ?? 1,
+          delivery_days_max: s.delivery_days_max ?? 3,
           product_sections: s.product_sections || [],
         });
       })
@@ -102,10 +103,10 @@ export default function SellerShopEdit() {
           : [],
         receipt_show_logo: !!form.receipt_show_logo,
         receipt_logo_url: (form.receipt_logo_url || "").trim(),
-        eta_mode: form.eta_mode || "off",
-        eta_fixed_minutes: form.eta_mode === "fixed" ? (parseInt(form.eta_fixed_minutes, 10) || null) : null,
-        eta_min_minutes: form.eta_mode === "range" ? (parseInt(form.eta_min_minutes, 10) || null) : null,
-        eta_max_minutes: form.eta_mode === "range" ? (parseInt(form.eta_max_minutes, 10) || null) : null,
+        delivery_days_mode: form.delivery_days_mode || "off",
+        delivery_days_fixed: form.delivery_days_mode === "fixed" ? (parseInt(form.delivery_days_fixed, 10) || null) : null,
+        delivery_days_min: form.delivery_days_mode === "range" ? (parseInt(form.delivery_days_min, 10) || null) : null,
+        delivery_days_max: form.delivery_days_mode === "range" ? (parseInt(form.delivery_days_max, 10) || null) : null,
         product_sections: (form.product_sections || [])
           .map((s, i) => ({ id: s.id, name: (s.name || "").trim(), sort_order: i, is_promo_section: !!s.is_promo_section }))
           .filter((s) => s.id && s.name)
@@ -282,12 +283,12 @@ export default function SellerShopEdit() {
             <ShopSectionsEditor form={form} setForm={setForm} />
           </Section>
 
-          {/* Estimated delivery */}
+          {/* Delivery timeframe — in DAYS for shops */}
           <Section
-            title="Estimated delivery time"
-            subtitle="Shown on the customer's checkout and order-tracking page. Set a fixed value, a range, or leave off."
+            title="Delivery timeframe (days)"
+            subtitle="How many days from order confirmation until customers can expect their delivery. Shown on shop, product & checkout pages."
           >
-            <ShopEtaEditor form={form} setForm={setForm} />
+            <ShopDeliveryDaysEditor form={form} setForm={setForm} />
           </Section>
 
           {/* Receipt logo */}
@@ -404,7 +405,7 @@ function DeliveryEditor({ form, setForm }) {
         <Field label="Delivery fee (USD)">
           <input
             type="number"
-            step="0.01"
+            step="0.0000000000000001"
             min="0"
             value={form.delivery_fee_usd ?? 0}
             onChange={(e) => setForm({ ...form, delivery_fee_usd: e.target.value })}
@@ -432,7 +433,7 @@ function DeliveryEditor({ form, setForm }) {
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-[var(--js-text-secondary)]">USD</span>
                 <input
                   type="number"
-                  step="0.01"
+                  step="0.0000000000000001"
                   min="0"
                   value={entry.fee_usd ?? 0}
                   onChange={(e) => updateAreaFee(idx, "fee_usd", e.target.value)}
@@ -465,7 +466,7 @@ function DeliveryEditor({ form, setForm }) {
   );
 }
 
-function ShopEtaEditor({ form, setForm }) {
+function ShopDeliveryDaysEditor({ form, setForm }) {
   return (
     <div className="space-y-3">
       <div className="inline-flex bg-[var(--js-subtle)] rounded-full p-1">
@@ -477,45 +478,45 @@ function ShopEtaEditor({ form, setForm }) {
           <button
             key={opt.id}
             type="button"
-            onClick={() => setForm({ ...form, eta_mode: opt.id })}
-            data-testid={`shop-edit-eta-mode-${opt.id}`}
+            onClick={() => setForm({ ...form, delivery_days_mode: opt.id })}
+            data-testid={`shop-edit-delivery-days-mode-${opt.id}`}
             className={`px-4 py-1.5 rounded-full text-xs font-semibold ${
-              form.eta_mode === opt.id ? "bg-[#C84B31] text-white shadow" : "text-[var(--js-text-secondary)]"
+              form.delivery_days_mode === opt.id ? "bg-[#C84B31] text-white shadow" : "text-[var(--js-text-secondary)]"
             }`}
           >{opt.label}</button>
         ))}
       </div>
-      {form.eta_mode === "fixed" && (
+      {form.delivery_days_mode === "fixed" && (
         <div>
-          <label className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">Delivery in (minutes)</label>
+          <label className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">Delivery in (days)</label>
           <input
-            type="number" min={1} max={240}
-            value={form.eta_fixed_minutes}
-            onChange={(e) => setForm({ ...form, eta_fixed_minutes: e.target.value })}
-            data-testid="shop-edit-eta-fixed"
+            type="number" min={1} max={90}
+            value={form.delivery_days_fixed}
+            onChange={(e) => setForm({ ...form, delivery_days_fixed: e.target.value })}
+            data-testid="shop-edit-delivery-days-fixed"
             className="w-32 px-3 py-2 rounded-lg border border-[var(--js-border)] bg-[var(--js-bg)] text-[var(--js-text)] text-sm"
           />
         </div>
       )}
-      {form.eta_mode === "range" && (
+      {form.delivery_days_mode === "range" && (
         <div className="flex items-end gap-3">
           <div>
-            <label className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">Min minutes</label>
+            <label className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">Min days</label>
             <input
-              type="number" min={1} max={240}
-              value={form.eta_min_minutes}
-              onChange={(e) => setForm({ ...form, eta_min_minutes: e.target.value })}
-              data-testid="shop-edit-eta-min"
+              type="number" min={1} max={90}
+              value={form.delivery_days_min}
+              onChange={(e) => setForm({ ...form, delivery_days_min: e.target.value })}
+              data-testid="shop-edit-delivery-days-min"
               className="w-28 px-3 py-2 rounded-lg border border-[var(--js-border)] bg-[var(--js-bg)] text-[var(--js-text)] text-sm"
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">Max minutes</label>
+            <label className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">Max days</label>
             <input
-              type="number" min={1} max={240}
-              value={form.eta_max_minutes}
-              onChange={(e) => setForm({ ...form, eta_max_minutes: e.target.value })}
-              data-testid="shop-edit-eta-max"
+              type="number" min={1} max={90}
+              value={form.delivery_days_max}
+              onChange={(e) => setForm({ ...form, delivery_days_max: e.target.value })}
+              data-testid="shop-edit-delivery-days-max"
               className="w-28 px-3 py-2 rounded-lg border border-[var(--js-border)] bg-[var(--js-bg)] text-[var(--js-text)] text-sm"
             />
           </div>

@@ -31,6 +31,10 @@ export default function Restaurants() {
   const [activeCatId, setActiveCatId] = useState("all");
   const [sortBy, setSortBy] = useState("recommended");
   const { area, setArea } = useCart();
+  const [restaurantsSkip, setRestaurantsSkip] = useState(0);
+  const [hasMoreRestaurants, setHasMoreRestaurants] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const PAGE_SIZE = 40; // Iter 33.5
 
   // Fetch all data on mount OR when activeCatId changes.
   // NEW: Use backend filtering with category_id for better performance.
@@ -38,10 +42,13 @@ export default function Restaurants() {
     // CRITICAL: Clear old data immediately to prevent showing unfiltered results
     setRestaurants([]);
     setLoading(true);
+    setRestaurantsSkip(0);
+    setHasMoreRestaurants(true);
 
     // Iter 30 Wave 2 — badge filters propagated from URL chips.
     const restQs = new URLSearchParams();
-    restQs.set("limit", "200");
+    restQs.set("limit", String(PAGE_SIZE));
+    restQs.set("skip", "0");
     if (activeCatId && activeCatId !== "all") restQs.set("category_id", activeCatId);
     ["ltg", "deals", "verified"].forEach((k) => {
       if (searchParams.get(k)) restQs.set(k, "true");
@@ -50,7 +57,9 @@ export default function Restaurants() {
 
     api.get(restaurantsUrl)
       .then((r) => {
-        setRestaurants(r.data);
+        const arr = Array.isArray(r.data) ? r.data : [];
+        setRestaurants(arr);
+        setHasMoreRestaurants(arr.length === PAGE_SIZE);
         setLoading(false);
       })
       .catch(() => {
@@ -61,13 +70,35 @@ export default function Restaurants() {
     // Menu items are only used for empty state detection now (not for filtering)
     // But we still need them to detect if a category has ANY menu items
     const menuUrl = activeCatId && activeCatId !== "all"
-      ? `/menu-items?limit=200&category_id=${activeCatId}`
-      : "/menu-items?limit=200";
+      ? `/menu-items?limit=${PAGE_SIZE * 3}&category_id=${activeCatId}`
+      : `/menu-items?limit=${PAGE_SIZE * 3}`;
 
     api.get(menuUrl).then((r) => {
       setMenuItems(Array.isArray(r.data) ? r.data : []);
     }).catch(() => setMenuItems([]));
   }, [activeCatId, searchParams]);
+
+  const loadMoreRestaurants = () => {
+    if (loadingMore || !hasMoreRestaurants) return;
+    setLoadingMore(true);
+    const nextSkip = restaurantsSkip + PAGE_SIZE;
+    const qs = new URLSearchParams();
+    qs.set("limit", String(PAGE_SIZE));
+    qs.set("skip", String(nextSkip));
+    if (activeCatId && activeCatId !== "all") qs.set("category_id", activeCatId);
+    ["ltg", "deals", "verified"].forEach((k) => {
+      if (searchParams.get(k)) qs.set(k, "true");
+    });
+    api.get(`/restaurants?${qs.toString()}`)
+      .then((r) => {
+        const arr = Array.isArray(r.data) ? r.data : [];
+        setRestaurants((prev) => [...prev, ...arr]);
+        setRestaurantsSkip(nextSkip);
+        setHasMoreRestaurants(arr.length === PAGE_SIZE);
+      })
+      .catch(() => setHasMoreRestaurants(false))
+      .finally(() => setLoadingMore(false));
+  };
 
   // Fetch categories once on mount
   useEffect(() => {
@@ -233,9 +264,23 @@ export default function Restaurants() {
             No restaurants in this category.
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {sorted.map((r) => <RestaurantCard key={r.id} restaurant={r} initialOpen={focusId === r.id} />)}
-          </div>
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {sorted.map((r) => <RestaurantCard key={r.id} restaurant={r} initialOpen={focusId === r.id} />)}
+            </div>
+            {hasMoreRestaurants && (
+              <div className="mt-8 flex justify-center">
+                <button
+                  onClick={loadMoreRestaurants}
+                  disabled={loadingMore}
+                  data-testid="load-more-restaurants"
+                  className="px-6 py-3 rounded-full bg-[#1A1A1A] text-white text-sm font-bold hover:bg-black disabled:opacity-60 disabled:cursor-not-allowed shadow-md"
+                >
+                  {loadingMore ? "Loading…" : `Load more (${PAGE_SIZE} at a time)`}
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
       <Footer />

@@ -522,7 +522,7 @@ def require_role(*roles: str):
 # Pagination helper — keeps low-resource hosts safe from giant responses.
 # Default page = 50 items. Hard ceiling = 200. Negative skip clamped to 0.
 # ----------------------------------------------------------------------------
-DEFAULT_PAGE_LIMIT = 50
+DEFAULT_PAGE_LIMIT = 40
 MAX_PAGE_LIMIT = 200
 
 
@@ -710,6 +710,13 @@ class ShopIn(BaseModel):
     eta_fixed_minutes: Optional[int] = None
     eta_min_minutes: Optional[int] = None
     eta_max_minutes: Optional[int] = None
+    # Iter 33.5 — shop delivery timeframe measured in DAYS. Restaurants keep
+    # the minutes-based `eta_*` fields above (their ETA is close to real time);
+    # shops ship over days so we track those separately.
+    delivery_days_mode: Literal["off", "fixed", "range"] = "off"
+    delivery_days_fixed: Optional[int] = None
+    delivery_days_min: Optional[int] = None
+    delivery_days_max: Optional[int] = None
     # Iter 32 — seller-defined PRODUCT SECTIONS (max 20). Groups products
     # within THIS shop (Featured, On Sale, Accessories…). Distinct from the
     # marketplace-level shop_category. Each product references one section

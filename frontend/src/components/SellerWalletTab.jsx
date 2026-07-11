@@ -42,10 +42,10 @@ const PAYOUT_PILL = {
 
 function StatCard({ icon: Icon, label, value, sub, tone = "default" }) {
   const tones = {
-    default: "bg-white",
-    good: "bg-emerald-50 border-emerald-200",
-    warn: "bg-amber-50 border-amber-200",
-    bad: "bg-red-50 border-red-200",
+    default: "bg-white dark:bg-[var(--js-card)]",
+    good: "bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800/40",
+    warn: "bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800/40",
+    bad: "bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800/40",
   };
   return (
     <div className={`rounded-2xl border border-[var(--js-border)] p-5 ${tones[tone] || tones.default}`}>

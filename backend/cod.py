@@ -3017,7 +3017,14 @@ async def _calculate_delivery_fee(
                     fee = float(row.get("fee_usd") or 0)
                     log.info(f"[DELIVERY FEE] Seller-managed: {log_tag} → per-area '{delivery_area}' = {fee}")
                     return fee
-            log.warning(f"[DELIVERY FEE] Seller-managed: {log_tag} has no rule for '{delivery_area}'; falling back to admin rules")
+            # Iter 33.5 — per-area with no matching row = seller does not
+            # deliver to this area. Refuse the order instead of silently
+            # falling back to admin rules or free.
+            log.warning(f"[DELIVERY FEE] Seller-managed: {log_tag} does NOT deliver to '{delivery_area}' — refusing quote")
+            raise HTTPException(
+                400,
+                f"We can't deliver to {delivery_area or 'your area'} yet. Please choose another area or contact the seller.",
+            )
         # If mode is unset/unknown → fall through to admin logic below
     # -------------------------------------------------------------------
 

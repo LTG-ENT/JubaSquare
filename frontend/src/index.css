@@ -114,6 +114,71 @@
     color: var(--js-text);
 }
 
+/* Iter 33.5 — Pastel status tints (used on wallet cards, seller onboarding,
+   low-stock warnings, wholesale hero) map to dark-tinted surfaces so the
+   dashboard doesn't blind users in dark mode. Keep the border hue for tone. */
+[data-theme="dark"] .bg-emerald-50 { background-color: rgba(16, 185, 129, 0.08) !important; }
+[data-theme="dark"] .bg-emerald-100 { background-color: rgba(16, 185, 129, 0.14) !important; }
+[data-theme="dark"] .bg-green-50 { background-color: rgba(34, 197, 94, 0.08) !important; }
+[data-theme="dark"] .bg-green-100 { background-color: rgba(34, 197, 94, 0.14) !important; }
+[data-theme="dark"] .bg-\[\#F2F8F4\] { background-color: rgba(34, 197, 94, 0.06) !important; }
+[data-theme="dark"] .bg-amber-50 { background-color: rgba(245, 158, 11, 0.08) !important; }
+[data-theme="dark"] .bg-amber-100 { background-color: rgba(245, 158, 11, 0.16) !important; }
+[data-theme="dark"] .bg-yellow-50 { background-color: rgba(234, 179, 8, 0.08) !important; }
+[data-theme="dark"] .bg-yellow-100 { background-color: rgba(234, 179, 8, 0.14) !important; }
+[data-theme="dark"] .bg-red-50 { background-color: rgba(239, 68, 68, 0.08) !important; }
+[data-theme="dark"] .bg-red-100 { background-color: rgba(239, 68, 68, 0.14) !important; }
+[data-theme="dark"] .bg-orange-50 { background-color: rgba(249, 115, 22, 0.08) !important; }
+[data-theme="dark"] .bg-orange-100 { background-color: rgba(249, 115, 22, 0.14) !important; }
+[data-theme="dark"] .bg-blue-50 { background-color: rgba(59, 130, 246, 0.08) !important; }
+[data-theme="dark"] .bg-blue-100 { background-color: rgba(59, 130, 246, 0.14) !important; }
+[data-theme="dark"] .bg-pink-50 { background-color: rgba(236, 72, 153, 0.08) !important; }
+[data-theme="dark"] .bg-pink-100 { background-color: rgba(236, 72, 153, 0.14) !important; }
+[data-theme="dark"] .bg-purple-50 { background-color: rgba(168, 85, 247, 0.08) !important; }
+[data-theme="dark"] .bg-purple-100 { background-color: rgba(168, 85, 247, 0.14) !important; }
+
+/* Cream / peach / off-cream onboarding banners */
+[data-theme="dark"] .bg-\[\#FFF9E6\],
+[data-theme="dark"] .bg-\[\#FEF3C7\],
+[data-theme="dark"] .bg-\[\#FEF9E7\],
+[data-theme="dark"] .bg-\[\#FFF7E5\],
+[data-theme="dark"] .bg-\[\#FFF7E0\],
+[data-theme="dark"] .bg-\[\#FFFBEB\],
+[data-theme="dark"] .bg-\[\#FFF4E5\],
+[data-theme="dark"] .bg-\[\#FFF6EE\],
+[data-theme="dark"] .bg-\[\#FFF3E9\],
+[data-theme="dark"] .bg-\[\#F0F7FF\],
+[data-theme="dark"] .bg-\[\#F0F0E8\],
+[data-theme="dark"] .bg-\[\#FAFAF6\],
+[data-theme="dark"] .bg-\[\#F5F5EE\],
+[data-theme="dark"] .bg-\[\#FDF6E3\] { background-color: rgba(245, 158, 11, 0.10) !important; }
+
+/* Gradient stops used by onboarding banners (from/via/to arbitrary values) */
+[data-theme="dark"] .from-\[\#FFF6EE\] { --tw-gradient-from: rgba(249, 115, 22, 0.10) !important; --tw-gradient-to: rgba(249, 115, 22, 0) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-via, var(--tw-gradient-to)), var(--tw-gradient-to) !important; }
+[data-theme="dark"] .via-white { --tw-gradient-via: var(--js-card) !important; --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-via), var(--tw-gradient-to) !important; }
+[data-theme="dark"] .to-\[\#F0F7FF\] { --tw-gradient-to: rgba(59, 130, 246, 0.10) !important; }
+
+/* Iter 33.5 — Ensure the seller onboarding + low-stock banners keep their
+   text legible on the darker tint (text-amber, text-emerald etc). */
+[data-theme="dark"] .text-emerald-700,
+[data-theme="dark"] .text-emerald-800,
+[data-theme="dark"] .text-emerald-900 { color: #6ee7b7 !important; }
+[data-theme="dark"] .text-amber-700,
+[data-theme="dark"] .text-amber-800,
+[data-theme="dark"] .text-amber-900 { color: #fcd34d !important; }
+[data-theme="dark"] .text-red-700,
+[data-theme="dark"] .text-red-800,
+[data-theme="dark"] .text-red-900 { color: #fca5a5 !important; }
+[data-theme="dark"] .text-orange-700,
+[data-theme="dark"] .text-orange-800,
+[data-theme="dark"] .text-orange-900 { color: #fdba74 !important; }
+[data-theme="dark"] .text-blue-700,
+[data-theme="dark"] .text-blue-800,
+[data-theme="dark"] .text-blue-900 { color: #93c5fd !important; }
+[data-theme="dark"] .text-yellow-700,
+[data-theme="dark"] .text-yellow-800,
+[data-theme="dark"] .text-yellow-900 { color: #fde68a !important; }
+
 /* Hard light-tinted borders look harsh on dark — soften them */
 [data-theme="dark"] .border-\[\#E2E2D9\],
 [data-theme="dark"] .border-gray-200,

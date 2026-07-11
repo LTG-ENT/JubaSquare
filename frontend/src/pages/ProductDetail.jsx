@@ -183,6 +183,18 @@ export default function ProductDetail() {
     return null;
   })();
 
+  // Iter 33.5 — shop delivery timeframe (in days), separate from price
+  const deliveryTimeframe = (() => {
+    if (!shop) return null;
+    const m = shop.delivery_days_mode || "off";
+    if (m === "off") return null;
+    if (m === "fixed" && shop.delivery_days_fixed)
+      return `Arrives in ~${shop.delivery_days_fixed} day${shop.delivery_days_fixed > 1 ? "s" : ""}`;
+    if (m === "range" && shop.delivery_days_min && shop.delivery_days_max)
+      return `Arrives in ${shop.delivery_days_min}–${shop.delivery_days_max} days`;
+    return null;
+  })();
+
   return (
     <div className="min-h-screen flex flex-col">
       {product && typeof window !== "undefined" && (
@@ -327,6 +339,11 @@ export default function ProductDetail() {
               {deliveryInfo && (
                 <div className="flex items-center gap-2 text-[var(--js-text)]" data-testid="delivery-info">
                   <Truck className="w-4 h-4 text-[#2D6A4F]" /> <span className="font-semibold">{deliveryInfo}</span>
+                </div>
+              )}
+              {deliveryTimeframe && (
+                <div className="flex items-center gap-2 text-[var(--js-text)]" data-testid="delivery-timeframe">
+                  <Truck className="w-4 h-4 text-[#2D6A4F]" /> <span className="font-semibold">{deliveryTimeframe}</span>
                 </div>
               )}
               <div className="flex items-center gap-2 text-[var(--js-text-secondary)]">

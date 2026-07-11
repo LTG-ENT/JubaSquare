@@ -19,8 +19,13 @@ const FILTERS = [
   { id: "wholesale", label: "Wholesale only" },
 ];
 
+const PAGE_SIZE = 40; // Iter 33.5 — paginate 40 items per fetch
+
 export default function Marketplace() {
   const [products, setProducts] = useState([]);
+  const [productsSkip, setProductsSkip] = useState(0);
+  const [hasMoreProducts, setHasMoreProducts] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [shops, setShops] = useState([]);
   const [categoryTree, setCategoryTree] = useState([]); // [{id,name,children:[...]}]
   const [expandedCats, setExpandedCats] = useState({});
@@ -138,10 +143,44 @@ export default function Marketplace() {
     if (searchParams.get("wholesale") && typeFilter !== "retail") params.is_wholesale = "true";
     // Iter 33 — dynamic attribute filters
     if (Object.keys(attrFilters).length) params.attrs = JSON.stringify(attrFilters);
-    api.get("/products", { params: { ...params, limit: 200 } })
-      .then((r) => setProducts(Array.isArray(r.data) ? r.data : []))
+    // Iter 33.5 — paginate 40 at a time (was 200). Reset when filters change.
+    setProductsSkip(0);
+    setHasMoreProducts(true);
+    setLoadingMore(false);
+    api.get("/products", { params: { ...params, limit: PAGE_SIZE, skip: 0 } })
+      .then((r) => {
+        const arr = Array.isArray(r.data) ? r.data : [];
+        setProducts(arr);
+        setHasMoreProducts(arr.length === PAGE_SIZE);
+      })
       .catch(() => setProducts([]));
   }, [selectedCategoryId, selectedCategoryLegacy, selectedShop, typeFilter, searchParams, attrFilters]);
+
+  // Iter 33.5 — Load more (append next 40 products)
+  const loadMoreProducts = () => {
+    if (loadingMore || !hasMoreProducts) return;
+    setLoadingMore(true);
+    const nextSkip = productsSkip + PAGE_SIZE;
+    const params = {};
+    if (selectedCategoryId) { params.category_id = selectedCategoryId; params.include_descendants = "true"; }
+    else if (selectedCategoryLegacy) params.category = selectedCategoryLegacy;
+    if (selectedShop) params.shop_id = selectedShop;
+    if (typeFilter === "retail") params.is_wholesale = false;
+    if (typeFilter === "wholesale") params.is_wholesale = true;
+    if (searchParams.get("ltg")) params.ltg = "true";
+    if (searchParams.get("deals")) params.deals = "true";
+    if (searchParams.get("wholesale") && typeFilter !== "retail") params.is_wholesale = "true";
+    if (Object.keys(attrFilters).length) params.attrs = JSON.stringify(attrFilters);
+    api.get("/products", { params: { ...params, limit: PAGE_SIZE, skip: nextSkip } })
+      .then((r) => {
+        const arr = Array.isArray(r.data) ? r.data : [];
+        setProducts((prev) => [...prev, ...arr]);
+        setProductsSkip(nextSkip);
+        setHasMoreProducts(arr.length === PAGE_SIZE);
+      })
+      .catch(() => setHasMoreProducts(false))
+      .finally(() => setLoadingMore(false));
+  };
 
   const categories = useMemo(() => {
     try {
@@ -550,13 +589,27 @@ export default function Marketplace() {
                 No products found.
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                {sorted.map((p) =>
-                  p.is_wholesale
-                    ? <WholesaleCard key={p.id} product={p} shop={shopForProduct(p)} />
-                    : <ProductCard key={p.id} product={p} shop={shopForProduct(p)} />
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {sorted.map((p) =>
+                    p.is_wholesale
+                      ? <WholesaleCard key={p.id} product={p} shop={shopForProduct(p)} />
+                      : <ProductCard key={p.id} product={p} shop={shopForProduct(p)} />
+                  )}
+                </div>
+                {hasMoreProducts && (
+                  <div className="mt-8 flex justify-center">
+                    <button
+                      onClick={loadMoreProducts}
+                      disabled={loadingMore}
+                      data-testid="load-more-products"
+                      className="px-6 py-3 rounded-full bg-[#1A1A1A] text-white text-sm font-bold hover:bg-black disabled:opacity-60 disabled:cursor-not-allowed shadow-md"
+                    >
+                      {loadingMore ? "Loading…" : `Load more (${PAGE_SIZE} at a time)`}
+                    </button>
+                  </div>
                 )}
-              </div>
+              </>
             )}
           </div>
         </div>
