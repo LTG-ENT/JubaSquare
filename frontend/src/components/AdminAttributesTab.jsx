@@ -218,6 +218,7 @@ export default function AdminAttributesTab() {
                           {a.filterable && <Pill color="bg-emerald-100 text-emerald-700"><Filter className="w-2.5 h-2.5 inline" /> Filter</Pill>}
                           {a.show_on_all && <Pill color="bg-indigo-100 text-indigo-700">Show on “All”</Pill>}
                           {a.searchable && <Pill color="bg-blue-100 text-blue-700"><SearchIcon className="w-2.5 h-2.5 inline" /> Search</Pill>}
+                          {a.category_ids.length === 0 && <Pill color="bg-amber-100 text-amber-700">No categories</Pill>}
                           {!a.is_active && <Pill color="bg-amber-100 text-amber-700">Disabled</Pill>}
                         </div>
                         <p className="text-[11px] text-[var(--js-text-secondary)] mt-0.5 truncate">

@@ -21,18 +21,24 @@ export default function SeoMeta({ pageKey, title, description, image, canonical,
   const admin = pageKey ? getPageSeo(pageKey, {}) : {};
   const perPage = pageKey ? (settings?.pages || {})[pageKey] || {} : {};
 
-  // Admin overrides win when set; otherwise fall back to caller props;
-  // otherwise fall back to the global site defaults.
+  // Iter 33.10 — Precedence order:
+  //   1. Per-page admin override (highest — admin picks a specific page)
+  //   2. Admin's site-wide setting (Basic tab) — overrides caller-provided
+  //      defaults so an admin edit ALWAYS takes effect, even on pages that
+  //      hard-code their own defaults.
+  //   3. Caller-provided prop (page's built-in default).
+  // Title keeps the caller prop preferred (pages know their own title) but
+  // still lets a per-page admin override + fall through to site_title.
   const finalTitle = perPage.title || title || settings?.site_title;
-  const finalDescription = perPage.description || description || settings?.meta_description;
-  const finalImage = perPage.social_image_url || image || settings?.default_social_image;
+  const finalDescription = perPage.description || settings?.meta_description || description;
+  const finalImage = perPage.social_image_url || settings?.default_social_image || image;
   const finalCanonical = perPage.canonical_url || canonical || admin.canonical;
 
   const schemas = schema ? (Array.isArray(schema) ? schema : [schema]) : [];
   const org = settings?.organization_name || "JubaSquare";
 
   return (
-    <Helmet>
+    <Helmet prioritizeSeoTags>
       {finalTitle && <title>{finalTitle}</title>}
       {finalDescription && <meta name="description" content={finalDescription} />}
       {finalCanonical && <link rel="canonical" href={finalCanonical} />}

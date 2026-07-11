@@ -237,22 +237,23 @@ def create_attribute_routes(db, require_role):
             bt = business_type
             if bt not in BUSINESS_TYPES:
                 raise HTTPException(400, f"Unknown business_type. Must be one of: {sorted(BUSINESS_TYPES)}")
-            # Iter 33.7 — When no category is chosen we ONLY expose attributes
-            # the admin explicitly marked `show_on_all`. This keeps the
-            # marketplace uncluttered until the customer narrows down.
+            # Iter 33.7 → refined in 33.10 — Return ALL filterable attributes
+            # for this business_type when a business_type is explicitly
+            # provided. The Marketplace uses this branch when the customer
+            # narrows to "Retail only" or "Wholesale only". The `show_on_all`
+            # gate is now enforced by the SPA (which simply skips rendering
+            # this panel on the un-narrowed "All" view) so wholesale sellers
+            # keep their category-agnostic filters.
             raw = await db.attributes.find(
                 {
                     "business_type": bt,
                     "is_active": {"$ne": False},
                     "filterable": True,
-                    "show_on_all": True,
                 },
                 {"_id": 0},
             ).sort([("order", 1), ("name", 1)]).to_list(500)
             defs = [_attr_doc(a) for a in raw]
             if not defs:
-                # Nothing to show — return an empty facet set so the SPA hides
-                # the panel entirely.
                 return {"business_type": bt, "category_id": None, "facets": []}
             if bt == "wholesale":
                 match["is_wholesale"] = True

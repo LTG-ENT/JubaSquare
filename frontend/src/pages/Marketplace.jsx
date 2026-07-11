@@ -558,8 +558,11 @@ export default function Marketplace() {
               )}
             </div>
 
-            {/* Iter 33 — dynamic attribute filters. Category-specific when a
-                 category is selected, otherwise business-type-wide facets. */}
+            {/* Iter 33 → refined 33.10 — dynamic attribute filters.
+                 - Category selected → category-specific facets.
+                 - "Retail only" / "Wholesale only" chip → business-type facets.
+                 - "All" (no chip, no category) → NO filter panel. Customer
+                   hasn't narrowed enough for filters to be useful. */}
             {selectedCategoryId ? (
               <AttributeFilterPanel
                 categoryId={selectedCategoryId}
@@ -567,14 +570,14 @@ export default function Marketplace() {
                 onChange={applyAttrFilters}
                 onFacets={setFacetDefs}
               />
-            ) : (
+            ) : (typeFilter === "retail" || typeFilter === "wholesale") ? (
               <AttributeFilterPanel
-                businessType={typeFilter === "wholesale" ? "wholesale" : "retail"}
+                businessType={typeFilter}
                 selected={attrFilters}
                 onChange={applyAttrFilters}
                 onFacets={setFacetDefs}
               />
-            )}
+            ) : null}
 
             {((selectedCategoryId || selectedCategoryLegacy) || selectedShop || search) && (
               <button
@@ -731,14 +734,14 @@ export default function Marketplace() {
                     onChange={applyAttrFilters}
                     onFacets={setFacetDefs}
                   />
-                ) : (
+                ) : (typeFilter === "retail" || typeFilter === "wholesale") ? (
                   <AttributeFilterPanel
-                    businessType={typeFilter === "wholesale" ? "wholesale" : "retail"}
+                    businessType={typeFilter}
                     selected={attrFilters}
                     onChange={applyAttrFilters}
                     onFacets={setFacetDefs}
                   />
-                )}
+                ) : null}
               </div>
             </div>
 

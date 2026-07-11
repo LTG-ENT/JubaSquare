@@ -341,6 +341,14 @@ See `/app/memory/test_credentials.md` — admin + demo seller (Iter 33).
 - Verified in preview: `admin` login → Attributes tab renders groups strip + editor now shows the toggle; Marketplace at `/marketplace` has no attribute panel visible when the DB has no `show_on_all=true` attributes.
 
 
+## Iteration 33.10 (Jul 2026) — Attribute UX + admin SEO precedence + wholesale filters
+
+- **AdminAttributesTab.jsx**: added an amber `No categories` pill on attribute rows where `category_ids.length === 0`, so admins can spot uncategorised attributes at a glance.
+- **Marketplace filter gating (refined 33.7)**: `AttributeFilterPanel` now renders when the customer has narrowed by category OR by business-type chip (Retail only / Wholesale only). It stays hidden ONLY on the un-narrowed "All" view. Backend facets endpoint returns all filterable attributes for a business_type again — the `show_on_all` gate was removed from the server; the SPA controls visibility instead. Sellers editing wholesale products can now surface facet filters by turning on the "Wholesale only" chip.
+- **SEO description precedence (fix)**: admin's Basic `meta_description` now beats page-hardcoded caller props. Previous precedence was `perPage → prop → basic`; now it's `perPage → basic → prop`. Same fix applied to the caller-vs-basic order for image + title fallbacks. Added `prioritizeSeoTags` to the top-level Helmet call.
+- **Static `public/index.html`**: removed the hardcoded `<meta name="description">`, `<meta name="keywords">`, `<meta property="og:*">`, and `<meta name="twitter:*">` tags that were duplicating (and beating) Helmet's runtime tags. Only a lightweight `<title>JubaSquare</title>` + og:site_name remain as first-paint fallbacks. Frontend restarted so the change is served.
+- Verified end-to-end: admin PUT `meta_description` → home DOM shows only ONE description meta tag with the admin's value, no duplicates from index.html.
+
 ## Iteration 33.9 (Jul 2026) — Collapsible category tree in attribute editor
 
 - **AdminAttributesTab.jsx** (`CategoryCheckTree`): the "Assigned categories" tree in the attribute editor used to render EVERY sub-category flat, forcing admins to scroll through a long list. Rewrote as a proper collapsible tree — only top-level categories render by default with a chevron toggle and a `(n)` child-count hint. Any branch that already contains a selected descendant auto-expands on open so context is preserved. Test IDs added: `attr-cat-toggle-<id>`.
