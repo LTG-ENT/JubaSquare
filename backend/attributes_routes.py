@@ -49,6 +49,7 @@ def _attr_doc(a: dict) -> dict:
         "required": bool(a.get("required")),
         "filterable": bool(a.get("filterable", True)),
         "searchable": bool(a.get("searchable")),
+        "show_on_all": bool(a.get("show_on_all")),
         "order": int(a.get("order") or 0),
         "is_active": bool(a.get("is_active", True)),
         "created_at": a.get("created_at"),
@@ -148,6 +149,10 @@ class AttributeIn(BaseModel):
     required: bool = False
     filterable: bool = True
     searchable: bool = False
+    # Iter 33.7 — when true, the attribute is offered as a Marketplace filter
+    # even when the customer has NOT selected any category. When false
+    # (default), the attribute only appears once a matching category is picked.
+    show_on_all: bool = False
     order: Optional[int] = None
     is_active: bool = True
 
@@ -164,6 +169,7 @@ class AttributeUpdateIn(BaseModel):
     required: Optional[bool] = None
     filterable: Optional[bool] = None
     searchable: Optional[bool] = None
+    show_on_all: Optional[bool] = None
     order: Optional[int] = None
     is_active: Optional[bool] = None
 
@@ -231,10 +237,23 @@ def create_attribute_routes(db, require_role):
             bt = business_type
             if bt not in BUSINESS_TYPES:
                 raise HTTPException(400, f"Unknown business_type. Must be one of: {sorted(BUSINESS_TYPES)}")
+            # Iter 33.7 — When no category is chosen we ONLY expose attributes
+            # the admin explicitly marked `show_on_all`. This keeps the
+            # marketplace uncluttered until the customer narrows down.
             raw = await db.attributes.find(
-                {"business_type": bt, "is_active": {"$ne": False}, "filterable": True}, {"_id": 0}
+                {
+                    "business_type": bt,
+                    "is_active": {"$ne": False},
+                    "filterable": True,
+                    "show_on_all": True,
+                },
+                {"_id": 0},
             ).sort([("order", 1), ("name", 1)]).to_list(500)
             defs = [_attr_doc(a) for a in raw]
+            if not defs:
+                # Nothing to show — return an empty facet set so the SPA hides
+                # the panel entirely.
+                return {"business_type": bt, "category_id": None, "facets": []}
             if bt == "wholesale":
                 match["is_wholesale"] = True
             elif bt == "retail":
@@ -329,6 +348,7 @@ def create_attribute_routes(db, require_role):
             "required": bool(body.required),
             "filterable": bool(body.filterable),
             "searchable": bool(body.searchable),
+            "show_on_all": bool(body.show_on_all),
             "order": int(order_val),
             "is_active": bool(body.is_active),
             "created_at": _now_iso(),
@@ -383,7 +403,7 @@ def create_attribute_routes(db, require_role):
             updates["options"] = [str(o).strip() for o in body.options if str(o).strip()][:100]
         if body.unit is not None:
             updates["unit"] = body.unit.strip()
-        for f in ("required", "filterable", "searchable", "is_active"):
+        for f in ("required", "filterable", "searchable", "show_on_all", "is_active"):
             v = getattr(body, f)
             if v is not None:
                 updates[f] = bool(v)

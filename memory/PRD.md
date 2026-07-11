@@ -332,3 +332,11 @@ See `/app/memory/test_credentials.md` — admin + demo seller (Iter 33).
 
 **Verified in preview**: SEO tab renders, save persists (`site_title` PUT round-trip verified), Website Status shows HTTPS/SSL/redirect/canonical/sitemap/robots/mixed-content all green, sitemap and robots.txt serve canonical URLs.
 
+
+## Iteration 33.7 (Jul 2026) — Marketplace filter visibility + admin groups tab
+
+- **Backend** (`attributes_routes.py`): new `show_on_all` boolean on Attribute + AttributeUpdate. When present on a filterable attribute, it becomes a Marketplace filter even when the customer has no category selected. When absent, the panel hides entirely on "All categories". Persisted through create + update. Facets endpoint respects the flag for the `business_type`-only path (returns empty when no attribute opts-in → SPA suppresses the panel).
+- **Marketplace** (`Marketplace.jsx`): selecting a category (or sub-category / leaf) now auto-closes the "Categories" sidebar section so attribute filters become visible without scrolling. `setCategory(id)` sets `catsOpen=false` when `id` is truthy; picking "All categories" leaves the tree open.
+- **Admin Attributes tab** (`AdminAttributesTab.jsx`): Groups is now a top-level tab strip (`attr-groups-tabs`) with tabs `All groups`, one per group (`attr-group-select-<id>` including inline rename + delete), and `Ungrouped · <n>` when relevant. Selecting a group filters the attribute list to just that group. The attribute editor gains a `Show in Marketplace when no category is selected` checkbox (`attr-editor-show_on_all`), and the list row displays an indigo pill `Show on "All"` when it's enabled.
+- Verified in preview: `admin` login → Attributes tab renders groups strip + editor now shows the toggle; Marketplace at `/marketplace` has no attribute panel visible when the DB has no `show_on_all=true` attributes.
+

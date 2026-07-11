@@ -275,6 +275,9 @@ export default function Marketplace() {
     // customers can escape the promo view with one click.
     next.delete("deals");
     setSearchParams(next);
+    // Iter 33.7 — auto-close the Categories tree once a category is chosen
+    // so the attribute filters become visible without scrolling.
+    if (catId) setCatsOpen(false);
   };
 
   const changeFilter = (f) => {

@@ -36,6 +36,10 @@ export default function AdminAttributesTab() {
   const [catTree, setCatTree] = useState([]);
   const [loading, setLoading] = useState(false);
   const [editor, setEditor] = useState(null); // {attr?} null=closed, {}=new
+  // Iter 33.7 — Groups act as a top-level filter tab strip. When null → show
+  // every attribute grouped by their group (legacy layout). Otherwise show
+  // ONLY attributes belonging to that group (or ungrouped if selectedGroup === "__other").
+  const [selectedGroup, setSelectedGroup] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -55,6 +59,9 @@ export default function AdminAttributesTab() {
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [bt]);
+  // Reset the group tab whenever the business type changes so we don't
+  // reference a group that lives in a different business_type.
+  useEffect(() => { setSelectedGroup(null); }, [bt]);
 
   const groupName = useMemo(() => {
     const m = {};
@@ -128,7 +135,7 @@ export default function AdminAttributesTab() {
           <p className="text-sm text-[var(--js-text-secondary)] mt-1">
             Attributes describe product characteristics (Brand, RAM, Size, Spice Level...).
             Assign them to categories — children inherit them automatically — and they
-            become customer filters when "Filterable" is on.
+            become customer filters when &ldquo;Filterable&rdquo; is on.
           </p>
         </div>
         <button
@@ -160,7 +167,14 @@ export default function AdminAttributesTab() {
         </span>
       </div>
 
-      <GroupManager bt={bt} groups={groups} onChanged={load} />
+      <GroupManager
+        bt={bt}
+        groups={groups}
+        onChanged={load}
+        selectedGroup={selectedGroup}
+        onSelect={setSelectedGroup}
+        ungroupedCount={(buckets.get("__other") || []).length}
+      />
 
       <div className="bg-white border border-[var(--js-border)] rounded-2xl overflow-hidden">
         {loading ? (
@@ -172,7 +186,13 @@ export default function AdminAttributesTab() {
             No attributes yet for {bt}. Create your first one with the button above.
           </div>
         ) : (
-          [...buckets.entries()].map(([gid, list]) =>
+          [...buckets.entries()]
+            .filter(([gid, list]) => {
+              if (list.length === 0) return false;
+              if (selectedGroup === null) return true; // "All groups"
+              return gid === selectedGroup;
+            })
+            .map(([gid, list]) =>
             list.length === 0 ? null : (
               <div key={gid}>
                 <div className="px-5 py-2 bg-[var(--js-bg)] border-b border-[var(--js-border)] flex items-center gap-2">
@@ -196,6 +216,7 @@ export default function AdminAttributesTab() {
                           </span>
                           {a.required && <Pill color="bg-red-100 text-red-700">Required</Pill>}
                           {a.filterable && <Pill color="bg-emerald-100 text-emerald-700"><Filter className="w-2.5 h-2.5 inline" /> Filter</Pill>}
+                          {a.show_on_all && <Pill color="bg-indigo-100 text-indigo-700">Show on “All”</Pill>}
                           {a.searchable && <Pill color="bg-blue-100 text-blue-700"><SearchIcon className="w-2.5 h-2.5 inline" /> Search</Pill>}
                           {!a.is_active && <Pill color="bg-amber-100 text-amber-700">Disabled</Pill>}
                         </div>
@@ -256,7 +277,7 @@ const IconBtn = ({ title, onClick, disabled, danger, testId, children }) => (
   </button>
 );
 
-function GroupManager({ bt, groups, onChanged }) {
+function GroupManager({ bt, groups, onChanged, selectedGroup, onSelect, ungroupedCount }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
 
@@ -287,53 +308,121 @@ function GroupManager({ bt, groups, onChanged }) {
     if (!window.confirm(`Delete group "${g.name}"? Its attributes become ungrouped.`)) return;
     try {
       await api.delete(`/admin/attribute-groups/${g.id}`);
+      // If we were viewing the deleted group, drop back to "All".
+      if (selectedGroup === g.id) onSelect?.(null);
       await onChanged();
     } catch (err) {
       toast.error(formatDetail(err.response?.data?.detail || err.message));
     }
   };
 
+  // Iter 33.7 — Groups render as a tab strip. Clicking a tab filters the
+  // attribute list to that group. "All groups" is the default. Each group
+  // tab shows a small rename/delete cluster on hover.
   return (
-    <div className="flex flex-wrap items-center gap-2" data-testid="attr-group-manager">
-      <span className="text-xs font-bold uppercase tracking-wider text-[var(--js-text-secondary)]">Groups:</span>
-      {groups.map((g) => (
-        <span
-          key={g.id}
-          className="inline-flex items-center gap-1.5 bg-white border border-[var(--js-border)] rounded-full pl-3 pr-1.5 py-1 text-xs font-semibold"
-          data-testid={`attr-group-chip-${g.id}`}
-        >
-          {g.name}
-          <button onClick={() => rename(g)} className="w-5 h-5 rounded-full hover:bg-[var(--js-bg)] flex items-center justify-center" title="Rename" data-testid={`attr-group-rename-${g.id}`}>
-            <Pencil className="w-3 h-3" />
+    <div className="space-y-2" data-testid="attr-group-manager">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-bold uppercase tracking-wider text-[var(--js-text-secondary)]">Groups</span>
+        <div className="flex-1" />
+        {adding ? (
+          <span className="inline-flex items-center gap-1">
+            <input
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && create()}
+              placeholder="Group name"
+              data-testid="attr-group-name-input"
+              className="border border-[var(--js-border)] rounded-full px-3 py-1 text-xs focus:outline-none focus:border-[#C84B31]"
+            />
+            <button onClick={create} data-testid="attr-group-save" className="text-xs font-bold text-[#C84B31]">Add</button>
+            <button onClick={() => setAdding(false)} className="text-xs text-[var(--js-text-secondary)]">Cancel</button>
+          </span>
+        ) : (
+          <button
+            onClick={() => setAdding(true)}
+            data-testid="attr-group-add"
+            className="inline-flex items-center gap-1 text-xs font-bold text-[#C84B31] hover:underline"
+          >
+            <Plus className="w-3 h-3" /> New group
           </button>
-          <button onClick={() => remove(g)} className="w-5 h-5 rounded-full hover:bg-red-50 text-red-600 flex items-center justify-center" title="Delete" data-testid={`attr-group-delete-${g.id}`}>
-            <X className="w-3 h-3" />
-          </button>
-        </span>
-      ))}
-      {adding ? (
-        <span className="inline-flex items-center gap-1">
-          <input
-            autoFocus
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && create()}
-            placeholder="Group name"
-            data-testid="attr-group-name-input"
-            className="border border-[var(--js-border)] rounded-full px-3 py-1 text-xs focus:outline-none focus:border-[#C84B31]"
-          />
-          <button onClick={create} data-testid="attr-group-save" className="text-xs font-bold text-[#C84B31]">Add</button>
-          <button onClick={() => setAdding(false)} className="text-xs text-[var(--js-text-secondary)]">Cancel</button>
-        </span>
-      ) : (
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-2" role="tablist" data-testid="attr-groups-tabs">
         <button
-          onClick={() => setAdding(true)}
-          data-testid="attr-group-add"
-          className="inline-flex items-center gap-1 text-xs font-bold text-[#C84B31] hover:underline"
+          onClick={() => onSelect?.(null)}
+          data-testid="attr-group-tab-all"
+          role="tab"
+          aria-selected={selectedGroup === null}
+          className={`px-4 py-2 rounded-full text-xs font-semibold transition ${
+            selectedGroup === null
+              ? "bg-[#1A1A1A] text-white"
+              : "bg-white border border-[var(--js-border)] text-[var(--js-text)] hover:border-[#1A1A1A]"
+          }`}
         >
-          <Plus className="w-3 h-3" /> New group
+          All groups
         </button>
-      )}
+        {groups.map((g) => {
+          const active = selectedGroup === g.id;
+          return (
+            <div
+              key={g.id}
+              className={`inline-flex items-center gap-1 rounded-full pl-3 pr-1.5 py-1 text-xs font-semibold transition border ${
+                active
+                  ? "bg-[#C84B31] border-[#C84B31] text-white"
+                  : "bg-white border-[var(--js-border)] text-[var(--js-text)] hover:border-[#1A1A1A]"
+              }`}
+              data-testid={`attr-group-tab-${g.id}`}
+            >
+              <button
+                onClick={() => onSelect?.(g.id)}
+                role="tab"
+                aria-selected={active}
+                data-testid={`attr-group-select-${g.id}`}
+                className="cursor-pointer"
+              >
+                {g.name}
+              </button>
+              <button
+                onClick={() => rename(g)}
+                className={`w-5 h-5 rounded-full flex items-center justify-center ${
+                  active ? "hover:bg-white/20" : "hover:bg-[var(--js-bg)]"
+                }`}
+                title="Rename"
+                data-testid={`attr-group-rename-${g.id}`}
+              >
+                <Pencil className="w-3 h-3" />
+              </button>
+              <button
+                onClick={() => remove(g)}
+                className={`w-5 h-5 rounded-full flex items-center justify-center ${
+                  active ? "hover:bg-white/20" : "hover:bg-red-50 text-red-600"
+                }`}
+                title="Delete"
+                data-testid={`attr-group-delete-${g.id}`}
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          );
+        })}
+        {ungroupedCount > 0 && (
+          <button
+            onClick={() => onSelect?.("__other")}
+            data-testid="attr-group-tab-ungrouped"
+            role="tab"
+            aria-selected={selectedGroup === "__other"}
+            className={`px-4 py-2 rounded-full text-xs font-semibold transition ${
+              selectedGroup === "__other"
+                ? "bg-[#1A1A1A] text-white"
+                : "bg-white border border-dashed border-[var(--js-border)] text-[var(--js-text-secondary)] hover:border-[#1A1A1A]"
+            }`}
+          >
+            Ungrouped · {ungroupedCount}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -384,6 +473,7 @@ function AttributeEditor({ bt, groups, catTree, attr, onClose, onSaved }) {
     required: !!attr?.required,
     filterable: attr ? !!attr.filterable : true,
     searchable: !!attr?.searchable,
+    show_on_all: !!attr?.show_on_all,
     is_active: attr ? !!attr.is_active : true,
   });
   const [busy, setBusy] = useState(false);
@@ -407,6 +497,7 @@ function AttributeEditor({ bt, groups, catTree, attr, onClose, onSaved }) {
       required: f.required,
       filterable: f.filterable,
       searchable: f.searchable,
+      show_on_all: f.show_on_all,
       is_active: f.is_active,
     };
     try {
@@ -496,6 +587,7 @@ function AttributeEditor({ bt, groups, catTree, attr, onClose, onSaved }) {
               ["required", "Required"],
               ["filterable", "Filterable (customer filters)"],
               ["searchable", "Searchable"],
+              ["show_on_all", "Show in Marketplace when no category is selected"],
               ["is_active", "Active"],
             ].map(([k, lbl]) => (
               <label key={k} className="flex items-center gap-2 text-sm font-medium select-none cursor-pointer">
