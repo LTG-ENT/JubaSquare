@@ -341,6 +341,10 @@ See `/app/memory/test_credentials.md` — admin + demo seller (Iter 33).
 - Verified in preview: `admin` login → Attributes tab renders groups strip + editor now shows the toggle; Marketplace at `/marketplace` has no attribute panel visible when the DB has no `show_on_all=true` attributes.
 
 
+## Iteration 33.9 (Jul 2026) — Collapsible category tree in attribute editor
+
+- **AdminAttributesTab.jsx** (`CategoryCheckTree`): the "Assigned categories" tree in the attribute editor used to render EVERY sub-category flat, forcing admins to scroll through a long list. Rewrote as a proper collapsible tree — only top-level categories render by default with a chevron toggle and a `(n)` child-count hint. Any branch that already contains a selected descendant auto-expands on open so context is preserved. Test IDs added: `attr-cat-toggle-<id>`.
+
 ## Iteration 33.8 (Jul 2026) — Same-name attributes across groups
 
 - **Backend** (`attributes_routes.py`): the create-attribute uniqueness check used to be at `(business_type, key)` — a single "Gender" attribute anywhere in the business type blocked any other. Now:

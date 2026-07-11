@@ -436,25 +436,78 @@ function flattenCatNodes(nodes, depth = 0, out = []) {
 }
 
 function CategoryCheckTree({ nodes, selected, onToggle }) {
-  const flat = flattenCatNodes(nodes);
+  // Iter 33.9 — Render only top-level categories by default; each row has a
+  // chevron that expands its children. Rows with `selected` descendants
+  // auto-open so admins can see current picks.
+
+  // Compute which top-level ids should be auto-expanded because they contain
+  // a selected descendant.
+  const initialOpen = new Set();
+  const collectHasSelected = (n) => {
+    if (selected.includes(n.id)) return true;
+    let anyChild = false;
+    (n.children || []).forEach((c) => { if (collectHasSelected(c)) anyChild = true; });
+    if (anyChild) initialOpen.add(n.id);
+    return anyChild || selected.includes(n.id);
+  };
+  (nodes || []).forEach(collectHasSelected);
+
+  const [openIds, setOpenIds] = useState(initialOpen);
+  const toggleOpen = (id) => setOpenIds((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const renderNode = (n, depth = 0) => {
+    const isOpen = openIds.has(n.id);
+    const hasChildren = (n.children || []).length > 0;
+    const checked = selected.includes(n.id);
+    return (
+      <div key={n.id}>
+        <div
+          className="flex items-center gap-1 py-1 text-sm rounded-lg hover:bg-[var(--js-subtle)] px-1"
+          style={{ marginLeft: depth * 16 }}
+        >
+          {hasChildren ? (
+            <button
+              type="button"
+              onClick={() => toggleOpen(n.id)}
+              data-testid={`attr-cat-toggle-${n.id}`}
+              aria-label={isOpen ? "Collapse" : "Expand"}
+              className="w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--js-bg)] flex-shrink-0"
+            >
+              <span className={`inline-block transition-transform ${isOpen ? "rotate-90" : ""}`}>▶</span>
+            </button>
+          ) : (
+            <span className="w-5 h-5 flex-shrink-0" />
+          )}
+          <label className="flex items-center gap-2 flex-1 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={() => onToggle(n.id)}
+              data-testid={`attr-cat-check-${n.id}`}
+              className="w-3.5 h-3.5 accent-[#C84B31]"
+            />
+            <span className={depth === 0 ? "font-semibold" : "text-[var(--js-text-secondary)]"}>{n.name}</span>
+            {hasChildren && !isOpen && (
+              <span className="ml-1 text-[10px] text-[var(--js-text-secondary)]">({(n.children || []).length})</span>
+            )}
+          </label>
+        </div>
+        {isOpen && hasChildren && (
+          <div>
+            {(n.children || []).map((c) => renderNode(c, depth + 1))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col gap-0.5">
-      {flat.map((n) => (
-        <label
-          key={n.id}
-          className="flex items-center gap-2 py-1 text-sm cursor-pointer hover:bg-[var(--js-subtle)] rounded-lg px-2 select-none"
-          style={{ marginLeft: n.depth * 16 }}
-        >
-          <input
-            type="checkbox"
-            checked={selected.includes(n.id)}
-            onChange={() => onToggle(n.id)}
-            data-testid={`attr-cat-check-${n.id}`}
-            className="w-3.5 h-3.5 accent-[#C84B31]"
-          />
-          <span className={n.depth === 0 ? "font-semibold" : "text-[var(--js-text-secondary)]"}>{n.name}</span>
-        </label>
-      ))}
+      {(nodes || []).map((n) => renderNode(n, 0))}
     </div>
   );
 }
