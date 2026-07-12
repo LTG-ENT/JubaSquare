@@ -341,6 +341,25 @@ See `/app/memory/test_credentials.md` — admin + demo seller (Iter 33).
 - Verified in preview: `admin` login → Attributes tab renders groups strip + editor now shows the toggle; Marketplace at `/marketplace` has no attribute panel visible when the DB has no `show_on_all=true` attributes.
 
 
+## Iteration 35 (Jul 2026) — Seller Dashboard pagination (P0 hotfix + P1 perf)
+
+- **User-reported bug**: On production, some sellers didn't see all their products in the Seller Dashboard because the previous implementation loaded up to 200 products PER SHOP with no pagination UI, and sellers with more than that per shop hit a silent cap.
+- **Backend** (new file `/app/backend/pagination_routes.py`, mounted from `server.py`): 7 new endpoints returning `{items, total, page, page_size, ...}`:
+  - `GET /api/seller/products/paged` — cross-shop, supports `shop_id`, `q`, `stock=low|out`, `low_threshold`; embeds `shop_name`/`shop_kind`.
+  - `GET /api/seller/menu-items/paged` — cross-restaurant; supports `restaurant_id`, `q`; embeds `restaurant_name`.
+  - `GET /api/seller/orders/paged` — includes `stock_map` (current stock for products referenced by this page's orders) so the client's stock-alert filter works without another round trip.
+  - `GET /api/notifications/paged` — includes `unread_count`.
+  - `GET /api/messages/seller/paged` — includes `unread_count`.
+  - `GET /api/seller/invoices/paged` and `/api/seller/restaurant-invoices/paged` — include `stats` (total_sales, total_commission, amount_owed) aggregated across ALL invoices (not just current page).
+  - `DEFAULT_PAGE_SIZE=50`, `MAX_PAGE_SIZE=200`. Enforces `seller` or `admin` role.
+- **Frontend**:
+  - New reusable component `/app/frontend/src/components/Pagination.jsx` — classic Prev/1/2/3/…/N/Next with "Showing X–Y of Z" indicator. Testids: `<prefix>`, `<prefix>-prev`, `<prefix>-next`, `<prefix>-page-N`.
+  - `SellerDashboard.jsx > ProductsTab`: replaced multi-shop fetch loop with single paginated call. Filters (search, shop, stock, low-threshold) are now server-side; page auto-resets to 1 on filter change. Pill counters (low/out) are fetched as separate 1-item paginated queries so they reflect true totals across all pages.
+  - `OrdersTab`: paginated 50/page; stock map fetched server-side (no more full seller-catalog fetch).
+  - `NotificationsTab`, `MessagesTab`, `SellerShopInvoices`, `SellerRestaurantInvoices`: all paginated 50/page.
+- **Verified**: 17/17 pytest backend tests pass; frontend regression via `testing_agent_v3_fork` shows all 5 tabs fire correct paged calls with filters + reset behavior. Main agent also live-tested with 112 bulk-created products showing pages 1/2/3.
+- **Deployment note**: Live production redeploy required to ship this fix.
+
 ## Iteration 34 (Jul 2026) — "Add product details" nudge banner (P1)
 
 - **SellerDashboard.jsx** (`ProductsTab`): added a dismissible purple gradient banner above the filter bar that appears when the seller has one or more products or menu items with an empty `attributes` dict.
