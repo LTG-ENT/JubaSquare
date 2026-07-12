@@ -46,6 +46,8 @@ def _attr_doc(a: dict) -> dict:
         "group_id": a.get("group_id"),
         "options": a.get("options") or [],
         "unit": a.get("unit") or "",
+        "measurement_mode": a.get("measurement_mode") or "single",
+        "unit_options": a.get("unit_options") or [],
         "required": bool(a.get("required")),
         "filterable": bool(a.get("filterable", True)),
         "searchable": bool(a.get("searchable")),
@@ -108,7 +110,59 @@ async def validate_attribute_values(db, category_id: str, values: Any, enforce_r
         t = d.get("type")
         if t == "boolean":
             clean[k] = v if isinstance(v, bool) else str(v).strip().lower() in ("true", "1", "yes")
-        elif t in ("number", "decimal", "weight", "measurement"):
+        elif t == "measurement":
+            # Iter 33.11 — Measurement values follow the attribute's mode:
+            #   * single     → {"value": <number>, "unit": "<unit>"} (unit optional
+            #                   when the attribute has no declared unit_options).
+            #   * dimensions → {"length": {"value": N, "unit": "u"},
+            #                    "width":  {...},
+            #                    "height": {...}}
+            # We also accept raw numbers for backward-compat single-mode usage.
+            mode = d.get("measurement_mode") or "single"
+            allowed_units = list(d.get("unit_options") or [])
+            if d.get("unit") and d["unit"] not in allowed_units:
+                allowed_units.append(d["unit"])
+
+            def _num(x, label):
+                try:
+                    return float(x)
+                except (TypeError, ValueError):
+                    raise HTTPException(400, f"{label} must be a number for attribute '{d['name']}'")
+
+            def _validate_unit(u, label):
+                if u is None or u == "":
+                    return ""
+                u = str(u).strip()
+                if allowed_units and u not in allowed_units:
+                    raise HTTPException(400, f"{label} unit '{u}' is not allowed for attribute '{d['name']}'. Allowed: {allowed_units}")
+                return u
+
+            if mode == "dimensions":
+                if not isinstance(v, dict):
+                    raise HTTPException(400, f"Attribute '{d['name']}' expects a Length/Width/Height object")
+                out = {}
+                for dim in ("length", "width", "height"):
+                    if dim not in v:
+                        continue
+                    piece = v[dim]
+                    if isinstance(piece, dict):
+                        val = _num(piece.get("value"), f"{dim}")
+                        unit = _validate_unit(piece.get("unit"), f"{dim}")
+                    else:
+                        val = _num(piece, f"{dim}")
+                        unit = ""
+                    out[dim] = {"value": val, "unit": unit}
+                if out:
+                    clean[k] = out
+            else:
+                # Single-value measurement. Accept a raw number OR an object.
+                if isinstance(v, dict):
+                    val = _num(v.get("value"), "Value")
+                    unit = _validate_unit(v.get("unit"), "Value")
+                    clean[k] = {"value": val, "unit": unit}
+                else:
+                    clean[k] = {"value": _num(v, "Value"), "unit": ""}
+        elif t in ("number", "decimal", "weight"):
             try:
                 clean[k] = float(v)
             except (TypeError, ValueError):
@@ -146,12 +200,17 @@ class AttributeIn(BaseModel):
     group_id: Optional[str] = None
     options: List[str] = Field(default_factory=list)
     unit: Optional[str] = ""
+    # Iter 33.11 — Measurement attributes support two modes:
+    #   * "single"     — one numeric value + one unit picked from unit_options
+    #   * "dimensions" — three numeric values (Length × Width × Height),
+    #                    each with its own unit picked from unit_options.
+    # `unit_options` also applies to weight/dimensions types so sellers can
+    # switch between kg/g/lb, cm/m/in, etc.
+    measurement_mode: Optional[str] = "single"
+    unit_options: List[str] = Field(default_factory=list)
     required: bool = False
     filterable: bool = True
     searchable: bool = False
-    # Iter 33.7 — when true, the attribute is offered as a Marketplace filter
-    # even when the customer has NOT selected any category. When false
-    # (default), the attribute only appears once a matching category is picked.
     show_on_all: bool = False
     order: Optional[int] = None
     is_active: bool = True
@@ -166,6 +225,8 @@ class AttributeUpdateIn(BaseModel):
     group_id: Optional[str] = None
     options: Optional[List[str]] = None
     unit: Optional[str] = None
+    measurement_mode: Optional[str] = None
+    unit_options: Optional[List[str]] = None
     required: Optional[bool] = None
     filterable: Optional[bool] = None
     searchable: Optional[bool] = None
@@ -366,6 +427,8 @@ def create_attribute_routes(db, require_role):
             "group_id": body.group_id,
             "options": [str(o).strip() for o in (body.options or []) if str(o).strip()][:100],
             "unit": (body.unit or "").strip(),
+            "measurement_mode": (body.measurement_mode or "single") if body.type == "measurement" else "single",
+            "unit_options": [str(u).strip() for u in (body.unit_options or []) if str(u).strip()][:20],
             "required": bool(body.required),
             "filterable": bool(body.filterable),
             "searchable": bool(body.searchable),
@@ -424,6 +487,13 @@ def create_attribute_routes(db, require_role):
             updates["options"] = [str(o).strip() for o in body.options if str(o).strip()][:100]
         if body.unit is not None:
             updates["unit"] = body.unit.strip()
+        if body.measurement_mode is not None:
+            mm = (body.measurement_mode or "single").strip()
+            if mm not in ("single", "dimensions"):
+                raise HTTPException(400, "measurement_mode must be 'single' or 'dimensions'")
+            updates["measurement_mode"] = mm
+        if body.unit_options is not None:
+            updates["unit_options"] = [str(u).strip() for u in body.unit_options if str(u).strip()][:20]
         for f in ("required", "filterable", "searchable", "show_on_all", "is_active"):
             v = getattr(body, f)
             if v is not None:

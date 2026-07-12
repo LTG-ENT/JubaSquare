@@ -524,6 +524,9 @@ function AttributeEditor({ bt, groups, catTree, attr, onClose, onSaved }) {
     group_id: attr?.group_id || "",
     options: (attr?.options || []).join("\n"),
     unit: attr?.unit || "",
+    // Iter 33.11 — Measurement-only fields
+    measurement_mode: attr?.measurement_mode || "single",
+    unit_options: (attr?.unit_options || []).join(", "),
     required: !!attr?.required,
     filterable: attr ? !!attr.filterable : true,
     searchable: !!attr?.searchable,
@@ -548,6 +551,11 @@ function AttributeEditor({ bt, groups, catTree, attr, onClose, onSaved }) {
       group_id: f.group_id || (isEdit ? "" : null),
       options: OPTION_TYPES.includes(f.type) ? f.options.split("\n").map((o) => o.trim()).filter(Boolean) : [],
       unit: UNIT_TYPES.includes(f.type) ? f.unit.trim() : "",
+      // Iter 33.11
+      measurement_mode: f.type === "measurement" ? f.measurement_mode : "single",
+      unit_options: (f.type === "measurement" || UNIT_TYPES.includes(f.type))
+        ? f.unit_options.split(",").map((u) => u.trim()).filter(Boolean)
+        : [],
       required: f.required,
       filterable: f.filterable,
       searchable: f.searchable,
@@ -617,6 +625,41 @@ function AttributeEditor({ bt, groups, catTree, attr, onClose, onSaved }) {
             </Field>
           )}
 
+          {/* Iter 33.11 — Measurement type gets two extras */}
+          {f.type === "measurement" && (
+            <>
+              <Field label="Measurement mode">
+                <div className="flex gap-2" data-testid="attr-editor-measurement-mode">
+                  {[
+                    { id: "single", label: "Single value (value + unit)" },
+                    { id: "dimensions", label: "Dimensions (L × W × H)" },
+                  ].map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => set("measurement_mode", opt.id)}
+                      data-testid={`attr-editor-mm-${opt.id}`}
+                      className={`flex-1 px-3 py-2 rounded-xl text-xs font-semibold border transition ${
+                        f.measurement_mode === opt.id
+                          ? "bg-[#C84B31] text-white border-[#C84B31]"
+                          : "bg-white text-[var(--js-text)] border-[var(--js-border)] hover:border-[#1A1A1A]"
+                      }`}
+                    >{opt.label}</button>
+                  ))}
+                </div>
+              </Field>
+              <Field label="Allowed units (comma-separated)" hint="e.g. cm, m, in — sellers pick one per value">
+                <input
+                  value={f.unit_options}
+                  onChange={(e) => set("unit_options", e.target.value)}
+                  data-testid="attr-editor-unit-options"
+                  className="w-full bg-white border border-[var(--js-border)] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#C84B31]"
+                  placeholder="cm, m, in"
+                />
+              </Field>
+            </>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Group">
               <select value={f.group_id} onChange={(e) => set("group_id", e.target.value)} data-testid="attr-editor-group"
@@ -677,9 +720,10 @@ function AttributeEditor({ bt, groups, catTree, attr, onClose, onSaved }) {
   );
 }
 
-const Field = ({ label, children }) => (
+const Field = ({ label, hint, children }) => (
   <div>
     <label className="text-xs font-semibold text-[var(--js-text-secondary)] uppercase tracking-wider">{label}</label>
     <div className="mt-1.5">{children}</div>
+    {hint && <p className="text-[11px] text-[var(--js-text-secondary)] mt-1">{hint}</p>}
   </div>
 );

@@ -62,6 +62,32 @@ export const AttributeFieldsEditor = ({ categoryId, values = {}, onChange }) => 
   );
 };
 
+function MeasurementPair({ dim, val, allowedUnits, onChange, testId }) {
+  return (
+    <div className="flex gap-1.5">
+      <input
+        type="number"
+        step="any"
+        value={val?.value ?? ""}
+        onChange={(e) => onChange({ value: e.target.value, unit: val?.unit || allowedUnits[0] || "" })}
+        placeholder={dim || "value"}
+        className="js-input flex-1"
+        data-testid={`${testId}-value`}
+      />
+      {allowedUnits.length > 0 && (
+        <select
+          value={val?.unit || allowedUnits[0] || ""}
+          onChange={(e) => onChange({ value: val?.value ?? "", unit: e.target.value })}
+          className="js-input w-24"
+          data-testid={`${testId}-unit`}
+        >
+          {allowedUnits.map((u) => <option key={u} value={u}>{u}</option>)}
+        </select>
+      )}
+    </div>
+  );
+}
+
 function AttrInput({ def: d, value, setVal }) {
   const label = (
     <span className="text-xs text-[#5C5C5C] font-semibold block mb-1.5">
@@ -128,15 +154,58 @@ function AttrInput({ def: d, value, setVal }) {
       </div>
     );
   }
+  // Iter 33.11 — Measurement attributes get dedicated widgets.
+  if (d.type === "measurement") {
+    const mode = d.measurement_mode || "single";
+    const allowedUnits = (d.unit_options && d.unit_options.length) ? d.unit_options : (d.unit ? [d.unit] : []);
+    const cur = (value && typeof value === "object") ? value : {};
+
+    // Small helper renders inline below.
+
+    if (mode === "dimensions") {
+      return (
+        <div className="sm:col-span-2">
+          {label}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" data-testid={tid}>
+            {["length", "width", "height"].map((dim) => (
+              <div key={dim}>
+                <span className="text-[10px] uppercase tracking-wider text-[var(--js-text-secondary)] font-bold mb-1 block">{dim}</span>
+                <MeasurementPair
+                  dim={dim}
+                  val={cur[dim]}
+                  allowedUnits={allowedUnits}
+                  onChange={(next) => setVal(d.key, { ...cur, [dim]: next })}
+                  testId={`${tid}-${dim}`}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+    // single mode
+    return (
+      <div>
+        {label}
+        <MeasurementPair
+          val={cur}
+          allowedUnits={allowedUnits}
+          onChange={(next) => setVal(d.key, next)}
+          testId={tid}
+        />
+      </div>
+    );
+  }
+
   const inputType =
     d.type === "date" ? "date" :
-    ["number", "decimal", "weight", "measurement"].includes(d.type) ? "number" : "text";
+    ["number", "decimal", "weight"].includes(d.type) ? "number" : "text";
   return (
     <div>
       {label}
       <input
         type={inputType}
-        step={["decimal", "weight", "measurement"].includes(d.type) ? "any" : undefined}
+        step={["decimal", "weight"].includes(d.type) ? "any" : undefined}
         value={value ?? ""}
         onChange={(e) => setVal(d.key, e.target.value)}
         placeholder={d.description || ""}
