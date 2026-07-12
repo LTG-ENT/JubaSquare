@@ -323,9 +323,36 @@ def create_attribute_routes(db, require_role):
         coll = db.menu_items if bt == "restaurant" else db.products
         match["attributes"] = {"$exists": True, "$nin": [None, {}]}
         docs = await coll.find(match, {"_id": 0, "attributes": 1}).to_list(3000)
+        # Build a def-type lookup so we can format measurement values into
+        # human-readable "12 cm" strings before facet counting.
+        def_type_by_key = {d["key"]: d.get("type") for d in defs}
         counts: Dict[str, Dict[str, int]] = {}
         for doc in docs:
             for k, v in (doc.get("attributes") or {}).items():
+                dtype = def_type_by_key.get(k)
+                # Iter 33.11 — Measurement attributes store {value, unit} (single)
+                # or {length:{value,unit}, width:{...}, height:{...}} (dimensions).
+                # We facet single-mode measurements as "V U" strings so the
+                # customer sees clean chips like "12 cm" or "0.5 m". Dimensions
+                # are intentionally NOT faceted (unbounded combos, better shown
+                # via search) — skip them here.
+                if dtype == "measurement" and isinstance(v, dict):
+                    if "length" in v or "width" in v or "height" in v:
+                        continue  # dimensions mode → no facet
+                    val = v.get("value")
+                    unit = v.get("unit") or ""
+                    if val is None or val == "":
+                        continue
+                    try:
+                        f = float(val)
+                        sval = str(int(f)) if f.is_integer() else str(f)
+                    except (TypeError, ValueError):
+                        sval = str(val)
+                    if unit:
+                        sval = f"{sval} {unit}"
+                    counts.setdefault(k, {})
+                    counts[k][sval] = counts[k].get(sval, 0) + 1
+                    continue
                 vals = v if isinstance(v, list) else [v]
                 for val in vals:
                     if isinstance(val, bool):

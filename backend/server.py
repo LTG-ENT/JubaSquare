@@ -2887,11 +2887,44 @@ async def list_products(category_id: Optional[str] = None, category: Optional[st
         except Exception:
             _af = None
         if isinstance(_af, dict):
+            # Iter 33.11 — look up attribute types once so we can translate
+            # measurement facet strings ("12 cm") back to the stored
+            # {value, unit} object for querying.
+            _keys = [re.sub(r"[^a-zA-Z0-9_]", "", str(_k))[:64] for _k in list(_af.keys())[:20]]
+            _keys = [k for k in _keys if k]
+            _attr_types: Dict[str, str] = {}
+            if _keys:
+                try:
+                    _defs = await db.attributes.find({"key": {"$in": _keys}}, {"_id": 0, "key": 1, "type": 1}).to_list(50)
+                    _attr_types = {d["key"]: d.get("type") for d in _defs}
+                except Exception:
+                    _attr_types = {}
             for _k, _v in list(_af.items())[:20]:
                 _k = re.sub(r"[^a-zA-Z0-9_]", "", str(_k))[:64]
                 if not _k:
                     continue
                 _vals = _v if isinstance(_v, list) else [_v]
+                # Measurement: turn "12 cm" chips into {value, unit} object
+                # matches ($elemMatch under an $or) so the stored dict is hit.
+                if _attr_types.get(_k) == "measurement":
+                    _or = []
+                    for _val in _vals[:25]:
+                        if not isinstance(_val, str):
+                            continue
+                        _s = _val.strip()
+                        _parts = _s.rsplit(" ", 1)
+                        _num_str, _unit = (_parts[0], _parts[1]) if len(_parts) == 2 else (_s, "")
+                        try:
+                            _num = float(_num_str)
+                        except ValueError:
+                            continue
+                        _clause = {f"attributes.{_k}.value": _num}
+                        if _unit:
+                            _clause[f"attributes.{_k}.unit"] = _unit
+                        _or.append(_clause)
+                    if _or:
+                        q.setdefault("$and", []).append({"$or": _or})
+                    continue
                 _expanded = []
                 for _val in _vals[:25]:
                     _expanded.append(_val)
