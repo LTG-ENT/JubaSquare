@@ -341,6 +341,17 @@ See `/app/memory/test_credentials.md` — admin + demo seller (Iter 33).
 - Verified in preview: `admin` login → Attributes tab renders groups strip + editor now shows the toggle; Marketplace at `/marketplace` has no attribute panel visible when the DB has no `show_on_all=true` attributes.
 
 
+## Iteration 33.11 (Jul 2026) — Measurement attribute (both modes) + Odoo prompt
+
+- **Backend** (`attributes_routes.py`): `AttributeIn` / `AttributeUpdateIn` gained `measurement_mode` (`"single" | "dimensions"`) and `unit_options` (list of accepted units). Persisted in create + update, exposed in `_attr_doc`.
+- **Value validation**: `measurement` attributes now accept two shapes:
+  - single → `{value: <number>, unit: "<from unit_options>"}` (also accepts raw number for backward compat, unit defaults to "")
+  - dimensions → `{length: {value, unit}, width: {…}, height: {…}}`. Every unit must appear in the attribute's `unit_options` (or the legacy `unit`) when the admin declared any.
+- **Admin editor** (`AdminAttributesTab.jsx`): when `type == "measurement"`, two extra fields render — a mode toggle (Single / Dimensions L × W × H) and a comma-separated "Allowed units" input. `Field` helper gained an optional `hint` prop.
+- **Seller field editor** (`AttributeFieldsEditor.jsx`): custom widget renders per mode — a value + unit picker for `single`, three labelled Length / Width / Height rows each with their own value + unit picker for `dimensions`. Storage matches the backend shape verbatim.
+- **Odoo update prompt**: `/app/memory/odoo_iteration3311_prompt.md` — comprehensive prompt teaching Claude the nested-category schema, the dynamic attribute schema (all 33.11 fields), the four Iter 33.11 acceptance tests, and the correct JubaSquare admin REST endpoints (`POST /api/admin/categories`, `POST /api/admin/attributes`, `POST /api/admin/attribute-groups`, etc.) — NOT the non-existent `/api/odoo/webhook/*` routes.
+- Verified backend end-to-end via curl (create dimensions attribute → update to single mode → GET back). Frontend admin UI screenshot-verified.
+
 ## Iteration 33.10 (Jul 2026) — Attribute UX + admin SEO precedence + wholesale filters
 
 - **AdminAttributesTab.jsx**: added an amber `No categories` pill on attribute rows where `category_ids.length === 0`, so admins can spot uncategorised attributes at a glance.
