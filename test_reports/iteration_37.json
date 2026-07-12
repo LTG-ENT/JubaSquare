@@ -1,0 +1,22 @@
+{
+  "summary": "Iter 35 seller-dashboard pagination endpoints + frontend wiring verified. Backend: all 7 paginated endpoints return the correct envelope, respect role auth, honor filters (q/shop_id/stock/low_threshold), embed shop_name/shop_kind or restaurant_name, and return stock_map / unread_count / stats where documented. Frontend: on the seller test account (2 shop products + 2 menu items + 1 shop + 1 restaurant), every affected tab (Products, Wallet & Active Orders, Notifications, Messages, Invoices) fires the correct /paged network call with page=1&page_size=50 and returns 200. Pagination bars are correctly HIDDEN when total <= page_size (verified via testid counts = 0). Search box and stock filter chips on Products tab both propagate q= and stock= params to the server and reset to page 1. Nudge-banner (attrs-nudge-banner) not shown because all current items have populated attributes (correct behavior). No regressions.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter35_pagination.py",
+    "/app/test_reports/pytest/iter35_pagination.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "pagination_routes.seller_orders_paged builds prod_ids/menu_ids by scanning the seller's ENTIRE product and menu-item collections in memory each request (async for) – for a seller with tens of thousands of SKUs this is O(N) per page load. Consider indexing orders with seller_id embedded at write time, or caching prod_ids per-request.",
+    "MAX_PAGE_SIZE=200 is enforced via FastAPI Query(le=200) which returns 422 for over-limit requests instead of silently clamping – docstring/spec says 'clamp to 200'. Behavior is safer (fail-fast) but doesn't match wording; either update the spec or use _clamp inside the handler and drop the le=200 constraint. Currently benign.",
+    "Products search regex is escaped with re.escape (good) but not anchored – matches substrings anywhere including category. Fine, just note that querying 'a' will hit almost every product."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter35_pagination.py"],
+  "success_rate": {"backend": "100% (17/17 pytest passing)", "frontend": "100% for regression scope (all 5 tabs fire correct paged calls; filters work; pagination correctly hidden for small datasets)"},
+  "test_credentials": "seller-attrtest@jubasquare.com / Test1234!",
+  "seed_data_creation": "None. No test data created or left behind.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The Iter 35 pagination bar visual test (rendering page-number buttons at total>50) was NOT executed here because the demo seller only has 2 products / 2 menu items. Main agent already ran that visual test live with 112 bulk-inserted products and cleaned up. If you need to re-verify visually, POST >50 products via /api/products as the seller, then load /seller Products tab and confirm data-testid=products-pagination + products-pagination-page-1/2/3 render. The seller has 1 shop id retrievable via /api/shops/seller."
+}

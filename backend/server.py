@@ -42,6 +42,7 @@ async def _seller_manages_delivery_for(shop=None, restaurant=None) -> bool:
     return not bool(sysettings.get("admin_manages_delivery", False))
 import odoo_routes
 import attributes_routes
+import pagination_routes
 import storage
 from pages_seed import PAGES_DEFAULT, PAGE_SLUGS
 from footer_seed import FOOTER_DEFAULT
@@ -7995,6 +7996,10 @@ async def on_startup():
     except Exception as exc:
         log.warning(f"Attribute seed skipped: {exc}")
     log.info("✅ Attribute routes registered")
+
+    # Iter 35 — Seller dashboard pagination routes ({items,total} envelope)
+    app.include_router(pagination_routes.create_pagination_routes(db, require_role, get_current_user))
+    log.info("✅ Pagination routes registered")
 
     # Iter 33.6 — SEO settings + website-status (admin CRUD under /api).
     # sitemap.xml + robots.txt are already served by server.py directly on

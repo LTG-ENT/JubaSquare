@@ -17,6 +17,7 @@ import SellerFirstLoginWizard from "@/components/SellerFirstLoginWizard";
 import SellerDashboardTour from "@/components/SellerDashboardTour";
 import CategoryTreeSelect from "@/components/CategoryTreeSelect";
 import AttributeFieldsEditor from "@/components/AttributeFieldsEditor";
+import { Pagination } from "@/components/Pagination";
 import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle, ExternalLink, MessageCircle, Mail, Phone, ChefHat, Wallet, MapPin, Upload, TrendingUp, PackageCheck, GraduationCap, Printer, Sparkles } from "lucide-react";
 import { useSearchParams, Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -691,6 +692,14 @@ function ProductsTab({ currency, exchangeRate }) {
   const [attrsNudgeDismissed, setAttrsNudgeDismissed] = useState(
     () => sessionStorage.getItem("seller_attrs_nudge_dismissed") === "1"
   );
+  // Iter 35 — server-side pagination (50 items/page)
+  const PAGE_SIZE = 50;
+  const [productsPage, setProductsPage] = useState(1);
+  const [productsTotal, setProductsTotal] = useState(0);
+  const [menuPage, setMenuPage] = useState(1);
+  const [menuTotal, setMenuTotal] = useState(0);
+  const [outCount, setOutCount] = useState(0);
+  const [lowCount, setLowCount] = useState(0);
 
   const lowStockThreshold = parseInt(user?.settings?.low_stock_threshold ?? 5, 10) || 5;
   const stockBucket = (stock) => {
@@ -752,19 +761,8 @@ function ProductsTab({ currency, exchangeRate }) {
     setRestaurants(rRes.data);
     setRate(rateRes.data?.rate || 600);
 
-    const allProducts = [];
-    for (const sh of sRes.data) {
-      const r = await api.get(`/products?shop_id=${sh.id}&limit=200`);
-      allProducts.push(...r.data.map((p) => ({ ...p, shop_name: sh.name, shop_kind: sh.kind })));
-    }
-    setProducts(allProducts);
-
-    const allMenu = [];
-    for (const r of rRes.data) {
-      const m = await api.get(`/restaurants/${r.id}/menu`);
-      allMenu.push(...m.data.map((mi) => ({ ...mi, restaurant_name: r.name })));
-    }
-    setMenuItems(allMenu);
+    // Iter 35 — server-side pagination; products + menu items are fetched
+    // by loadPage() (triggered by the filter/page useEffect below).
 
     // Fetch all category groups with sub-categories from database
     // Returns: { parentId: { id, name, children: [{id, name}, ...] }, ... }
@@ -806,6 +804,82 @@ function ProductsTab({ currency, exchangeRate }) {
     setWholesaleCategoriesMap(wholesaleCats);
   };
   useEffect(() => { loadAll(); }, [user?.id]); // eslint-disable-line
+
+  // Iter 35 — paginated fetch. Re-runs when filters / page change.
+  // Fetches at most PAGE_SIZE products AND PAGE_SIZE menu items — so the DOM
+  // stays lightweight even for sellers with thousands of items.
+  const loadPage = async () => {
+    const shopId = shopFilter.startsWith("s:") ? shopFilter.slice(2) : "";
+    const restaurantId = shopFilter.startsWith("r:") ? shopFilter.slice(2) : "";
+    const params = new URLSearchParams();
+    params.set("page", String(productsPage));
+    params.set("page_size", String(PAGE_SIZE));
+    if (shopId) params.set("shop_id", shopId);
+    if (searchQ.trim()) params.set("q", searchQ.trim());
+    if (stockFilter !== "all") params.set("stock", stockFilter);
+    params.set("low_threshold", String(lowStockThreshold));
+
+    // If the seller has narrowed to a specific restaurant, skip fetching products.
+    const productsPromise = shopFilter.startsWith("r:")
+      ? Promise.resolve({ data: { items: [], total: 0 } })
+      : api.get(`/seller/products/paged?${params.toString()}`);
+
+    // Menu items don't have stock — hide when stock filter is set.
+    const menuParams = new URLSearchParams();
+    menuParams.set("page", String(menuPage));
+    menuParams.set("page_size", String(PAGE_SIZE));
+    if (restaurantId) menuParams.set("restaurant_id", restaurantId);
+    if (searchQ.trim()) menuParams.set("q", searchQ.trim());
+    const menuPromise = (stockFilter !== "all" || shopFilter.startsWith("s:"))
+      ? Promise.resolve({ data: { items: [], total: 0 } })
+      : api.get(`/seller/menu-items/paged?${menuParams.toString()}`);
+
+    // Pill counts (out / low) — fetched separately so they reflect *totals*
+    // across all pages regardless of the current stock filter.
+    const pillsBase = new URLSearchParams();
+    pillsBase.set("page", "1");
+    pillsBase.set("page_size", "1");
+    if (shopId) pillsBase.set("shop_id", shopId);
+    if (searchQ.trim()) pillsBase.set("q", searchQ.trim());
+    pillsBase.set("low_threshold", String(lowStockThreshold));
+    const outParams = new URLSearchParams(pillsBase);
+    outParams.set("stock", "out");
+    const lowParams = new URLSearchParams(pillsBase);
+    lowParams.set("stock", "low");
+
+    try {
+      const [pRes, mRes, oRes, lRes] = await Promise.all([
+        productsPromise,
+        menuPromise,
+        shopFilter.startsWith("r:")
+          ? Promise.resolve({ data: { total: 0 } })
+          : api.get(`/seller/products/paged?${outParams.toString()}`),
+        shopFilter.startsWith("r:")
+          ? Promise.resolve({ data: { total: 0 } })
+          : api.get(`/seller/products/paged?${lowParams.toString()}`),
+      ]);
+      setProducts(pRes.data.items || []);
+      setProductsTotal(pRes.data.total || 0);
+      setMenuItems(mRes.data.items || []);
+      setMenuTotal(mRes.data.total || 0);
+      setOutCount(oRes.data.total || 0);
+      setLowCount(lRes.data.total || 0);
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail) || "Failed to load products");
+    }
+  };
+  useEffect(() => {
+    if (!user?.id) return;
+    loadPage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, productsPage, menuPage, shopFilter, stockFilter, searchQ, lowStockThreshold]);
+  // Reset page → 1 when any filter changes (avoids landing on empty page 5
+  // after narrowing the result set).
+  useEffect(() => {
+    setProductsPage(1);
+    setMenuPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shopFilter, stockFilter, searchQ]);
 
   // Auto-initialize category_id when form is open but category_id is empty
   useEffect(() => {
@@ -969,7 +1043,7 @@ function ProductsTab({ currency, exchangeRate }) {
         toast.success(editing ? "Product updated" : "Product added");
       }
       setShowForm(false); setEditing(null);
-      loadAll();
+      loadAll(); loadPage();
     } catch (err) {
       toast.error(formatDetail(err.response?.data?.detail));
     }
@@ -978,42 +1052,21 @@ function ProductsTab({ currency, exchangeRate }) {
   const onDeleteProduct = async (id) => {
     if (!window.confirm("Delete this product?")) return;
     await api.delete(`/products/${id}`);
-    toast.success("Deleted"); loadAll();
+    toast.success("Deleted"); loadAll(); loadPage();
   };
   const onDeleteMenu = async (id) => {
     if (!window.confirm("Delete this menu item?")) return;
     await api.delete(`/menu-items/${id}`);
-    toast.success("Deleted"); loadAll();
+    toast.success("Deleted"); loadAll(); loadPage();
   };
 
-  const totalItems = products.length + menuItems.length;
+  const totalItems = productsTotal + menuTotal;
 
-  // Counts (across ALL products before filtering, so the pills show real totals)
-  const outCount = products.filter((p) => stockBucket(p.stock) === "out").length;
-  const lowCount = products.filter((p) => stockBucket(p.stock) === "low").length;
-
-  // Apply filters: search + shop + stock
-  const q = searchQ.trim().toLowerCase();
-  const matchesSearch = (text) => !q || (text || "").toLowerCase().includes(q);
-  const matchesShop = (kind, id) => {
-    if (shopFilter === "all") return true;
-    if (kind === "shop") return shopFilter === `s:${id}`;
-    if (kind === "rest") return shopFilter === `r:${id}`;
-    return false;
-  };
-
-  const filteredProducts = products.filter((p) => {
-    if (!matchesSearch(p.name) && !matchesSearch(p.category)) return false;
-    if (!matchesShop("shop", p.shop_id)) return false;
-    if (stockFilter !== "all" && stockBucket(p.stock) !== stockFilter) return false;
-    return true;
-  });
-  // Restaurant menu items have no stock — only show when stock filter is "all"
-  const filteredMenuItems = stockFilter === "all" ? menuItems.filter((m) => {
-    if (!matchesSearch(m.name) && !matchesSearch(m.food_category)) return false;
-    if (!matchesShop("rest", m.restaurant_id)) return false;
-    return true;
-  }) : [];
+  // Iter 35 — server did the filtering; the rendered page is already the
+  // filtered slice. `filteredCount` reflects the current-page cardinality
+  // for the "N of M items" indicator.
+  const filteredProducts = products;
+  const filteredMenuItems = menuItems;
   const filteredCount = filteredProducts.length + filteredMenuItems.length;
 
   // Iter 34 — "Add product details" nudge banner.
@@ -1442,21 +1495,43 @@ function ProductsTab({ currency, exchangeRate }) {
                 <tr><td colSpan={6} className="p-8 text-center text-[var(--js-text-secondary)]" data-testid="seller-products-empty">
                   {totalItems === 0
                     ? "No products or menu items yet. Click a button above to add one."
-                    : (q || shopFilter !== "all" || stockFilter !== "all")
-                      ? `No items match the current filters${q ? ` for "${searchQ}"` : ""}.`
+                    : (searchQ.trim() || shopFilter !== "all" || stockFilter !== "all")
+                      ? `No items match the current filters${searchQ.trim() ? ` for "${searchQ.trim()}"` : ""}.`
                       : "No products or menu items yet."}
                 </td></tr>
               )}
             </tbody>
           </table>
         </div>
+        {/* Iter 35 — pagination controls (separate for products & menu items) */}
+        {productsTotal > PAGE_SIZE && (
+          <Pagination
+            page={productsPage}
+            total={productsTotal}
+            pageSize={PAGE_SIZE}
+            onChange={setProductsPage}
+            testIdPrefix="products-pagination"
+          />
+        )}
+        {menuTotal > PAGE_SIZE && (
+          <div className="mt-2">
+            <p className="text-xs text-[var(--js-text-secondary)] mb-1">Menu items</p>
+            <Pagination
+              page={menuPage}
+              total={menuTotal}
+              pageSize={PAGE_SIZE}
+              onChange={setMenuPage}
+              testIdPrefix="menu-pagination"
+            />
+          </div>
+        )}
       </div>
       {showBulkImport && (
         <BulkImportModal
           mode="import"
           shops={shops}
           onClose={() => setShowBulkImport(false)}
-          onSuccess={() => { setShowBulkImport(false); loadAll(); }}
+          onSuccess={() => { setShowBulkImport(false); loadAll(); loadPage(); }}
         />
       )}
       {showBulkStock && (
@@ -1464,7 +1539,7 @@ function ProductsTab({ currency, exchangeRate }) {
           mode="stock-update"
           shops={shops}
           onClose={() => setShowBulkStock(false)}
-          onSuccess={() => { setShowBulkStock(false); loadAll(); }}
+          onSuccess={() => { setShowBulkStock(false); loadAll(); loadPage(); }}
         />
       )}
     </div>
@@ -1622,20 +1697,26 @@ function InvoicesTab({ currency, exchangeRate }) {
 function SellerShopInvoices() {
   const { currency = "USD", exchangeRate = 1 } = useCart() || {};
   const [invoices, setInvoices] = useState([]);
-  const load = () => api.get("/seller/invoices").then((r) => setInvoices(r.data));
-  useEffect(() => { load(); }, []);
-
-  const totalSales = invoices.reduce((s, i) => s + (i.total_sales || 0), 0);
-  const totalCommission = invoices.reduce((s, i) => s + (i.commission || 0), 0);
-  const owed = invoices.filter((i) => i.status === "Unpaid").reduce((s, i) => s + (i.amount_owed || 0), 0);
+  // Iter 35 — server-side pagination
+  const PAGE_SIZE = 50;
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [stats, setStats] = useState({ total_sales: 0, total_commission: 0, amount_owed: 0 });
+  const load = () =>
+    api.get(`/seller/invoices/paged?page=${page}&page_size=${PAGE_SIZE}`).then((r) => {
+      setInvoices(r.data.items || []);
+      setTotal(r.data.total || 0);
+      setStats(r.data.stats || { total_sales: 0, total_commission: 0, amount_owed: 0 });
+    });
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page]);
 
   return (
     <div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <Stat label="Invoices" value={invoices.length} color="#1A1A1A" />
-        <Stat label="Total Sales" value={formatPrice(totalSales, exchangeRate, currency)} color="#2D6A4F" />
-        <Stat label="Commission" value={formatPrice(totalCommission, exchangeRate, currency)} color="#C84B31" />
-        <Stat label="Amount Owed" value={formatPrice(owed, exchangeRate, currency)} color="#D90429" />
+        <Stat label="Invoices" value={total} color="#1A1A1A" />
+        <Stat label="Total Sales" value={formatPrice(stats.total_sales, exchangeRate, currency)} color="#2D6A4F" />
+        <Stat label="Commission" value={formatPrice(stats.total_commission, exchangeRate, currency)} color="#C84B31" />
+        <Stat label="Amount Owed" value={formatPrice(stats.amount_owed, exchangeRate, currency)} color="#D90429" />
       </div>
       <div className="bg-white border border-[var(--js-border)] rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
@@ -1670,6 +1751,13 @@ function SellerShopInvoices() {
           </table>
         </div>
       </div>
+      <Pagination
+        page={page}
+        total={total}
+        pageSize={PAGE_SIZE}
+        onChange={setPage}
+        testIdPrefix="shop-invoices-pagination"
+      />
     </div>
   );
 }
@@ -1677,21 +1765,32 @@ function SellerShopInvoices() {
 function SellerRestaurantInvoices() {
   const { currency = "USD", exchangeRate = 1 } = useCart() || {};
   const [invoices, setInvoices] = useState([]);
+  // Iter 35 — server-side pagination
+  const PAGE_SIZE = 50;
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [stats, setStats] = useState({ total_sales: 0, total_commission: 0, amount_owed: 0 });
   useEffect(() => {
-    api.get("/seller/restaurant-invoices").then((r) => setInvoices(r.data)).catch(() => setInvoices([]));
-  }, []);
-
-  const totalSales = invoices.reduce((s, i) => s + (i.total_sales || 0), 0);
-  const totalCommission = invoices.reduce((s, i) => s + (i.commission || 0), 0);
-  const owed = invoices.filter((i) => i.status === "Unpaid").reduce((s, i) => s + (i.amount_owed || 0), 0);
+    api
+      .get(`/seller/restaurant-invoices/paged?page=${page}&page_size=${PAGE_SIZE}`)
+      .then((r) => {
+        setInvoices(r.data.items || []);
+        setTotal(r.data.total || 0);
+        setStats(r.data.stats || { total_sales: 0, total_commission: 0, amount_owed: 0 });
+      })
+      .catch(() => {
+        setInvoices([]);
+        setTotal(0);
+      });
+  }, [page]);
 
   return (
     <div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <Stat label="Restaurant Invoices" value={invoices.length} color="#1A1A1A" />
-        <Stat label="Food Sales" value={formatPrice(totalSales, exchangeRate, currency)} color="#2D6A4F" />
-        <Stat label="Commission" value={formatPrice(totalCommission, exchangeRate, currency)} color="#C84B31" />
-        <Stat label="Amount Owed" value={formatPrice(owed, exchangeRate, currency)} color="#D90429" />
+        <Stat label="Restaurant Invoices" value={total} color="#1A1A1A" />
+        <Stat label="Food Sales" value={formatPrice(stats.total_sales, exchangeRate, currency)} color="#2D6A4F" />
+        <Stat label="Commission" value={formatPrice(stats.total_commission, exchangeRate, currency)} color="#C84B31" />
+        <Stat label="Amount Owed" value={formatPrice(stats.amount_owed, exchangeRate, currency)} color="#D90429" />
       </div>
       <div className="bg-white border border-[var(--js-border)] rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
@@ -1726,6 +1825,13 @@ function SellerRestaurantInvoices() {
           </table>
         </div>
       </div>
+      <Pagination
+        page={page}
+        total={total}
+        pageSize={PAGE_SIZE}
+        onChange={setPage}
+        testIdPrefix="restaurant-invoices-pagination"
+      />
     </div>
   );
 }
@@ -1767,6 +1873,10 @@ function OrdersTab() {
   const [stockMap, setStockMap] = useState({}); // product_id -> stock
   const [search, setSearch] = useState("");
   const [stockAlertOnly, setStockAlertOnly] = useState(false);
+  // Iter 35 — server-side pagination
+  const PAGE_SIZE = 50;
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
 
   const lowStockThreshold = parseInt(user?.settings?.low_stock_threshold ?? 5, 10) || 5;
   const stockBucket = (stock) => {
@@ -1777,22 +1887,14 @@ function OrdersTab() {
   };
 
   const load = async () => {
-    const oRes = await api.get("/orders/seller?limit=200");
-    setOrders(oRes.data);
-    // Build a stock map across all the seller's shops
-    try {
-      const sRes = await api.get("/shops/mine?limit=200");
-      const map = {};
-      for (const sh of sRes.data) {
-        const r = await api.get(`/products?shop_id=${sh.id}&limit=200`);
-        for (const p of r.data) map[p.id] = Number(p.stock ?? 0);
-      }
-      setStockMap(map);
-    } catch {
-      setStockMap({});
-    }
+    const oRes = await api.get(`/seller/orders/paged?page=${page}&page_size=${PAGE_SIZE}`);
+    setOrders(oRes.data.items || []);
+    setTotal(oRes.data.total || 0);
+    // Iter 35 — stock_map is embedded in the paged response now (server-side
+    // lookup for products referenced by the current page's orders).
+    setStockMap(oRes.data.stock_map || {});
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page]);
 
   const updateStatus = async (id, status) => {
     await api.put(`/orders/${id}/status`, { status });
@@ -1934,6 +2036,13 @@ function OrdersTab() {
         </table>
       </div>
       </div>
+      <Pagination
+        page={page}
+        total={total}
+        pageSize={PAGE_SIZE}
+        onChange={setPage}
+        testIdPrefix="orders-pagination"
+      />
     </div>
   );
 }
@@ -2075,25 +2184,33 @@ function Modal({ children, onClose, title }) {
 function NotificationsTab() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Iter 35 — server-side pagination
+  const PAGE_SIZE = 50;
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const load = async () => {
     setLoading(true);
     try {
-      const { data } = await api.get("/notifications?limit=200");
+      const { data } = await api.get(`/notifications/paged?page=${page}&page_size=${PAGE_SIZE}`);
       setItems(data.items || []);
+      setTotal(data.total || 0);
+      setUnreadCount(data.unread_count || 0);
     } catch (e) {
       toast.error(formatDetail(e.response?.data?.detail));
     } finally {
       setLoading(false);
     }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [page]);
 
   const markRead = async (n) => {
     if (n.is_read) return;
     try {
       await api.put(`/notifications/${n.id}/read`);
       setItems((prev) => prev.map((it) => (it.id === n.id ? { ...it, is_read: true } : it)));
+      setUnreadCount((u) => Math.max(0, u - 1));
     } catch (e) { toast.error(formatDetail(e.response?.data?.detail)); }
   };
 
@@ -2101,6 +2218,7 @@ function NotificationsTab() {
     try {
       await api.put("/notifications/read-all");
       setItems((prev) => prev.map((it) => ({ ...it, is_read: true })));
+      setUnreadCount(0);
       toast.success("All notifications marked as read");
     } catch (e) { toast.error(formatDetail(e.response?.data?.detail)); }
   };
@@ -2109,10 +2227,10 @@ function NotificationsTab() {
     try {
       await api.delete(`/notifications/${id}`);
       setItems((prev) => prev.filter((it) => it.id !== id));
+      setTotal((t) => Math.max(0, t - 1));
     } catch (e) { toast.error(formatDetail(e.response?.data?.detail)); }
   };
 
-  const unread = items.filter((n) => !n.is_read).length;
   const TYPE_BADGE = {
     order: { label: "Order", cls: "bg-[#2A9D8F]/15 text-[#1F7A6F]" },
     commission: { label: "Commission", cls: "bg-[#E9C46A]/25 text-[#7A5C12]" },
@@ -2122,8 +2240,8 @@ function NotificationsTab() {
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-        <p className="text-sm text-[#5C5C5C]">{items.length} notification{items.length !== 1 && "s"} · <span className="font-bold text-[#1A1A1A]">{unread} unread</span></p>
-        {unread > 0 && (
+        <p className="text-sm text-[#5C5C5C]">{total} notification{total !== 1 && "s"} · <span className="font-bold text-[#1A1A1A]">{unreadCount} unread</span></p>
+        {unreadCount > 0 && (
           <button
             onClick={markAll}
             data-testid="seller-notif-mark-all"
@@ -2184,6 +2302,13 @@ function NotificationsTab() {
           })}
         </ul>
       )}
+      <Pagination
+        page={page}
+        total={total}
+        pageSize={PAGE_SIZE}
+        onChange={setPage}
+        testIdPrefix="notif-pagination"
+      />
     </div>
   );
 }
@@ -2196,6 +2321,10 @@ function MessagesTab({ onChange }) {
   const [replyingTo, setReplyingTo] = useState(null); // Message ID being replied to
   const [replyText, setReplyText] = useState("");
   const [sending, setSending] = useState(false);
+  // Iter 35 — server-side pagination
+  const PAGE_SIZE = 50;
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
 
   const refreshUnread = async () => {
     try {
@@ -2207,15 +2336,16 @@ function MessagesTab({ onChange }) {
   const load = async () => {
     setLoading(true);
     try {
-      const { data } = await api.get("/messages/seller");
-      setItems(data || []);
+      const { data } = await api.get(`/messages/seller/paged?page=${page}&page_size=${PAGE_SIZE}`);
+      setItems(data.items || []);
+      setTotal(data.total || 0);
     } catch (e) {
       toast.error(formatDetail(e.response?.data?.detail));
     } finally {
       setLoading(false);
     }
   };
-  useEffect(() => { load(); refreshUnread(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { load(); refreshUnread(); /* eslint-disable-next-line */ }, [page]);
 
   const markRead = async (m) => {
     if (m.is_read) return;
@@ -2393,6 +2523,13 @@ function MessagesTab({ onChange }) {
           ))}
         </ul>
       )}
+      <Pagination
+        page={page}
+        total={total}
+        pageSize={PAGE_SIZE}
+        onChange={setPage}
+        testIdPrefix="msg-pagination"
+      />
     </div>
   );
 }
