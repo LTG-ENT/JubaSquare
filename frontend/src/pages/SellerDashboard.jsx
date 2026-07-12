@@ -17,7 +17,7 @@ import SellerFirstLoginWizard from "@/components/SellerFirstLoginWizard";
 import SellerDashboardTour from "@/components/SellerDashboardTour";
 import CategoryTreeSelect from "@/components/CategoryTreeSelect";
 import AttributeFieldsEditor from "@/components/AttributeFieldsEditor";
-import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle, ExternalLink, MessageCircle, Mail, Phone, ChefHat, Wallet, MapPin, Upload, TrendingUp, PackageCheck, GraduationCap, Printer } from "lucide-react";
+import { Store, Package, ShoppingBag, DollarSign, Settings, Plus, X, Edit2, Trash2, CheckCircle2, Clock, XCircle, FileText, ShoppingCart, UtensilsCrossed, Warehouse, Bell, AlertTriangle, ExternalLink, MessageCircle, Mail, Phone, ChefHat, Wallet, MapPin, Upload, TrendingUp, PackageCheck, GraduationCap, Printer, Sparkles } from "lucide-react";
 import { useSearchParams, Link } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -687,6 +687,10 @@ function ProductsTab({ currency, exchangeRate }) {
   );
   const [shopFilter, setShopFilter] = useState("all"); // "all" | "s:<id>" | "r:<id>"
   const [searchQ, setSearchQ] = useState("");
+  // Iter 34 — "Add product details" nudge: session-scoped dismiss
+  const [attrsNudgeDismissed, setAttrsNudgeDismissed] = useState(
+    () => sessionStorage.getItem("seller_attrs_nudge_dismissed") === "1"
+  );
 
   const lowStockThreshold = parseInt(user?.settings?.low_stock_threshold ?? 5, 10) || 5;
   const stockBucket = (stock) => {
@@ -1012,6 +1016,30 @@ function ProductsTab({ currency, exchangeRate }) {
   }) : [];
   const filteredCount = filteredProducts.length + filteredMenuItems.length;
 
+  // Iter 34 — "Add product details" nudge banner.
+  // Simple heuristic: items whose `attributes` dict is empty/missing.
+  // Filling attributes powers customer-side filters and improves discoverability.
+  const isAttrsEmpty = (item) => {
+    const a = item?.attributes;
+    return !a || typeof a !== "object" || Object.keys(a).length === 0;
+  };
+  const productsMissingAttrs = products.filter(isAttrsEmpty);
+  const menuItemsMissingAttrs = menuItems.filter(isAttrsEmpty);
+  const missingAttrsCount = productsMissingAttrs.length + menuItemsMissingAttrs.length;
+  const openFirstMissingAttrs = () => {
+    if (productsMissingAttrs.length > 0) {
+      openEditProduct(productsMissingAttrs[0]);
+      return;
+    }
+    if (menuItemsMissingAttrs.length > 0) {
+      openEditMenu(menuItemsMissingAttrs[0]);
+    }
+  };
+  const dismissAttrsNudge = () => {
+    sessionStorage.setItem("seller_attrs_nudge_dismissed", "1");
+    setAttrsNudgeDismissed(true);
+  };
+
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
@@ -1055,6 +1083,45 @@ function ProductsTab({ currency, exchangeRate }) {
           </button>
         </div>
       </div>
+
+      {/* Iter 34 — "Add product details" nudge banner (missing attributes) */}
+      {!attrsNudgeDismissed && missingAttrsCount > 0 && (
+        <div
+          className="mb-4 rounded-2xl border border-[#7C3AED]/30 bg-gradient-to-r from-[#F5F0FF] to-[#EFE7FF] p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3"
+          data-testid="attrs-nudge-banner"
+        >
+          <div className="flex items-start gap-3 flex-1 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-[#7C3AED]/15 flex items-center justify-center shrink-0">
+              <Sparkles className="w-5 h-5 text-[#7C3AED]" />
+            </div>
+            <div className="min-w-0">
+              <p className="font-display font-bold text-sm text-[#1A1A1A]">
+                Add product details to {missingAttrsCount} item{missingAttrsCount > 1 ? "s" : ""}
+              </p>
+              <p className="text-xs text-[#5C5C5C] mt-0.5">
+                Filling in attributes (size, color, material, etc.) helps buyers filter and find your items faster.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={openFirstMissingAttrs}
+              data-testid="attrs-nudge-action"
+              className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-xs font-semibold px-4 py-2 rounded-full whitespace-nowrap inline-flex items-center gap-1.5"
+            >
+              <Edit2 className="w-3.5 h-3.5" /> Add details
+            </button>
+            <button
+              onClick={dismissAttrsNudge}
+              data-testid="attrs-nudge-dismiss"
+              aria-label="Dismiss"
+              className="p-2 rounded-full hover:bg-white/60 text-[#5C5C5C]"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Filter / search bar */}
       <div className="mb-4 bg-white border border-[var(--js-border)] rounded-2xl p-3 flex flex-wrap items-center gap-2 shadow-sm">

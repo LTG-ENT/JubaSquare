@@ -341,6 +341,14 @@ See `/app/memory/test_credentials.md` — admin + demo seller (Iter 33).
 - Verified in preview: `admin` login → Attributes tab renders groups strip + editor now shows the toggle; Marketplace at `/marketplace` has no attribute panel visible when the DB has no `show_on_all=true` attributes.
 
 
+## Iteration 34 (Jul 2026) — "Add product details" nudge banner (P1)
+
+- **SellerDashboard.jsx** (`ProductsTab`): added a dismissible purple gradient banner above the filter bar that appears when the seller has one or more products or menu items with an empty `attributes` dict.
+- Banner shows the count ("Add product details to N item(s)"), copy explaining why attributes matter (buyers filter/find items faster), an **"Add details"** CTA that opens the edit modal of the first incomplete item (products first, then menu items) directly at the Product Details & Attributes section, and an **X dismiss** button that hides it for the current tab session via `sessionStorage["seller_attrs_nudge_dismissed"]`.
+- Data-testids: `attrs-nudge-banner`, `attrs-nudge-action`, `attrs-nudge-dismiss`.
+- Verified end-to-end in preview: created a product with empty `attributes` → banner rendered with correct count → clicking "Add details" opened the Edit modal with the Product Details & Attributes section (Color, Condition selects) — dismiss button hides banner.
+- Rationale: powers the customer-side dynamic attribute filter completeness (Iter 33.x) by driving sellers to fill missing values.
+
 ## Iteration 33.11 (Jul 2026) — Measurement attribute (both modes) + Odoo prompt
 
 - **Backend** (`attributes_routes.py`): `AttributeIn` / `AttributeUpdateIn` gained `measurement_mode` (`"single" | "dimensions"`) and `unit_options` (list of accepted units). Persisted in create + update, exposed in `_attr_doc`.
