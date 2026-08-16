@@ -13,14 +13,15 @@ Scope is **Juba-only for now** (no selling outside Juba yet), but with online ca
 
 ### Fee model — DECIDED (Jun 2026)
 - **Shipping**: set/edited by the **SELLER**, charged **per item**.
-- **Customs**: set by **ADMIN**, as a **percentage**.
-- **Interest fee**: set by **ADMIN**. (Still to confirm: percentage vs flat — assume percentage unless told otherwise.)
+- **Customs**: set by **ADMIN** as a **percentage**, and configurable **per seller location / origin** (each origin location can have its own customs %). Applied to the total item price.
+- **Interest fee**: set by **ADMIN** as a **percentage** (like customs), applied to the **total item price** (sum of all items).
 - **Gateway**: **Pesapal** (confirmed). Settles to the Uganda bank account (UGX).
 
+Implication: we need a small admin-managed table of **origin locations → { customs %, interest % }**, plus a per-product `is_imported` + `origin_location` field. Order total for imported items = items subtotal + per-item shipping (seller) + customs% (admin, by origin) + interest% (admin), all card-only.
+
 ### Open questions to resolve before building (UPDATED)
-1. **"Interest fee"** — confirm it's a **percentage** (like customs) vs a flat amount, and what it's applied to (item price only, or price + shipping + customs).
-2. Do shipping/customs/interest fees count as **JubaSquare revenue**, or pass through to a shipper/customs authority?
-3. Payment currency shown to the customer — USD, SSP, or UGX (Pesapal settles UGX).
+1. Do shipping/customs/interest fees count as **JubaSquare revenue**, or pass through to a shipper/customs authority?
+2. Payment currency shown to the customer — USD, SSP, or UGX (Pesapal settles UGX).
 
 ## 2. User's confirmed constraints
 - JubaSquare business entity is **registered in South Sudan only**, but has a **bank account in Uganda**.
