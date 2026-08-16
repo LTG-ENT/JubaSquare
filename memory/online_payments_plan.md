@@ -3,8 +3,21 @@
 Status: **PLAN ONLY — nothing built yet** (user: "Plan now, build later")
 Date: Jun 2026
 
-## 1. The goal
-Let buyers **pay online (card / mobile money)** for orders where the seller is **located outside South Sudan/Juba**. Money lands with **JubaSquare first** (aggregator model), then JubaSquare **pays those sellers out manually** via bank transfer, M-Pesa, or mobile money. South-Sudan sellers keep the existing Cash-on-Delivery (COD) flow.
+## 1. The goal (UPDATED — Jun 2026)
+Scope is **Juba-only for now** (no selling outside Juba yet), but with online card payments added:
+- **Juba/local items**: customer may choose **Cash-on-Delivery OR card** (card optional, COD stays the default).
+- **Imported items (goods that come from OUTSIDE South Sudan)**: **card-only** — no COD allowed. These items also carry extra charges: **shipping + customs + an interest/service fee** added on top of the item price.
+- Money lands with **JubaSquare first** (aggregator model); JubaSquare pays sellers out manually via bank transfer, M-Pesa, or mobile money.
+
+> IMPORTANT nuance vs. earlier draft: the online-payment / card-only rule now keys off the **ITEM'S ORIGIN** (domestic Juba vs imported), not the seller's country. A single seller could list both local and imported items.
+
+### Open questions to resolve before building (UPDATED)
+1. **"Interest fee" definition** — is it a fixed % markup on imported items, a financing/installment interest, or a flat service fee? How is it calculated?
+2. **Shipping cost** — flat per order, per item, per weight, or manually set by the seller/admin per imported product?
+3. **Customs** — fixed %, tiered by category, or entered manually per product?
+4. Who sets these on an imported product — the **seller** at listing time, or **admin**?
+5. Do the shipping/customs/interest fees go to **JubaSquare** (revenue) or are they passed through to a shipper/customs?
+6. Which gateway (Pesapal vs Flutterwave) — still open; cards work for Juba customers too since it's the same aggregator account.
 
 ## 2. User's confirmed constraints
 - JubaSquare business entity is **registered in South Sudan only**, but has a **bank account in Uganda**.
