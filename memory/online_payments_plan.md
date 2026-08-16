@@ -11,13 +11,16 @@ Scope is **Juba-only for now** (no selling outside Juba yet), but with online ca
 
 > IMPORTANT nuance vs. earlier draft: the online-payment / card-only rule now keys off the **ITEM'S ORIGIN** (domestic Juba vs imported), not the seller's country. A single seller could list both local and imported items.
 
+### Fee model — DECIDED (Jun 2026)
+- **Shipping**: set/edited by the **SELLER**, charged **per item**.
+- **Customs**: set by **ADMIN**, as a **percentage**.
+- **Interest fee**: set by **ADMIN**. (Still to confirm: percentage vs flat — assume percentage unless told otherwise.)
+- **Gateway**: **Pesapal** (confirmed). Settles to the Uganda bank account (UGX).
+
 ### Open questions to resolve before building (UPDATED)
-1. **"Interest fee" definition** — is it a fixed % markup on imported items, a financing/installment interest, or a flat service fee? How is it calculated?
-2. **Shipping cost** — flat per order, per item, per weight, or manually set by the seller/admin per imported product?
-3. **Customs** — fixed %, tiered by category, or entered manually per product?
-4. Who sets these on an imported product — the **seller** at listing time, or **admin**?
-5. Do the shipping/customs/interest fees go to **JubaSquare** (revenue) or are they passed through to a shipper/customs?
-6. Which gateway (Pesapal vs Flutterwave) — still open; cards work for Juba customers too since it's the same aggregator account.
+1. **"Interest fee"** — confirm it's a **percentage** (like customs) vs a flat amount, and what it's applied to (item price only, or price + shipping + customs).
+2. Do shipping/customs/interest fees count as **JubaSquare revenue**, or pass through to a shipper/customs authority?
+3. Payment currency shown to the customer — USD, SSP, or UGX (Pesapal settles UGX).
 
 ## 2. User's confirmed constraints
 - JubaSquare business entity is **registered in South Sudan only**, but has a **bank account in Uganda**.
