@@ -391,7 +391,20 @@ See `/app/memory/test_credentials.md` — admin + demo seller (Iter 33).
 
 - **AdminAttributesTab.jsx** (`CategoryCheckTree`): the "Assigned categories" tree in the attribute editor used to render EVERY sub-category flat, forcing admins to scroll through a long list. Rewrote as a proper collapsible tree — only top-level categories render by default with a chevron toggle and a `(n)` child-count hint. Any branch that already contains a selected descendant auto-expands on open so context is preserved. Test IDs added: `attr-cat-toggle-<id>`.
 
-## Iteration 33.8 (Jul 2026) — Same-name attributes across groups
+## Iteration 36 (Jun 2026) — Dynamic CMS pages (add / remove / publish)
+
+- **User ask**: admin could only edit the 5 fixed Legal & Info pages; now wants to **add and remove pages** freely.
+- **Backend** (`server.py` CMS block): pages are now fully dynamic.
+  - `pages` docs gained `core` (bool — the 5 seeded pages), `is_published` (bool), `nav_group` (string, e.g. Legal/Info).
+  - New `POST /api/admin/pages` (create; slugifies title, blocks reserved app-route slugs + duplicates), `DELETE /api/pages/{slug}` (custom pages only — core pages return 400 "unpublish instead").
+  - `PUT /api/pages/{slug}` no longer restricted to the 5 fixed slugs — updates any existing DB page, and accepts `is_published` + `nav_group`. Unpublished pages 404 on the public `GET /api/pages/{slug}` and drop out of public `GET /api/pages`.
+  - `GET /api/admin/pages` returns ALL pages from DB (core first), each with `core`/`is_published`/`nav_group`.
+  - Startup seed marks the 5 defaults `core:true` and backfills `core/is_published/nav_group` idempotently on existing docs.
+- **Frontend**:
+  - `AdminPagesTab.jsx` rewritten to be data-driven: dynamic tab strip, **New page** modal (title → auto slug + group), per-page **Publish/Hidden** toggle, **Delete** button (custom pages only), Group field, slug badge, and a lock badge on the 5 standard pages. Testids: `page-new-btn`, `page-create-*`, `page-publish-toggle`, `page-delete-btn`, `page-navgroup-input`, `page-slug-badge`.
+  - New public route `/pages/:slug` → `PublicPage.jsx` (renders any custom page via `DynamicLegalPage`). Core pages keep their pretty URLs (`/terms`, `/about`, …); custom pages live at `/pages/{slug}`.
+- **Verified**: backend curl suite (create, public GET, duplicate→400, reserved→400, unpublish→404, delete-core→400, delete-custom→ok, published-only list) + admin UI screenshot (6 tabs incl. custom) + custom public page screenshot. Demo page removed; DB back to the 5 core pages.
+- **Note**: not yet redeployed to production (preview only).
 
 - **Backend** (`attributes_routes.py`): the create-attribute uniqueness check used to be at `(business_type, key)` — a single "Gender" attribute anywhere in the business type blocked any other. Now:
   - Same name in the SAME group → still rejected (`"An attribute named '<name>' already exists in this group."`).

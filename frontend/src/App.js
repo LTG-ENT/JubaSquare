@@ -56,6 +56,7 @@ const Contact = lazy(() => import("@/pages/legal/Contact"));
 const Terms = lazy(() => import("@/pages/legal/Terms"));
 const Privacy = lazy(() => import("@/pages/legal/Privacy"));
 const Returns = lazy(() => import("@/pages/legal/Returns"));
+const PublicPage = lazy(() => import("@/pages/legal/PublicPage"));
 
 // Honor user's saved dark-mode preference before first paint to avoid a flash.
 if (typeof document !== "undefined") {
@@ -161,6 +162,7 @@ export default function App() {
                   <Route path="/terms" element={<Terms />} />
                   <Route path="/privacy" element={<Privacy />} />
                   <Route path="/returns" element={<Returns />} />
+                  <Route path="/pages/:slug" element={<PublicPage />} />
                   <Route path="*" element={<NotFound />} />
                   </Routes>
                 </MaintenanceGate>

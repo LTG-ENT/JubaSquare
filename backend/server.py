@@ -1030,7 +1030,10 @@ class CustomerSettingsIn(BaseModel):
 class PageIn(BaseModel):
     title: str
     subtitle: Optional[str] = ""
-    body_html: str
+    body_html: Optional[str] = ""
+    slug: Optional[str] = None          # only used on create (POST)
+    nav_group: Optional[str] = None     # "Legal" | "Info" | custom label
+    is_published: Optional[bool] = None
     # contact-specific structured fields (optional, only used by the contact page)
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
@@ -1589,6 +1592,9 @@ def _public_page(p: dict) -> dict:
         "title": p.get("title", ""),
         "subtitle": p.get("subtitle", ""),
         "body_html": p.get("body_html", ""),
+        "nav_group": p.get("nav_group") or "Info",
+        "is_published": p.get("is_published", True),
+        "core": bool(p.get("core", False)),
         "contact_email": p.get("contact_email"),
         "contact_phone": p.get("contact_phone"),
         "contact_location": p.get("contact_location"),
@@ -1597,15 +1603,36 @@ def _public_page(p: dict) -> dict:
     }
 
 
+def _page_slugify(text: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")
+    return s or "page"
+
+
+# Slugs that must not be used for custom pages (would clash with app routes).
+RESERVED_PAGE_SLUGS = {
+    "login", "signup", "admin", "seller", "driver", "cart", "orders",
+    "favorites", "settings", "marketplace", "shops", "shop", "product",
+    "restaurants", "restaurant-checkout", "kitchen", "wholesale",
+    "verify-email", "forgot-password", "reset-password", "pages", "api",
+}
+
+
 @api.get("/pages")
 async def list_pages():
-    """Public — returns minimal page list (for navigation/discovery). Cached 60s."""
+    """Public — returns published pages (for navigation/discovery). Cached 60s."""
 
     async def _build():
-        docs = await db.pages.find({}, {"_id": 0}).to_list(50)
+        docs = await db.pages.find({}, {"_id": 0}).to_list(200)
         return [
-            {"slug": d.get("slug"), "title": d.get("title", ""), "last_updated": d.get("last_updated")}
+            {
+                "slug": d.get("slug"),
+                "title": d.get("title", ""),
+                "nav_group": d.get("nav_group") or "Info",
+                "core": bool(d.get("core", False)),
+                "last_updated": d.get("last_updated"),
+            }
             for d in docs
+            if d.get("is_published", True)
         ]
 
     return await cached("pages:list", _build)
@@ -1615,24 +1642,56 @@ async def list_pages():
 async def get_page(slug: str):
     async def _build():
         p = await db.pages.find_one({"slug": slug}, {"_id": 0})
-        if not p:
+        if not p or not p.get("is_published", True):
             raise HTTPException(404, "Page not found")
         return _public_page(p)
     return await cached(f"pages:slug:{slug}", _build)
 
 
+@api.post("/admin/pages")
+async def create_page(body: PageIn, user: dict = Depends(require_role("admin"))):
+    """Admin — create a new custom public page."""
+    if not (body.title or "").strip():
+        raise HTTPException(400, "Title is required")
+    slug = _page_slugify(body.slug or body.title)
+    if slug in RESERVED_PAGE_SLUGS:
+        raise HTTPException(400, f"'{slug}' is a reserved name. Choose another slug.")
+    if await db.pages.find_one({"slug": slug}):
+        raise HTTPException(400, f"A page with slug '{slug}' already exists.")
+    doc = {
+        "slug": slug,
+        "title": body.title.strip(),
+        "subtitle": body.subtitle or "",
+        "body_html": body.body_html or "",
+        "nav_group": (body.nav_group or "Info").strip() or "Info",
+        "is_published": True if body.is_published is None else bool(body.is_published),
+        "core": False,
+        "last_updated": now_iso(),
+        "created_at": now_iso(),
+        "updated_by": user.get("id"),
+    }
+    await db.pages.insert_one(doc)
+    cache_invalidate("pages:")
+    return _public_page(doc)
+
+
 @api.put("/pages/{slug}")
 async def update_page(slug: str, body: PageIn, user: dict = Depends(require_role("admin"))):
-    if slug not in PAGE_SLUGS:
-        raise HTTPException(400, f"Unknown page slug. Allowed: {', '.join(PAGE_SLUGS)}")
+    existing = await db.pages.find_one({"slug": slug})
+    if not existing:
+        raise HTTPException(404, "Page not found")
     update_doc = {
         "slug": slug,
         "title": body.title,
         "subtitle": body.subtitle or "",
-        "body_html": body.body_html,
+        "body_html": body.body_html or "",
         "last_updated": now_iso(),
         "updated_by": user.get("id"),
     }
+    if body.nav_group is not None:
+        update_doc["nav_group"] = (body.nav_group or "Info").strip() or "Info"
+    if body.is_published is not None:
+        update_doc["is_published"] = bool(body.is_published)
     if slug == "contact":
         update_doc["contact_email"] = body.contact_email or ""
         update_doc["contact_phone"] = body.contact_phone or ""
@@ -1644,19 +1703,28 @@ async def update_page(slug: str, body: PageIn, user: dict = Depends(require_role
     return _public_page(saved)
 
 
+@api.delete("/pages/{slug}")
+async def delete_page(slug: str, user: dict = Depends(require_role("admin"))):
+    """Admin — delete a custom page. Standard (core) pages can't be deleted;
+    unpublish them instead."""
+    existing = await db.pages.find_one({"slug": slug})
+    if not existing:
+        raise HTTPException(404, "Page not found")
+    if existing.get("core"):
+        raise HTTPException(400, "Standard pages can't be deleted — unpublish them instead.")
+    await db.pages.delete_one({"slug": slug})
+    cache_invalidate("pages:")
+    return {"ok": True, "deleted": slug}
+
+
 @api.get("/admin/pages")
 async def admin_list_pages(user: dict = Depends(require_role("admin"))):
-    """Admin — returns full content of all pages (for the editor UI)."""
-    docs = await db.pages.find({}, {"_id": 0}).to_list(50)
-    by_slug = {d.get("slug"): _public_page(d) for d in docs}
-    # Always return all known slugs (with default content if missing)
-    out = []
-    for slug in PAGE_SLUGS:
-        if slug in by_slug:
-            out.append(by_slug[slug])
-        else:
-            d = PAGES_DEFAULT[slug]
-            out.append({**d, "last_updated": None})
+    """Admin — returns full content of ALL pages (for the editor UI)."""
+    docs = await db.pages.find({}, {"_id": 0}).to_list(200)
+    out = [_public_page(d) for d in docs]
+    # Core pages first (in their canonical order), then custom by title.
+    core_order = {s: i for i, s in enumerate(PAGE_SLUGS)}
+    out.sort(key=lambda p: (0, core_order.get(p["slug"], 99)) if p["core"] else (1, p["title"].lower()))
     return out
 
 
@@ -7864,11 +7932,32 @@ async def seed_production():
     # Pages (CMS) — seed defaults the FIRST time only. Once a page exists in
     # the DB, never overwrite it.
     await db.pages.create_index("slug", unique=True)
+    _core_nav_group = {"terms": "Legal", "privacy": "Legal", "returns": "Legal",
+                       "about": "Info", "contact": "Info"}
     for slug, default_doc in PAGES_DEFAULT.items():
         existing_page = await db.pages.find_one({"slug": slug})
         if not existing_page:
-            await db.pages.insert_one({**default_doc, "last_updated": now_iso()})
+            await db.pages.insert_one({
+                **default_doc,
+                "core": True,
+                "is_published": True,
+                "nav_group": _core_nav_group.get(slug, "Info"),
+                "last_updated": now_iso(),
+            })
             log.info(f"📄 Seeded default page: {slug}")
+    # Idempotent backfill for pages created before core/is_published/nav_group existed.
+    for slug in PAGE_SLUGS:
+        await db.pages.update_one(
+            {"slug": slug},
+            {"$set": {"core": True}, "$setOnInsert": {}},
+        )
+    await db.pages.update_many(
+        {"is_published": {"$exists": False}}, {"$set": {"is_published": True}}
+    )
+    await db.pages.update_many(
+        {"$or": [{"nav_group": {"$exists": False}}, {"nav_group": None}]},
+        {"$set": {"nav_group": "Info"}},
+    )
 
     # Site config — seed footer defaults the first time only
     await db.site_config.create_index("id", unique=True)
