@@ -71,10 +71,25 @@ export default function Home() {
       .then((r) => setRetailCats(Array.isArray(r.data) ? r.data : []))
       .catch(() => setRetailCats([]));
     api.get("/homepage").then((r) => setHeroConfig(r.data)).catch(() => setHeroConfig(null));
-    // Iter 30 Wave 2 — LTG shelf + featured shelf.
+    loadRecommendations();
+  }, []);
+
+  // Recommendations / top-rated shelves — refreshed on mount AND whenever the
+  // customer returns to the tab, so newly-updated ratings/products show up.
+  const loadRecommendations = () => {
     api.get("/shops?ltg=true&limit=8").then((r) => setLtgShops(safeArray(r.data))).catch(() => setLtgShops([]));
     api.get("/restaurants?ltg=true&limit=8").then((r) => setLtgRestaurants(safeArray(r.data))).catch(() => setLtgRestaurants([]));
-    api.get("/homepage/featured-products?limit=8").then((r) => setFeaturedProducts(safeArray(r.data))).catch(() => setFeaturedProducts([]));
+    api.get(`/homepage/featured-products?limit=8&_=${Date.now()}`).then((r) => setFeaturedProducts(safeArray(r.data))).catch(() => setFeaturedProducts([]));
+  };
+
+  useEffect(() => {
+    const onFocus = () => { if (document.visibilityState === "visible") loadRecommendations(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
   }, []);
 
   // Effective slides: admin-managed first, fall back to defaults
@@ -216,7 +231,7 @@ export default function Home() {
           {categories.map((cat) => (
             <Link
               key={cat.id || cat.name}
-              to={cat.id ? `/marketplace?category_id=${cat.id}` : `/marketplace?category=${encodeURIComponent(cat.name)}`}
+              to={cat.id ? `/marketplace?category_id=${cat.id}&merge=1` : `/marketplace?category=${encodeURIComponent(cat.name)}`}
               data-testid={`category-card-${cat.name.replace(/\s+/g, "-").toLowerCase()}`}
               className="js-card overflow-hidden flex flex-col hover:-translate-y-1 hover:shadow-xl transition-all duration-300"
             >

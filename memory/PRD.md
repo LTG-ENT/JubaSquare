@@ -391,6 +391,16 @@ See `/app/memory/test_credentials.md` — admin + demo seller (Iter 33).
 
 - **AdminAttributesTab.jsx** (`CategoryCheckTree`): the "Assigned categories" tree in the attribute editor used to render EVERY sub-category flat, forcing admins to scroll through a long list. Rewrote as a proper collapsible tree — only top-level categories render by default with a chevron toggle and a `(n)` child-count hint. Any branch that already contains a selected descendant auto-expands on open so context is preserved. Test IDs added: `attr-cat-toggle-<id>`.
 
+## Iteration 39 (Jun 2026) — Home category merge, recs refresh, checkout price-change guard
+
+Three user requests (all target PRODUCTION; built/tested on preview).
+
+- **1. Home category shows retail + wholesale together.** Root cause: retail & wholesale are separate category trees with *different* names ("Electronics & Accessories" vs "Wholesale Electronics"), so a retail category id never matched wholesale products. Fix: `/api/products` gained `merge_groups=true` which, for a given `category_id`, also matches categories in other groups that share a normalized keyword token (stopwords like "wholesale/supplies/accessories" removed) and unions their subtrees. Home category cards now link with `&merge=1`; `Marketplace.jsx` passes `merge_groups` when that param is present (both initial + load-more fetch) and drops it when a sidebar category is picked. Verified: retail Electronics view with merge now also lists a wholesale Electronics product.
+- **2. Recommendations refresh.** Explained the ranking to the user (composite score: LTG/verified/rating×log(reviews)/favs/orders − cancellations). Made the homepage shelves (Top-Rated featured products + LTG shops/restaurants) re-fetch on mount AND on window `focus`/`visibilitychange`, with a cache-buster on featured-products, so returning to the tab shows fresh recommendations.
+- **3. Checkout price-change guard (confirm before charge).** `OrderIn` gained `client_prices` (unit prices the customer saw, keyed by item_id) + `confirm_price_change`. `POST /api/orders` compares each recomputed price to what the customer saw; if any differ and not confirmed → **HTTP 409** `{code:"price_changed", changes:[{item_id,name,old_price_usd,new_price_usd}], new_subtotal_usd}`. `Cart.jsx` sends `client_prices` (quantity-aware via `wholesaleUnitPrice`), and on 409 updates the cart lines to the new prices, shows a "Prices updated by the seller" banner (old→new per item), and the Place Order button becomes "Confirm new price · <new total>"; a second tap sends `confirm_price_change=true` and places the order. `CartContext` gained `updateItem`.
+- **Verified**: backend curl (merge on/off; 409 on stale price → success on confirm → success on matching price) + Playwright (merged marketplace view shows retail+wholesale; cart price-change banner appears, total updates, confirm places order and routes to /orders). Test products cleaned up.
+- **Deploy note**: preview only — redeploy to production to go live.
+
 ## Iteration 38 (Jun 2026) — Pricing bug batch: seller-list rate + wholesale tiers (user-reported)
 
 Two pricing bugs found on the live "Yaki Iron Machine" wholesale product (`price_usd=$10`, `exchange_rate_ssp=6500`, `pricing_tiers=[{1:$10},{12:$8.5}]`).

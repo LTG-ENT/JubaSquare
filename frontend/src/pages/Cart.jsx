@@ -11,7 +11,7 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 
 export default function Cart() {
-  const { items, removeItem, setQuantity, subtotalUSD, subtotalSSP, area, setArea, clear, exchangeRate, setExchangeRate, currency, cartMode, restaurantId } = useCart();
+  const { items, removeItem, setQuantity, updateItem, subtotalUSD, subtotalSSP, area, setArea, clear, exchangeRate, setExchangeRate, currency, cartMode, restaurantId } = useCart();
   const { user } = useAuth();
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -27,6 +27,7 @@ export default function Cart() {
   const [address, setAddress] = useState("");
   const [note, setNote] = useState("");
   const [placing, setPlacing] = useState(false);
+  const [priceChanges, setPriceChanges] = useState(null); // [{item_id,name,old_price_usd,new_price_usd}] | null
   const [quote, setQuote] = useState({ delivery_fee_usd: 0, total_usd: subtotalUSD, delivery_breakdown: [] });
 
   useEffect(() => {
@@ -61,7 +62,7 @@ export default function Cart() {
     return () => clearTimeout(t);
   }, [items, area, user, subtotalUSD, address, phone]);
 
-  const place = async () => {
+  const place = async (confirm = false) => {
     if (!user) { navigate("/login"); return; }
     if (items.length === 0) { toast.error(t("toastCartEmpty")); return; }
     if (!phone.trim()) { toast.error(t("toastPhoneRequired")); return; }
@@ -70,6 +71,9 @@ export default function Cart() {
     try {
       const hasMenu = items.some((i) => i.item_type === "menu_item");
       const isWholesale = items.some((i) => (i.quantity || 1) >= 5);
+      // The unit prices the customer currently sees (quantity-aware for wholesale).
+      const client_prices = {};
+      items.forEach((i) => { client_prices[i.item_id] = Number(wholesaleUnitPrice(i, i.quantity).toFixed(4)); });
       const { data } = await api.post("/orders", {
         items: items.map((i) => ({
           item_type: i.item_type, item_id: i.item_id, name: i.name,
@@ -78,12 +82,24 @@ export default function Cart() {
         })),
         area, address, phone, note,
         order_kind: hasMenu ? "restaurant" : (isWholesale ? "wholesale" : "marketplace"),
+        client_prices,
+        confirm_price_change: confirm,
       });
       toast.success(t("toastOrderPlaced"));
+      setPriceChanges(null);
       clear();
       navigate(`/orders?new=${data.id}`);
     } catch (e) {
-      toast.error(e.response?.data?.detail || t("toastFailedPlaceOrder"));
+      const d = e.response?.data?.detail;
+      if (e.response?.status === 409 && d && d.code === "price_changed") {
+        // Update the cart lines to the seller's new prices so the totals refresh,
+        // then ask the customer to confirm again.
+        (d.changes || []).forEach((c) => updateItem(c.item_id, { price_usd: c.new_price_usd, pricing_tiers: [], bulk_price_usd: null }));
+        setPriceChanges(d.changes || []);
+        toast.error("Some prices changed — please review the new total and confirm.");
+      } else {
+        toast.error(typeof d === "string" ? d : t("toastFailedPlaceOrder"));
+      }
     } finally {
       setPlacing(false);
     }
@@ -246,13 +262,29 @@ export default function Cart() {
                 <p className="text-[11px] text-[#5C5C5C] text-right">≈ {fmtTotalAlt}</p>
               </div>
 
+              {priceChanges && priceChanges.length > 0 && (
+                <div className="rounded-2xl border border-[#E9C46A] bg-[#FFF7E0] p-3 space-y-2" data-testid="price-change-banner">
+                  <p className="text-sm font-bold text-[#9F6B00]">Prices updated by the seller</p>
+                  <ul className="space-y-1">
+                    {priceChanges.map((c) => (
+                      <li key={c.item_id} className="text-xs text-[#5C5C5C]" data-testid={`price-change-${c.item_id}`}>
+                        <span className="font-semibold text-[#1A1A1A]">{c.name}</span>:{" "}
+                        <span className="line-through">{formatPrice(c.old_price_usd, exchangeRate, currency)}</span>{" "}
+                        → <span className="font-bold text-[#C84B31]">{formatPrice(c.new_price_usd, exchangeRate, currency)}</span> / unit
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-[11px] text-[#5C5C5C]">The new total is shown below. Tap “Confirm new price” to place your order at the updated price.</p>
+                </div>
+              )}
+
               <button
-                onClick={place}
+                onClick={() => place(!!(priceChanges && priceChanges.length))}
                 disabled={placing}
                 data-testid="place-order-btn"
                 className="w-full bg-[#C84B31] hover:bg-[#A83A23] disabled:bg-[#A3A39E] text-white font-semibold py-3.5 rounded-full transition"
               >
-                {placing ? t("placing") : `${t("placeOrder")} · ${fmtTotal}`}
+                {placing ? t("placing") : `${priceChanges && priceChanges.length ? "Confirm new price" : t("placeOrder")} · ${fmtTotal}`}
               </button>
               {!user && <p className="text-xs text-center text-[#5C5C5C]">{t("loginFirstHint")}</p>}
             </aside>

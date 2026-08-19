@@ -930,6 +930,11 @@ class OrderIn(BaseModel):
     phone: str
     note: Optional[str] = ""
     order_kind: Literal["marketplace", "restaurant", "wholesale"] = "marketplace"
+    # Price-change guard: the unit prices the customer saw at checkout,
+    # keyed by item_id. When present and a server-recomputed price differs,
+    # the order is rejected (409) unless confirm_price_change=true.
+    client_prices: Optional[Dict[str, float]] = None
+    confirm_price_change: Optional[bool] = False
 
 
 class RestaurantOrderIn(BaseModel):
@@ -2953,6 +2958,7 @@ async def list_products(category_id: Optional[str] = None, category: Optional[st
                         deals: Optional[bool] = None,
                         # Iter 33 — category-aware search + attribute filters
                         include_descendants: Optional[bool] = None,
+                        merge_groups: Optional[bool] = None,
                         attrs: Optional[str] = None,
                         limit: Optional[int] = None, skip: Optional[int] = None):
     """
@@ -2966,9 +2972,35 @@ async def list_products(category_id: Optional[str] = None, category: Optional[st
     q: dict = {}
     # PRIMARY: filter by category_id (single source of truth)
     if category_id:
+        base_ids = [category_id]
+        # merge_groups: also match categories in OTHER groups (retail⇄wholesale)
+        # that share a keyword with this one, so a Home category card shows both
+        # business types together (retail "Electronics & Accessories" ⇄ wholesale
+        # "Wholesale Electronics"). Category names differ across groups, so we
+        # match on normalized non-stopword tokens rather than exact name.
+        if merge_groups:
+            _cur = await db.categories.find_one({"id": category_id}, {"_id": 0, "name": 1})
+            if _cur and _cur.get("name"):
+                _STOP = {"wholesale", "supplies", "supply", "accessories", "general",
+                         "bulk", "goods", "essentials", "and", "the", "of", "for"}
+
+                def _toks(nm: str) -> set:
+                    return {w for w in re.sub(r"[^a-z0-9 ]", " ", (nm or "").lower()).split()
+                            if w and w not in _STOP}
+
+                _cur_tokens = _toks(_cur["name"])
+                if _cur_tokens:
+                    _all = await db.categories.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(1000)
+                    _matched = {category_id}
+                    for _c in _all:
+                        if _toks(_c.get("name")) & _cur_tokens:
+                            _matched.add(_c["id"])
+                    base_ids = list(_matched)
         if include_descendants:
-            _desc = await db.categories.find({"path": category_id}, {"_id": 0, "id": 1}).to_list(2000)
-            q["category_id"] = {"$in": [category_id] + [d["id"] for d in _desc]}
+            _desc = await db.categories.find({"path": {"$in": base_ids}}, {"_id": 0, "id": 1}).to_list(2000)
+            q["category_id"] = {"$in": list({*base_ids, *[d["id"] for d in _desc]})}
+        elif len(base_ids) > 1:
+            q["category_id"] = {"$in": base_ids}
         else:
             q["category_id"] = category_id
     # DEPRECATED: legacy category name filter (backward compat only)
@@ -5035,6 +5067,7 @@ async def place_order(body: OrderIn, user: dict = Depends(get_current_user)):
     products_by_id = {p["id"]: p for p in products}
     secure_items = []
     subtotal = 0.0
+    price_changes = []  # [{item_id, name, old_price_usd, new_price_usd}]
     for it in body.items:
         p = products_by_id.get(it.item_id)
         if not p:
@@ -5044,6 +5077,16 @@ async def place_order(body: OrderIn, user: dict = Depends(get_current_user)):
         # else raw MINUS any active promo (server-side recompute so a crafted
         # client cannot pass a lower price). See effective_unit_price_usd.
         price = effective_unit_price_usd(p, qty)
+        # Price-change guard: compare against what the customer saw at checkout.
+        if body.client_prices is not None:
+            seen = body.client_prices.get(it.item_id)
+            if seen is not None and abs(round(float(seen), 4) - round(price, 4)) > 0.0001:
+                price_changes.append({
+                    "item_id": p["id"],
+                    "name": p.get("name"),
+                    "old_price_usd": round(float(seen), 4),
+                    "new_price_usd": round(price, 4),
+                })
         free_qty = bogo_free_quantity(p, qty)  # BOGO: units granted free
         # Sides aren't standard on marketplace products; keep what was sent for note value 0.
         line_total = price * qty - (price * free_qty)
@@ -5056,6 +5099,17 @@ async def place_order(body: OrderIn, user: dict = Depends(get_current_user)):
             "quantity": qty,
             "image_url": p.get("image_url", ""),
             "sides": [],
+        })
+
+    # Price-change guard: if any unit price differs from what the customer saw
+    # and they haven't explicitly confirmed, reject so the UI can show the new
+    # prices and ask for a fresh confirmation (no surprise charge).
+    if price_changes and not body.confirm_price_change:
+        raise HTTPException(status_code=409, detail={
+            "code": "price_changed",
+            "message": "Some prices changed since you added them. Please review and confirm.",
+            "changes": price_changes,
+            "new_subtotal_usd": round(subtotal, 4),
         })
 
     # SECURITY: Calculate delivery fee using admin pricing rules. Never trust frontend prices.

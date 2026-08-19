@@ -127,6 +127,9 @@ export default function Marketplace() {
     if (selectedCategoryId) {
       params.category_id = selectedCategoryId;
       params.include_descendants = "true";
+      // ?merge=1 (from Home category cards) → include the same-named category
+      // across retail + wholesale so both business types show together.
+      if (searchParams.get("merge")) params.merge_groups = "true";
     } 
     // LEGACY: Fall back to category name if category_id not present
     else if (selectedCategoryLegacy) {
@@ -163,7 +166,7 @@ export default function Marketplace() {
     setLoadingMore(true);
     const nextSkip = productsSkip + PAGE_SIZE;
     const params = {};
-    if (selectedCategoryId) { params.category_id = selectedCategoryId; params.include_descendants = "true"; }
+    if (selectedCategoryId) { params.category_id = selectedCategoryId; params.include_descendants = "true"; if (searchParams.get("merge")) params.merge_groups = "true"; }
     else if (selectedCategoryLegacy) params.category = selectedCategoryLegacy;
     if (selectedShop) params.shop_id = selectedShop;
     if (typeFilter === "retail") params.is_wholesale = false;
@@ -271,6 +274,7 @@ export default function Marketplace() {
     }
     next.delete("shop");
     next.delete("attrs"); // Iter 33.1 — attribute filters don't carry across categories
+    next.delete("merge"); // picking a category from the sidebar exits the Home merged view
     // Iter 29 — "All categories" also clears the "Deals only" filter so
     // customers can escape the promo view with one click.
     next.delete("deals");

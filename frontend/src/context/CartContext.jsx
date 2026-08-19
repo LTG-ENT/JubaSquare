@@ -142,6 +142,10 @@ export const CartProvider = ({ children }) => {
   const removeItem = (item_id) =>
     setItems((prev) => prev.filter((i) => i.item_id !== item_id));
 
+  // Patch fields on a specific cart line (used by the checkout price-change flow).
+  const updateItem = (item_id, patch) =>
+    setItems((prev) => prev.map((i) => (i.item_id === item_id ? { ...i, ...patch } : i)));
+
   const setQuantity = (item_id, qty) =>
     setItems((prev) =>
       prev.map((i) => {
@@ -189,7 +193,7 @@ export const CartProvider = ({ children }) => {
       value={{
         items, area, exchangeRate, count, subtotalUSD, subtotalSSP, currency,
         cartMode, restaurantId, restaurantName,
-        addItem, removeItem, setQuantity, clear, setArea, setExchangeRate,
+        addItem, removeItem, updateItem, setQuantity, clear, setArea, setExchangeRate,
         setCurrency, toggleCurrency,
       }}
     >
