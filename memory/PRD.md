@@ -391,6 +391,17 @@ See `/app/memory/test_credentials.md` — admin + demo seller (Iter 33).
 
 - **AdminAttributesTab.jsx** (`CategoryCheckTree`): the "Assigned categories" tree in the attribute editor used to render EVERY sub-category flat, forcing admins to scroll through a long list. Rewrote as a proper collapsible tree — only top-level categories render by default with a chevron toggle and a `(n)` child-count hint. Any branch that already contains a selected descendant auto-expands on open so context is preserved. Test IDs added: `attr-cat-toggle-<id>`.
 
+## Iteration 38 (Jun 2026) — Pricing bug batch: seller-list rate + wholesale tiers (user-reported)
+
+Two pricing bugs found on the live "Yaki Iron Machine" wholesale product (`price_usd=$10`, `exchange_rate_ssp=6500`, `pricing_tiers=[{1:$10},{12:$8.5}]`).
+
+- **Bug 1 — Seller list showed SSP 6,000 but edit page showed SSP 65,000.** Root cause: the Seller Dashboard product/menu rows priced with the *global* cart `exchangeRate` (600) instead of the seller's own rate. Fix: `SellerDashboard.jsx` rows now use `p.exchange_rate_ssp || rate` (the seller's rate from `/exchange-rate?seller_id=`), matching the edit page. (Products row + menu-items row.)
+- **Bug 2 — Wholesale `pricing_tiers` were only displayed, never applied.** Ordering 12+ still charged the 1+ price ($10 → SSP 65,000) instead of the 12+ tier ($8.5 → SSP 55,250).
+  - Backend: new `effective_unit_price_usd(item_doc, qty)` picks the best `pricing_tiers` entry whose `min_qty <= qty`, else `bulk_price_usd` (when `qty >= min_order_qty`), else falls back to promo/base. `POST /api/orders` now prices each line via this (server-authoritative — a crafted client can't bypass).
+  - Frontend: shared `wholesaleUnitPrice(item, qty)` helper in `lib/api.js` mirrors the backend. `CartContext` subtotals, `Cart.jsx` line price, and `ProductDetail.jsx` displayed/added price all use it. `ProductCard`/`ProductDetail` now propagate `pricing_tiers` + `bulk_price_usd` into the cart item and store the BASE `price_usd` so the cart recomputes the tier as quantity changes.
+- **Verified in preview** (created a matching wholesale product, seller rate 6500): backend order qty=12 → $8.5/line $102, qty=5 → $10/line $50; product page shows SSP 65,000 (qty<12) → SSP 55,250 (qty≥12) with BULK PRICE badge; cart applies SSP 55,250/unit; seller list now shows SSP 65,000. Test product + rate override cleaned up.
+- **Deployment note**: preview only — must redeploy to production for the live Yaki product to price correctly.
+
 ## Iteration 37 (Jun 2026) — Quantity: stock cap + editable number
 
 - **User ask**: a customer must not be able to select more than the available stock, and should be able to click the quantity number to type it directly (for large orders) instead of only using +/−.

@@ -265,6 +265,41 @@ def effective_price_usd(item_doc: dict) -> float:
     return max(0.0, round(raw - max(0.0, pval), 4))
 
 
+def effective_unit_price_usd(item_doc: dict, qty: int) -> float:
+    """Quantity-aware unit price for wholesale products.
+
+    Applies `pricing_tiers` (the best tier whose `min_qty` <= qty) or
+    `bulk_price_usd` (when qty >= `min_order_qty`). Falls back to the
+    promo/base price via `effective_price_usd`. Called server-side at
+    order-create so a crafted client can't fake a lower price.
+    """
+    try:
+        q = max(1, int(qty or 1))
+    except (TypeError, ValueError):
+        q = 1
+    if item_doc.get("is_wholesale"):
+        best = None  # (min_qty, price)
+        for t in (item_doc.get("pricing_tiers") or []):
+            try:
+                mq = int(t.get("min_qty"))
+                tp = float(t.get("price_usd"))
+            except (TypeError, ValueError):
+                continue
+            if mq >= 1 and tp > 0 and q >= mq and (best is None or mq > best[0]):
+                best = (mq, tp)
+        if best is not None:
+            return round(best[1], 4)
+        bulk = item_doc.get("bulk_price_usd")
+        try:
+            moq = int(item_doc.get("min_order_qty") or 1)
+        except (TypeError, ValueError):
+            moq = 1
+        if bulk not in (None, "") and float(bulk) > 0 and q >= moq:
+            return round(float(bulk), 4)
+    return effective_price_usd(item_doc)
+
+
+
 def promo_is_live(promo: dict | None) -> bool:
     """Whether a promo is currently active + within date window."""
     if not promo or not promo.get("active"):
@@ -5005,9 +5040,10 @@ async def place_order(body: OrderIn, user: dict = Depends(get_current_user)):
         if not p:
             raise HTTPException(400, f"Item {it.item_id} not found")
         qty = max(1, int(it.quantity))
-        # Effective price = raw MINUS any active promo (server-side recompute
-        # so a crafted client cannot pass a lower price). See effective_price_usd.
-        price = effective_price_usd(p)
+        # Effective price = wholesale tier / bulk price for the ordered quantity,
+        # else raw MINUS any active promo (server-side recompute so a crafted
+        # client cannot pass a lower price). See effective_unit_price_usd.
+        price = effective_unit_price_usd(p, qty)
         free_qty = bogo_free_quantity(p, qty)  # BOGO: units granted free
         # Sides aren't standard on marketplace products; keep what was sent for note value 0.
         line_total = price * qty - (price * free_qty)

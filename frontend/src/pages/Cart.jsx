@@ -6,7 +6,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import AreaSelector from "@/components/AreaSelector";
 import { Minus, Plus, Trash2, ShoppingBag, Truck, ArrowLeft } from "lucide-react";
-import api, { formatPrice, formatPriceAlt } from "@/lib/api";
+import api, { formatPrice, formatPriceAlt, wholesaleUnitPrice } from "@/lib/api";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 
@@ -146,8 +146,8 @@ export default function Cart() {
                     <p className="font-semibold text-[#1A1A1A]">{i.name}</p>
                     <p className="text-[10px] uppercase tracking-wider text-[#5C5C5C] font-bold mt-0.5">{i.item_type === "menu_item" ? "Menu Item" : "Product"}</p>
                     <div className="mt-2">
-                      <p className="font-display font-bold text-[#1A1A1A]">{formatPrice(i.price_usd, i.exchange_rate_ssp || exchangeRate, currency)}</p>
-                      <p className="text-xs text-[#5C5C5C]">≈ {formatPriceAlt(i.price_usd, i.exchange_rate_ssp || exchangeRate, currency)}</p>
+                      <p className="font-display font-bold text-[#1A1A1A]">{formatPrice(wholesaleUnitPrice(i, i.quantity), i.exchange_rate_ssp || exchangeRate, currency)}</p>
+                      <p className="text-xs text-[#5C5C5C]">≈ {formatPriceAlt(wholesaleUnitPrice(i, i.quantity), i.exchange_rate_ssp || exchangeRate, currency)}<span className="ml-1">/ unit</span></p>
                     </div>
                   </div>
                   <div className="flex flex-col items-end justify-between">

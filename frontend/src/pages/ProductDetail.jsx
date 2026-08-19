@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import api, { formatPrice, formatPriceAlt } from "@/lib/api";
+import api, { formatPrice, formatPriceAlt, wholesaleUnitPrice } from "@/lib/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import SeoMeta, { productSchema } from "@/components/SeoMeta";
@@ -93,8 +93,8 @@ export default function ProductDetail() {
   const isWholesale = !!product.is_wholesale;
   const minQty = product.min_order_qty || 1;
   const meetsMin = qty >= minQty;
-  const usesBulk = isWholesale && !!product.bulk_price_usd && meetsMin;
-  const unitPrice = usesBulk ? product.bulk_price_usd : product.price_usd;
+  const unitPrice = wholesaleUnitPrice(product, qty);
+  const usesBulk = isWholesale && unitPrice < (Number(product.price_usd) || Infinity);
   const lowStock = (product.stock ?? 100) > 0 && (product.stock ?? 100) <= 5;
   const outOfStock = (product.stock ?? 100) <= 0;
   const stockCap = Number.isFinite(product.stock) ? product.stock : Infinity;
@@ -111,11 +111,13 @@ export default function ProductDetail() {
       item_type: "product",
       item_id: product.id,
       name: product.name,
-      price_usd: unitPrice,
+      price_usd: Number(product.price_usd) || unitPrice,
       image_url: product.image_url,
       exchange_rate_ssp: product.exchange_rate_ssp,
       is_wholesale: isWholesale,
       min_order_qty: isWholesale ? minQty : 1,
+      pricing_tiers: Array.isArray(product.pricing_tiers) ? product.pricing_tiers : undefined,
+      bulk_price_usd: product.bulk_price_usd ?? undefined,
       stock: Number.isFinite(product.stock) ? product.stock : undefined,
       quantity: qty,
     });

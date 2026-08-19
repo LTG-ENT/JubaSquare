@@ -1447,8 +1447,8 @@ function ProductsTab({ currency, exchangeRate }) {
                       </span>
                     </td>
                     <td className="p-4">
-                      <p className="font-bold text-[var(--js-text)]">{formatPrice(p.price_usd, p.exchange_rate_ssp || exchangeRate, currency)}</p>
-                      {isWs && p.bulk_price_usd && <p className="text-[10px] text-[#2D6A4F] font-bold">Bulk: {formatPrice(p.bulk_price_usd, p.exchange_rate_ssp || exchangeRate, currency)}</p>}
+                      <p className="font-bold text-[var(--js-text)]">{formatPrice(p.price_usd, p.exchange_rate_ssp || rate, currency)}</p>
+                      {isWs && p.bulk_price_usd && <p className="text-[10px] text-[#2D6A4F] font-bold">Bulk: {formatPrice(p.bulk_price_usd, p.exchange_rate_ssp || rate, currency)}</p>}
                     </td>
                     <td className="p-4 hidden sm:table-cell text-xs">
                       <p className={bucket === "out" ? "text-[#D90429] font-bold" : bucket === "low" ? "text-[#9F6B00] font-bold" : ""}>Stock: {p.stock}</p>
@@ -1479,7 +1479,7 @@ function ProductsTab({ currency, exchangeRate }) {
                     <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full bg-[#2D6A4F]/15 text-[#2D6A4F]">RESTAURANT</span>
                   </td>
                   <td className="p-4">
-                    <p className="font-bold text-[var(--js-text)]">{formatPrice(m.price_usd, m.exchange_rate_ssp || exchangeRate, currency)}</p>
+                    <p className="font-bold text-[var(--js-text)]">{formatPrice(m.price_usd, m.exchange_rate_ssp || rate, currency)}</p>
                     {(m.side_items || []).length > 0 && <p className="text-[10px] text-[var(--js-text-secondary)]">+ {m.side_items.length} sides</p>}
                   </td>
                   <td className="p-4 hidden sm:table-cell text-xs">—</td>

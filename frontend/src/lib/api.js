@@ -137,3 +137,25 @@ export const formatPrice = (usd, rate, currency = "SSP") =>
 // Returns the secondary (smaller) price string — the OPPOSITE of primary.
 export const formatPriceAlt = (usd, rate, currency = "SSP") =>
   currency === "USD" ? formatSSP(usd, rate) : formatUSD(usd);
+
+// Quantity-aware unit price for wholesale products. Picks the best pricing
+// tier whose min_qty <= qty, else bulk_price_usd (when qty >= min_order_qty),
+// else the item's base price_usd. Mirrors backend effective_unit_price_usd.
+export const wholesaleUnitPrice = (item, qty) => {
+  const base = Number(item?.price_usd) || 0;
+  const q = Math.max(1, parseInt(qty, 10) || 1);
+  if (!item?.is_wholesale) return base;
+  let best = null;
+  for (const t of Array.isArray(item.pricing_tiers) ? item.pricing_tiers : []) {
+    const mq = parseInt(t?.min_qty, 10);
+    const tp = parseFloat(t?.price_usd);
+    if (Number.isFinite(mq) && mq >= 1 && Number.isFinite(tp) && tp > 0 && q >= mq) {
+      if (!best || mq > best.mq) best = { mq, tp };
+    }
+  }
+  if (best) return best.tp;
+  const bulk = parseFloat(item.bulk_price_usd);
+  const moq = parseInt(item.min_order_qty, 10) || 1;
+  if (Number.isFinite(bulk) && bulk > 0 && q >= moq) return bulk;
+  return base;
+};

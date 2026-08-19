@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { wholesaleUnitPrice } from "@/lib/api";
 
 const CartContext = createContext(null);
 const KEY = "js_cart_v1";
@@ -171,10 +172,12 @@ export const CartProvider = ({ children }) => {
   // checkout matches what the backend computes (see server.py `create_restaurant_order`).
   // Marketplace items don't carry `sides`, so this is a no-op for them.
   const _sidesForLine = (i) => (i.sides || []).reduce((a, x) => a + (x.price_usd || 0), 0);
-  const subtotalUSD = items.reduce((s, i) => s + (i.price_usd + _sidesForLine(i)) * i.quantity, 0);
+  // Wholesale items switch to their tier / bulk price based on quantity.
+  const _unitFor = (i) => wholesaleUnitPrice(i, i.quantity);
+  const subtotalUSD = items.reduce((s, i) => s + (_unitFor(i) + _sidesForLine(i)) * i.quantity, 0);
   // Per-line SSP using each line's own seller rate (falls back to global rate)
   const subtotalSSP = items.reduce(
-    (s, i) => s + (i.price_usd + _sidesForLine(i)) * i.quantity * (i.exchange_rate_ssp || exchangeRate || 600),
+    (s, i) => s + (_unitFor(i) + _sidesForLine(i)) * i.quantity * (i.exchange_rate_ssp || exchangeRate || 600),
     0,
   );
   const count = items.reduce((s, i) => s + i.quantity, 0);
