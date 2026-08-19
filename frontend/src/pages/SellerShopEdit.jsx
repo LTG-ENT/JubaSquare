@@ -278,7 +278,7 @@ export default function SellerShopEdit() {
           {/* Product sections */}
           <Section
             title="Product sections"
-            subtitle="Group products in this shop into up to 6 sections (Featured, On Sale, Accessories…). Each product can be assigned to one section."
+            subtitle="Group products in this shop into up to 20 sections (Featured, On Sale, Accessories…). Each product can be assigned to one section."
           >
             <ShopSectionsEditor form={form} setForm={setForm} />
           </Section>
@@ -563,7 +563,7 @@ function ShopReceiptLogoEditor({ form, setForm }) {
 
 function ShopSectionsEditor({ form, setForm }) {
   const sections = form.product_sections || [];
-  const max = 10;
+  const max = 20;
   const add = () => {
     if (sections.length >= max) return;
     setForm({
