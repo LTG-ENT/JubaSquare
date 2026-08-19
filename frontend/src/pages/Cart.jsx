@@ -154,14 +154,30 @@ export default function Cart() {
                     <button onClick={() => removeItem(i.item_id)} data-testid={`remove-${i.item_id}`} className="p-2 hover:bg-[#F2EBE5] rounded-full">
                       <Trash2 className="w-4 h-4 text-[#C84B31]" />
                     </button>
+                    <div className="flex flex-col items-end gap-1">
                     <div className="flex items-center gap-2 bg-[#F2EBE5] rounded-full px-2 py-1">
-                      <button onClick={() => setQuantity(i.item_id, i.quantity - 1)} data-testid={`qty-minus-${i.item_id}`} className="p-1 hover:bg-white rounded-full">
+                      <button onClick={() => setQuantity(i.item_id, i.quantity - 1)} data-testid={`qty-minus-${i.item_id}`} className="p-1 hover:bg-white rounded-full disabled:opacity-40" disabled={i.quantity <= (i.is_wholesale ? Math.max(1, i.min_order_qty || 1) : 1)}>
                         <Minus className="w-3 h-3" />
                       </button>
-                      <span className="font-semibold text-sm w-6 text-center" data-testid={`qty-${i.item_id}`}>{i.quantity}</span>
-                      <button onClick={() => setQuantity(i.item_id, i.quantity + 1)} data-testid={`qty-plus-${i.item_id}`} className="p-1 hover:bg-white rounded-full">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={i.quantity}
+                        onChange={(e) => {
+                          const raw = e.target.value.replace(/[^0-9]/g, "");
+                          if (raw === "") return;
+                          setQuantity(i.item_id, parseInt(raw, 10));
+                        }}
+                        data-testid={`qty-${i.item_id}`}
+                        className="font-semibold text-sm w-10 text-center bg-transparent focus:outline-none"
+                      />
+                      <button onClick={() => setQuantity(i.item_id, i.quantity + 1)} data-testid={`qty-plus-${i.item_id}`} className="p-1 hover:bg-white rounded-full disabled:opacity-40" disabled={Number.isFinite(i.stock) && i.quantity >= i.stock}>
                         <Plus className="w-3 h-3" />
                       </button>
+                    </div>
+                    {Number.isFinite(i.stock) && i.quantity >= i.stock && (
+                      <span className="text-[10px] text-[#C84B31] font-semibold" data-testid={`qty-max-${i.item_id}`}>Max {i.stock} in stock</span>
+                    )}
                     </div>
                   </div>
                 </div>

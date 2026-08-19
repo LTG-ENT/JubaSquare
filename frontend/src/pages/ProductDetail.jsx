@@ -97,6 +97,8 @@ export default function ProductDetail() {
   const unitPrice = usesBulk ? product.bulk_price_usd : product.price_usd;
   const lowStock = (product.stock ?? 100) > 0 && (product.stock ?? 100) <= 5;
   const outOfStock = (product.stock ?? 100) <= 0;
+  const stockCap = Number.isFinite(product.stock) ? product.stock : Infinity;
+  const qtyFloor = isWholesale ? minQty : 1;
   // Per-seller exchange rate (fallback to global)
   const rate = product.exchange_rate_ssp || exchangeRate;
 
@@ -114,6 +116,7 @@ export default function ProductDetail() {
       exchange_rate_ssp: product.exchange_rate_ssp,
       is_wholesale: isWholesale,
       min_order_qty: isWholesale ? minQty : 1,
+      stock: Number.isFinite(product.stock) ? product.stock : undefined,
       quantity: qty,
     });
     if (ok) toast.success(`${qty}× ${product.name} added to cart`);
@@ -312,11 +315,26 @@ export default function ProductDetail() {
             {/* Quantity + Add to Cart */}
             <div className="mt-6 flex items-center gap-3">
               <div className="flex items-center gap-2 bg-[var(--js-subtle)] rounded-full px-2 py-1">
-                <button onClick={() => setQty(Math.max(isWholesale ? minQty : 1, qty - 1))} data-testid="qty-minus" className="p-1.5 hover:bg-white rounded-full">
+                <button onClick={() => setQty(Math.max(qtyFloor, qty - 1))} data-testid="qty-minus" className="p-1.5 hover:bg-white rounded-full disabled:opacity-40" disabled={qty <= qtyFloor}>
                   <Minus className="w-3.5 h-3.5" />
                 </button>
-                <span className="font-semibold text-sm w-8 text-center" data-testid="qty-value">{qty}</span>
-                <button onClick={() => setQty(qty + 1)} data-testid="qty-plus" className="p-1.5 hover:bg-white rounded-full">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={qty}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^0-9]/g, "");
+                    if (raw === "") { setQty(qtyFloor); return; }
+                    let n = parseInt(raw, 10);
+                    if (n < 1) n = 1;
+                    if (n > stockCap) { n = stockCap; toast.error(`Only ${product.stock} left in stock`); }
+                    setQty(n);
+                  }}
+                  onBlur={() => setQty((q) => Math.min(stockCap, Math.max(qtyFloor, parseInt(q, 10) || qtyFloor)))}
+                  data-testid="qty-value"
+                  className="font-semibold text-sm w-10 text-center bg-transparent focus:outline-none"
+                />
+                <button onClick={() => setQty(Math.min(stockCap, qty + 1))} data-testid="qty-plus" className="p-1.5 hover:bg-white rounded-full disabled:opacity-40" disabled={qty >= stockCap}>
                   <Plus className="w-3.5 h-3.5" />
                 </button>
               </div>

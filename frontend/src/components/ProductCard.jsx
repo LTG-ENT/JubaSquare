@@ -47,6 +47,7 @@ export default function ProductCard({ product, shop }) {
       // Propagate wholesale constraints so the cart can honor the floor.
       is_wholesale: !!product.is_wholesale,
       min_order_qty: product.is_wholesale ? Math.max(1, product.min_order_qty || 1) : 1,
+      stock: Number.isFinite(product.stock) ? product.stock : undefined,
       quantity: initialQty,
     });
     if (ok) {

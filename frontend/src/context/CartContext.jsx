@@ -115,10 +115,24 @@ export const CartProvider = ({ children }) => {
       );
       if (idx >= 0) {
         const copy = [...prev];
-        copy[idx] = { ...copy[idx], quantity: copy[idx].quantity + (item.quantity || 1) };
+        const existing = copy[idx];
+        const stock = Number.isFinite(item.stock)
+          ? item.stock
+          : (Number.isFinite(existing.stock) ? existing.stock : null);
+        let nextQty = existing.quantity + (item.quantity || 1);
+        if (stock !== null && nextQty > stock) {
+          nextQty = stock;
+          toast.error(`Only ${stock} left in stock`, { id: `stock-${item.item_id}` });
+        }
+        copy[idx] = { ...existing, stock: stock ?? existing.stock, quantity: nextQty };
         return copy;
       }
-      return [...prev, { ...item, quantity: item.quantity || 1 }];
+      let q = item.quantity || 1;
+      if (Number.isFinite(item.stock) && q > item.stock) {
+        q = Math.max(1, item.stock);
+        toast.error(`Only ${item.stock} left in stock`, { id: `stock-${item.item_id}` });
+      }
+      return [...prev, { ...item, quantity: q }];
     });
 
     return true;
@@ -135,7 +149,14 @@ export const CartProvider = ({ children }) => {
         // the lower bound so customers can't sneak the quantity below the
         // seller's minimum via the cart's − button.
         const floor = i.is_wholesale ? Math.max(1, i.min_order_qty || 1) : 1;
-        return { ...i, quantity: Math.max(floor, qty) };
+        const n = Number(qty);
+        let next = Number.isFinite(n) ? Math.max(floor, Math.round(n)) : floor;
+        // Never allow the quantity to exceed available stock (when known).
+        if (Number.isFinite(i.stock) && next > i.stock) {
+          next = Math.max(floor, i.stock);
+          toast.error(`Only ${i.stock} left in stock`, { id: `stock-${item_id}` });
+        }
+        return { ...i, quantity: next };
       }),
     );
 

@@ -391,6 +391,18 @@ See `/app/memory/test_credentials.md` — admin + demo seller (Iter 33).
 
 - **AdminAttributesTab.jsx** (`CategoryCheckTree`): the "Assigned categories" tree in the attribute editor used to render EVERY sub-category flat, forcing admins to scroll through a long list. Rewrote as a proper collapsible tree — only top-level categories render by default with a chevron toggle and a `(n)` child-count hint. Any branch that already contains a selected descendant auto-expands on open so context is preserved. Test IDs added: `attr-cat-toggle-<id>`.
 
+## Iteration 37 (Jun 2026) — Quantity: stock cap + editable number
+
+- **User ask**: a customer must not be able to select more than the available stock, and should be able to click the quantity number to type it directly (for large orders) instead of only using +/−.
+- **Frontend**:
+  - `CartContext.jsx`: cart items now carry `stock`. `setQuantity` clamps to `[floor, stock]` (floor = wholesale min or 1) and toasts "Only N left in stock" when capped. `addItem` also caps the merged/initial quantity at stock.
+  - `ProductCard.jsx` + `ProductDetail.jsx`: propagate `stock` into the cart payload.
+  - `ProductDetail.jsx`: quantity is now an editable numeric input (type to set); +/− and typing all clamp to `[floor, stock]`; plus/minus disabled at bounds.
+  - `Cart.jsx`: quantity is an editable numeric input per line; plus disabled at stock; shows "Max N in stock" hint when at cap.
+- **Verified** via Playwright: on a stock-10 product, typing 99 clamps to 10 (both product page and cart), plus disabled at cap, toast shown, "Max 10 in stock" hint renders.
+- **Known gap / recommended follow-up**: backend `POST /api/orders` does NOT yet validate/decrement stock, so the cap is UI-only. Server-side enforcement (reject qty > stock at order create) is recommended to make it tamper-proof.
+- Preview only — not yet redeployed to production.
+
 ## Iteration 36 (Jun 2026) — Dynamic CMS pages (add / remove / publish)
 
 - **User ask**: admin could only edit the 5 fixed Legal & Info pages; now wants to **add and remove pages** freely.
