@@ -107,9 +107,13 @@ export default function Cart() {
 
   const total = (quote.total_usd ?? subtotalUSD);
 
-  // SSP-equivalent total = sum-of-lines-at-per-shop-rate + delivery (at global rate)
+  // SSP-equivalent total = sum-of-lines-at-per-shop-rate + extra fees (at global rate)
   const deliveryFeeUSD = quote.delivery_fee_usd || 0;
-  const totalSSP = subtotalSSP + deliveryFeeUSD * (exchangeRate || 600);
+  const shippingFeeUSD = quote.shipping_fee_usd || 0;
+  const customsFeeUSD = quote.customs_fee_usd || 0;
+  const serviceFeeUSD = quote.service_fee_usd || 0;
+  const extraFeesUSD = deliveryFeeUSD + shippingFeeUSD + customsFeeUSD + serviceFeeUSD;
+  const totalSSP = subtotalSSP + extraFeesUSD * (exchangeRate || 600);
 
   // Formatters that honor per-line rates when displaying SSP totals
   const fmtSubtotal = currency === "USD"
@@ -254,6 +258,30 @@ export default function Cart() {
                     {quote.delivery_fee_usd === 0 ? <span className="text-[#2D6A4F]">{t("free")}</span> : formatPrice(quote.delivery_fee_usd, exchangeRate, currency)}
                   </span>
                 </div>
+
+                {shippingFeeUSD > 0 && (
+                  <div className="flex justify-between text-sm text-[#5C5C5C]">
+                    <span className="flex items-center gap-1">
+                      <Truck className="w-3.5 h-3.5 text-[#C84B31]" /> International shipping
+                    </span>
+                    <span data-testid="cart-shipping-total" className="font-semibold">{formatPrice(shippingFeeUSD, exchangeRate, currency)}</span>
+                  </div>
+                )}
+                {customsFeeUSD > 0 && (
+                  <div className="flex justify-between text-sm text-[#5C5C5C]">
+                    <span>Taxes &amp; customs</span>
+                    <span data-testid="cart-customs-total" className="font-semibold">{formatPrice(customsFeeUSD, exchangeRate, currency)}</span>
+                  </div>
+                )}
+                {serviceFeeUSD > 0 && (
+                  <div className="flex justify-between text-sm text-[#5C5C5C]">
+                    <span className="flex items-center gap-1">
+                      Service fee
+                      {quote.service_fee_rate ? <span className="text-[10px] text-[#9a9a90]">({(quote.service_fee_rate * 100).toFixed(quote.service_fee_rate * 100 % 1 ? 1 : 0)}%)</span> : null}
+                    </span>
+                    <span data-testid="cart-service-total" className="font-semibold">{formatPrice(serviceFeeUSD, exchangeRate, currency)}</span>
+                  </div>
+                )}
 
                 <div className="flex justify-between font-bold text-lg pt-2 border-t border-[#E2E2D9]">
                   <span>{t("total")}</span>

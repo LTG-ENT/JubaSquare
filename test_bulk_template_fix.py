@@ -7,7 +7,7 @@ Tests that /api/products/bulk-template is correctly matched before /api/products
 import requests
 import sys
 
-BASE_URL = "https://jubasquare-odoo-v2.preview.emergentagent.com/api"
+BASE_URL = "https://shipping-fee-system.preview.emergentagent.com/api"
 ADMIN_EMAIL = "admin@jubasquare.com"
 ADMIN_PASSWORD = "1234"
 

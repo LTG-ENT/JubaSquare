@@ -23,6 +23,15 @@ export default function ShopCard({ shop, productsPreview = [] }) {
             loading="lazy"
           />
           <div className="absolute top-3 right-3 flex flex-col gap-1 items-end">
+            {shop.out_of_country && (
+              <span
+                data-testid={`shop-ooc-${shop.id}`}
+                className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full text-white shadow-md bg-[#264653]"
+                title={shop.country ? `Ships from ${shop.country}` : "Ships from outside South Sudan"}
+              >
+                🌍 {shop.country || "Outside S. Sudan"}
+              </span>
+            )}
             {shop.is_ltg_partner && (
               <span
                 data-testid={`shop-ltg-${shop.id}`}

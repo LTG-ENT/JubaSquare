@@ -3,7 +3,7 @@ import api, { formatDetail } from "@/lib/api";
 import { toast } from "sonner";
 import {
   Plus, Pencil, Trash2, Eye, EyeOff, ArrowUp, ArrowDown, X, Save,
-  SlidersHorizontal, Layers, Loader2, Search as SearchIcon, Filter,
+  SlidersHorizontal, Layers, Loader2, Search as SearchIcon, Filter, GripVertical,
 } from "lucide-react";
 
 const BUSINESS_TYPES = [
@@ -36,6 +36,8 @@ export default function AdminAttributesTab() {
   const [catTree, setCatTree] = useState([]);
   const [loading, setLoading] = useState(false);
   const [editor, setEditor] = useState(null); // {attr?} null=closed, {}=new
+  // Iter 36 — drag-to-reorder state: {gid, idx} of the row being dragged.
+  const [drag, setDrag] = useState(null);
   // Iter 33.7 — Groups act as a top-level filter tab strip. When null → show
   // every attribute grouped by their group (legacy layout). Otherwise show
   // ONLY attributes belonging to that group (or ungrouped if selectedGroup === "__other").
@@ -125,6 +127,21 @@ export default function AdminAttributesTab() {
     }
   };
 
+  // Iter 36 — persist a drag-and-drop reorder within one group bucket. Rewrites
+  // sequential `order` values for the whole list so future sorts stay stable.
+  const persistReorder = async (list, from, to) => {
+    if (from === to || from == null || to == null) return;
+    const arr = [...list];
+    const [moved] = arr.splice(from, 1);
+    arr.splice(to, 0, moved);
+    try {
+      await Promise.all(arr.map((x, i) => api.put(`/admin/attributes/${x.id}`, { order: i + 1 })));
+      await load();
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail || err.message));
+    }
+  };
+
   return (
     <div className="space-y-6" data-testid="admin-attributes-tab">
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
@@ -205,9 +222,21 @@ export default function AdminAttributesTab() {
                   {list.map((a, idx) => (
                     <li
                       key={a.id}
-                      className={`flex items-center gap-3 px-5 py-3 ${a.is_active ? "" : "opacity-60"}`}
+                      draggable
+                      onDragStart={(e) => { setDrag({ gid, idx }); e.dataTransfer.effectAllowed = "move"; }}
+                      onDragOver={(e) => { if (drag && drag.gid === gid) e.preventDefault(); }}
+                      onDrop={(e) => { e.preventDefault(); if (drag && drag.gid === gid) persistReorder(list, drag.idx, idx); setDrag(null); }}
+                      onDragEnd={() => setDrag(null)}
+                      className={`flex items-center gap-3 px-5 py-3 transition ${a.is_active ? "" : "opacity-60"} ${drag && drag.gid === gid && drag.idx === idx ? "opacity-40 bg-[var(--js-bg)]" : ""}`}
                       data-testid={`attr-row-${a.key}`}
                     >
+                      <span
+                        className="cursor-grab active:cursor-grabbing text-[var(--js-text-secondary)] hover:text-[var(--js-text)] shrink-0"
+                        title="Drag to reorder"
+                        data-testid={`attr-drag-${a.key}`}
+                      >
+                        <GripVertical className="w-4 h-4" />
+                      </span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold text-[var(--js-text)]">{a.name}</span>

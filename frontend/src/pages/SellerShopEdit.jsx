@@ -37,6 +37,7 @@ export default function SellerShopEdit() {
     delivery_days_min: 1,
     delivery_days_max: 3,
     product_sections: [],
+    shipping_fee_usd: 0,
   });
 
   useEffect(() => {
@@ -65,6 +66,7 @@ export default function SellerShopEdit() {
           delivery_days_min: s.delivery_days_min ?? 1,
           delivery_days_max: s.delivery_days_max ?? 3,
           product_sections: s.product_sections || [],
+          shipping_fee_usd: s.shipping_fee_usd || 0,
         });
       })
       .catch((err) => {
@@ -110,7 +112,8 @@ export default function SellerShopEdit() {
         product_sections: (form.product_sections || [])
           .map((s, i) => ({ id: s.id, name: (s.name || "").trim(), sort_order: i, is_promo_section: !!s.is_promo_section }))
           .filter((s) => s.id && s.name)
-          .slice(0, 10),
+          .slice(0, 25),
+        shipping_fee_usd: parseFloat(form.shipping_fee_usd) || 0,
       };
       const { data } = await api.put(`/shops/${shop_id}`, payload);
       setShop(data);
@@ -275,10 +278,32 @@ export default function SellerShopEdit() {
             <DeliveryEditor form={form} setForm={setForm} />
           </Section>
 
+          {/* Shipping fee (per shop) — mainly for out-of-country shops */}
+          <Section
+            title="Shipping fee"
+            subtitle="Flat shipping fee charged to the customer at checkout for this shop, on top of any per-item shipping. Used for shipments (e.g. shops located outside South Sudan)."
+          >
+            {shop?.out_of_country && (
+              <div className="mb-3 flex items-start gap-2 bg-[#2D6A4F]/10 border border-[#2D6A4F]/30 text-[#2D6A4F] text-xs rounded-lg px-3 py-2">
+                <span>🌍</span>
+                <span>This shop is marked by the admin as <b>outside South Sudan{shop.country ? ` (${shop.country})` : ""}</b>. Customers see an "Outside South Sudan" badge and pay shipping + any customs at checkout.</span>
+              </div>
+            )}
+            <label className="block text-sm font-semibold text-[var(--js-text)] mb-1">Flat shipping fee (USD)</label>
+            <input
+              type="number" min="0" step="0.01"
+              value={form.shipping_fee_usd}
+              onChange={(e) => setForm({ ...form, shipping_fee_usd: e.target.value })}
+              data-testid="shop-shipping-fee-input"
+              className="w-40 px-3 py-2 border border-[var(--js-border)] rounded-xl text-sm focus:outline-none focus:border-[#C84B31]"
+              placeholder="0.00"
+            />
+          </Section>
+
           {/* Product sections */}
           <Section
             title="Product sections"
-            subtitle="Group products in this shop into up to 20 sections (Featured, On Sale, Accessories…). Each product can be assigned to one section."
+            subtitle="Group products in this shop into up to 25 sections (Featured, On Sale, Accessories…). Each product can be assigned to one section."
           >
             <ShopSectionsEditor form={form} setForm={setForm} />
           </Section>

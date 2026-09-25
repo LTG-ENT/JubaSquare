@@ -119,6 +119,15 @@ export default function ProductCard({ product, shop }) {
               </span>
             );
           })()}
+          {product.shop_out_of_country && (
+            <span
+              data-testid={`badge-ooc-${product.id}`}
+              className="bg-[#264653] text-white text-[10px] font-bold px-2 py-1 rounded-full shadow-md"
+              title={product.shop_country ? `Ships from ${product.shop_country}` : "Ships from outside South Sudan"}
+            >
+              🌍 {product.shop_country || "Outside South Sudan"}
+            </span>
+          )}
           {isWholesale && (
             <span data-testid={`badge-wholesale-${product.id}`} className="bg-[#2D6A4F] text-white text-[10px] font-bold px-2 py-1 rounded-full shadow-md">
               🟢 Wholesale

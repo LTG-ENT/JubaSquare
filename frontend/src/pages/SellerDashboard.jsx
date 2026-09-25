@@ -736,6 +736,7 @@ function ProductsTab({ currency, exchangeRate }) {
       description: "", image_url: "",
       price_usd: 0, stock: 100,
       min_order_qty: "", bulk_price_usd: "",
+      shipping_fee_usd: "",
       pricing_tiers: [],
       product_section_id: "",
       category_id_menu: "",  // PRIMARY: UUID for menu items (required)
@@ -948,6 +949,7 @@ function ProductsTab({ currency, exchangeRate }) {
       description: p.description || "", image_url: p.image_url || "",
       min_order_qty: p.min_order_qty && p.min_order_qty > 1 ? p.min_order_qty : "",
       bulk_price_usd: p.bulk_price_usd || "",
+      shipping_fee_usd: p.shipping_fee_usd || "",
       pricing_tiers: p.pricing_tiers || [],
       product_section_id: p.product_section_id || "",
       promo: p.promo || { active: false, type: "percent", value: 0, starts_at: "", ends_at: "" },
@@ -1028,6 +1030,7 @@ function ProductsTab({ currency, exchangeRate }) {
                 .map((t) => ({ min_qty: parseInt(t.min_qty), price_usd: parseFloat(t.price_usd) }))
             : [],
           product_section_id: form.product_section_id || null,
+          shipping_fee_usd: form.shipping_fee_usd !== "" ? parseFloat(form.shipping_fee_usd) || 0 : 0,
           promo: form.promo && form.promo.active ? {
             active: true,
             type: form.promo.type || "percent",
@@ -1350,6 +1353,15 @@ function ProductsTab({ currency, exchangeRate }) {
                   <Input label="Stock" type="number" value={form.stock} onChange={(v) => setForm({ ...form, stock: v })} testId="product-stock-input" />
                 </div>
                 <p className="text-xs text-[var(--js-text-secondary)]">≈ <strong>SSP {(parseFloat(form.price_usd || 0) * rate).toLocaleString()}</strong> at current rate</p>
+                <Input
+                  label="Per-item shipping fee (USD, optional)"
+                  type="number"
+                  step="0.01"
+                  value={form.shipping_fee_usd}
+                  onChange={(v) => setForm({ ...form, shipping_fee_usd: v })}
+                  testId="product-shipping-fee-input"
+                />
+                <p className="text-[11px] text-[var(--js-text-secondary)] -mt-1">Charged per unit at checkout when this shop ships from outside South Sudan. Stacks with the shop's flat shipping fee.</p>
                 <ImageUpload label="Product photo" value={form.image_url} onChange={(v) => setForm({ ...form, image_url: v })} testId="product-image-upload" />
                 <Textarea label="Description" value={form.description} onChange={(v) => setForm({ ...form, description: v })} testId="product-desc-input" />
 

@@ -17,9 +17,10 @@ import AdminDeliveryTab from "@/components/AdminDeliveryTab";
 import AdminDeliveryPricingTab from "@/components/AdminDeliveryPricingTab";
 import AdminHomepageTab from "@/components/AdminHomepageTab";
 import AdminReportsTab from "@/components/AdminReportsTab";
+import AdminInvoicesTab from "@/components/AdminInvoicesTab";
 import AdminOdooTokenManager from "@/components/AdminOdooTokenManager";
 import AdminSeoTab from "@/components/AdminSeoTab";
-import { Store, Mail, CheckCircle2, XCircle, Clock, Plus, Trash2, X, BarChart3, Settings as SettingsIcon, BookOpen, Sliders, SlidersHorizontal, PanelBottom, FolderTree, Ban, Activity, Truck, MapPin, Key, Image as ImageIcon, Flag, Search as SearchIcon } from "lucide-react";
+import { Store, Mail, CheckCircle2, XCircle, Clock, Plus, Trash2, X, BarChart3, Settings as SettingsIcon, BookOpen, Sliders, SlidersHorizontal, PanelBottom, FolderTree, Ban, Activity, Truck, MapPin, Key, Image as ImageIcon, Flag, Search as SearchIcon, Receipt } from "lucide-react";
 import { toast } from "sonner";
 
 const TABS = [
@@ -29,6 +30,7 @@ const TABS = [
   { id: "categories", label: "Categories", icon: FolderTree },
   { id: "attributes", label: "Attributes", icon: SlidersHorizontal },
   { id: "delivery", label: "Delivery & Payouts", icon: Truck },
+  { id: "invoices", label: "Commission Invoices", icon: Receipt },
   { id: "delivery-pricing", label: "Delivery Pricing", icon: MapPin },
   { id: "cancellations", label: "Cancellation Requests", icon: Ban },
   { id: "emails", label: "Blocked Emails", icon: Mail },
@@ -157,6 +159,7 @@ export default function AdminDashboard() {
           {tab === "categories" && <AdminCategoriesTab />}
           {tab === "attributes" && <AdminAttributesTab />}
           {tab === "delivery" && <AdminDeliveryTab />}
+          {tab === "invoices" && <AdminInvoicesTab />}
           {tab === "delivery-pricing" && <AdminDeliveryPricingTab />}
           {tab === "cancellations" && <AdminCancellationsTab />}
           {tab === "emails" && <AdminEmailsTab />}
@@ -186,6 +189,7 @@ function AdminShopsTab() {
   const [globalFrequency, setGlobalFrequency] = useState("weekly");
   const [searchQuery, setSearchQuery] = useState("");
   const [kindFilter, setKindFilter] = useState("all"); // all | shops | restaurants
+  const [verifFilter, setVerifFilter] = useState("all"); // all | unverified
 
   const load = async () => {
     const [s, r, g] = await Promise.all([
@@ -296,6 +300,34 @@ function AdminShopsTab() {
     }
   };
 
+  // Iter 36 — admin-only "Outside South Sudan" toggle (shops only) from the detail modal.
+  const toggleOutOfCountry = async (nextValue) => {
+    try {
+      const { data } = await api.put(`/admin/shops/${detail.id}/out-of-country`, {
+        out_of_country: !!nextValue,
+        country: detail.country || "",
+      });
+      toast.success(nextValue ? "Marked as outside South Sudan 🌍" : "Marked as inside South Sudan");
+      setDetail({ ...detail, out_of_country: !!data.out_of_country, country: data.country ?? detail.country });
+      load();
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail) || "Failed to update location");
+    }
+  };
+
+  const saveCountry = async (country) => {
+    try {
+      const { data } = await api.put(`/admin/shops/${detail.id}/out-of-country`, {
+        out_of_country: !!detail.out_of_country,
+        country: country || "",
+      });
+      setDetail({ ...detail, country: data.country ?? country });
+      load();
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail) || "Failed to save country");
+    }
+  };
+
   const allRows = useMemo(() => {
     if (kindFilter === "shops") return shops;
     if (kindFilter === "restaurants") return restaurants;
@@ -304,10 +336,11 @@ function AdminShopsTab() {
 
   const filteredShops = useMemo(() =>
     allRows.filter(s =>
-      (s.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (s.area || "").toLowerCase().includes(searchQuery.toLowerCase())
+      ((s.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (s.area || "").toLowerCase().includes(searchQuery.toLowerCase())) &&
+      (verifFilter !== "unverified" || s.verification !== "Verified")
     ),
-    [allRows, searchQuery]
+    [allRows, searchQuery, verifFilter]
   );
 
   const counts = useMemo(() => {
@@ -316,6 +349,7 @@ function AdminShopsTab() {
       Verified: merged.filter((s) => s.verification === "Verified").length,
       Pending: merged.filter((s) => s.verification === "Pending").length,
       Rejected: merged.filter((s) => s.verification === "Rejected").length,
+      Unverified: merged.filter((s) => s.verification !== "Verified").length,
     };
   }, [shops, restaurants]);
 
@@ -370,6 +404,18 @@ function AdminShopsTab() {
               {k.label}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => setVerifFilter((v) => (v === "unverified" ? "all" : "unverified"))}
+            data-testid="shops-verif-filter-unverified"
+            className={`px-3 py-2 text-xs font-semibold rounded-lg transition ${
+              verifFilter === "unverified"
+                ? "bg-[#D90429] text-white"
+                : "text-[var(--js-text-secondary)] hover:text-[var(--js-text)]"
+            }`}
+          >
+            {`Not Verified (${counts.Unverified})`}
+          </button>
         </div>
       </div>
 
@@ -475,6 +521,43 @@ function AdminShopsTab() {
                   </label>
                 </div>
               </div>
+
+              {/* Iter 36 — Outside South Sudan toggle (shops only, admin) */}
+              {detail._kind !== "restaurant" && (
+                <div className="bg-gradient-to-br from-[#2D6A4F]/10 to-[#264653]/10 border border-[#2D6A4F]/40 rounded-2xl p-4" data-testid="shop-out-of-country-card">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-display font-semibold text-sm mb-1 text-[#2D6A4F]">🌍 Outside South Sudan</h3>
+                      <p className="text-xs text-[var(--js-text-secondary)]">
+                        Turn on when <strong>{detail.name}</strong> ships from outside South Sudan. Customers see an "Outside South Sudan" badge and pay international shipping + customs at checkout.
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer flex-shrink-0 mt-1">
+                      <input
+                        type="checkbox"
+                        checked={!!detail.out_of_country}
+                        onChange={(e) => toggleOutOfCountry(e.target.checked)}
+                        data-testid="admin-out-of-country-toggle"
+                        className="sr-only peer"
+                      />
+                      <div className="w-12 h-6 bg-gray-200 rounded-full peer peer-checked:bg-[#2D6A4F] transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:w-5 after:h-5 after:rounded-full after:shadow after:transition-all peer-checked:after:translate-x-6"></div>
+                    </label>
+                  </div>
+                  {detail.out_of_country && (
+                    <div className="mt-3">
+                      <label className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">Country (optional)</label>
+                      <input
+                        type="text"
+                        defaultValue={detail.country || ""}
+                        onBlur={(e) => saveCountry(e.target.value.trim())}
+                        placeholder="e.g. Kenya, Uganda, UAE"
+                        data-testid="admin-out-of-country-country-input"
+                        className="w-full px-3 py-2 border border-[var(--js-border)] rounded-xl text-sm focus:outline-none focus:border-[#2D6A4F]"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="bg-[var(--js-subtle)] rounded-2xl p-4">
                 <h3 className="font-display font-semibold text-sm mb-1">Custom commission rate</h3>

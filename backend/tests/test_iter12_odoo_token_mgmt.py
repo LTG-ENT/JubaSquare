@@ -22,7 +22,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 BASE_URL = os.environ.get(
     "REACT_APP_BACKEND_URL",
-    "https://jubasquare-odoo-v2.preview.emergentagent.com",
+    "https://shipping-fee-system.preview.emergentagent.com",
 ).rstrip("/")
 
 

@@ -344,6 +344,12 @@ export default function AdminSettingsTab({ onGoToShop }) {
   const [shops, setShops] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Iter 36 — checkout charges (service fee %, customs %, customs fixed $)
+  const [serviceDraft, setServiceDraft] = useState("0");
+  const [customsRateDraft, setCustomsRateDraft] = useState("0");
+  const [customsFixedDraft, setCustomsFixedDraft] = useState("0");
+  const [savedCharges, setSavedCharges] = useState({ service: 0, customsRate: 0, customsFixed: 0 });
+  const [savingCharges, setSavingCharges] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -355,6 +361,13 @@ export default function AdminSettingsTab({ onGoToShop }) {
       const g = Number(s.data.commission_rate ?? 0.10);
       setGlobalRate(g);
       setRateDraft((g * 100).toFixed(1).replace(/\.0$/, ""));
+      const svc = Number(s.data.service_fee_rate ?? 0);
+      const cr = Number(s.data.customs_rate ?? 0);
+      const cf = Number(s.data.customs_fixed_usd ?? 0);
+      setSavedCharges({ service: svc, customsRate: cr, customsFixed: cf });
+      setServiceDraft((svc * 100).toFixed(2).replace(/\.?0+$/, "") || "0");
+      setCustomsRateDraft((cr * 100).toFixed(2).replace(/\.?0+$/, "") || "0");
+      setCustomsFixedDraft(String(cf));
       setShops(sh.data || []);
     } catch (err) {
       toast.error(formatDetail(err.response?.data?.detail) || "Failed to load settings");
@@ -395,6 +408,36 @@ export default function AdminSettingsTab({ onGoToShop }) {
       setSaving(false);
     }
   };
+
+  const saveCharges = async () => {
+    const svc = parseFloat(serviceDraft);
+    const cr = parseFloat(customsRateDraft);
+    const cf = parseFloat(customsFixedDraft);
+    if ([svc, cr].some((v) => Number.isNaN(v) || v < 0 || v > 100) || Number.isNaN(cf) || cf < 0) {
+      toast.error("Enter valid values (percentages 0-100, fixed >= 0)");
+      return;
+    }
+    setSavingCharges(true);
+    try {
+      await api.put("/admin/settings", {
+        service_fee_rate: Math.round(svc * 100) / 10000,
+        customs_rate: Math.round(cr * 100) / 10000,
+        customs_fixed_usd: Math.round(cf * 100) / 100,
+      });
+      toast.success("Checkout charges saved");
+      await load();
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail) || "Failed to save");
+    } finally {
+      setSavingCharges(false);
+    }
+  };
+
+  const chargesDirty = (
+    Math.abs((parseFloat(serviceDraft) || 0) / 100 - savedCharges.service) > 1e-9 ||
+    Math.abs((parseFloat(customsRateDraft) || 0) / 100 - savedCharges.customsRate) > 1e-9 ||
+    Math.abs((parseFloat(customsFixedDraft) || 0) - savedCharges.customsFixed) > 1e-9
+  );
 
   const resetShopCommission = async (shop) => {
     if (!window.confirm(`Remove the custom commission on ${shop.name}? It will fall back to the global rate (${(globalRate * 100).toFixed(1)}%).`)) return;
@@ -479,6 +522,85 @@ export default function AdminSettingsTab({ onGoToShop }) {
                 <code className="mx-1 px-1.5 py-0.5 bg-white rounded">shop.commission_rate ?? global_rate</code>.
                 Changing the global rate triggers invoice regeneration so pending invoices pick up the new value.
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Iter 36 — Checkout charges (service fee %, customs %, customs fixed) */}
+      <div className="bg-white border border-[var(--js-border)] rounded-2xl p-5 sm:p-6" data-testid="settings-checkout-charges-card">
+        <div className="flex items-start gap-4">
+          <div className="w-11 h-11 rounded-xl bg-[#2D6A4F]/10 text-[#2D6A4F] flex items-center justify-center flex-shrink-0">
+            <Percent className="w-5 h-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">Checkout</p>
+            <h2 className="font-display font-bold text-lg text-[var(--js-text)] mt-0.5">Service fee &amp; customs</h2>
+            <p className="text-xs text-[var(--js-text-secondary)] mt-1 leading-relaxed">
+              The <strong>service fee</strong> is charged to the customer on every order (a % of the subtotal) and paid to JubaSquare. <strong>Customs / taxes</strong> apply only to shops marked "Outside South Sudan" — a % of that shop's subtotal plus an optional fixed charge per shipment.
+            </p>
+
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">Service fee</label>
+                <div className="relative">
+                  <input
+                    type="number" min="0" max="100" step="0.1"
+                    value={serviceDraft}
+                    onChange={(e) => setServiceDraft(e.target.value)}
+                    data-testid="settings-service-fee-input"
+                    className="w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-xl pl-3 pr-8 py-2.5 text-base font-bold focus:outline-none focus:border-[#2D6A4F]"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--js-text-secondary)] font-bold">%</span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">Customs / tax rate</label>
+                <div className="relative">
+                  <input
+                    type="number" min="0" max="100" step="0.1"
+                    value={customsRateDraft}
+                    onChange={(e) => setCustomsRateDraft(e.target.value)}
+                    data-testid="settings-customs-rate-input"
+                    className="w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-xl pl-3 pr-8 py-2.5 text-base font-bold focus:outline-none focus:border-[#2D6A4F]"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--js-text-secondary)] font-bold">%</span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">Fixed customs (per shipment)</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--js-text-secondary)] font-bold">$</span>
+                  <input
+                    type="number" min="0" step="0.01"
+                    value={customsFixedDraft}
+                    onChange={(e) => setCustomsFixedDraft(e.target.value)}
+                    data-testid="settings-customs-fixed-input"
+                    className="w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-xl pl-7 pr-3 py-2.5 text-base font-bold focus:outline-none focus:border-[#2D6A4F]"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 flex gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={saveCharges}
+                disabled={!chargesDirty || savingCharges}
+                data-testid="settings-save-charges"
+                className="inline-flex items-center gap-1.5 text-sm font-bold px-5 py-2.5 rounded-xl bg-[#2D6A4F] hover:bg-[#245a41] text-white disabled:bg-[#A3A39E]"
+              >
+                <Save className="w-4 h-4" /> {savingCharges ? "Saving…" : "Save charges"}
+              </button>
+              {chargesDirty && (
+                <button
+                  type="button"
+                  onClick={() => { setServiceDraft((savedCharges.service * 100).toString()); setCustomsRateDraft((savedCharges.customsRate * 100).toString()); setCustomsFixedDraft(String(savedCharges.customsFixed)); }}
+                  className="inline-flex items-center gap-1.5 text-xs font-bold px-4 py-2 rounded-xl border border-[var(--js-border)] text-[var(--js-text)] hover:border-[#1A1A1A]"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" /> Discard
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -8,7 +8,7 @@ import requests
 from datetime import datetime, timezone
 from pymongo import MongoClient
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://jubasquare-odoo-v2.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://shipping-fee-system.preview.emergentagent.com").rstrip("/")
 MONGO_URL = os.environ.get(
     "MONGO_URL",
     "mongodb+srv://Admin:Kokob1234567890@jubasquare-database.llu96aj.mongodb.net/?appName=JubaSquare-Database&compressors=zlib",

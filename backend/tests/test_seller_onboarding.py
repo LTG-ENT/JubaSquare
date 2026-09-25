@@ -3,7 +3,7 @@ import os
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://jubasquare-odoo-v2.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://shipping-fee-system.preview.emergentagent.com").rstrip("/")
 ADMIN_EMAIL = "admin@jubasquare.com"
 ADMIN_PASSWORD = "1234"
 

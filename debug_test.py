@@ -5,7 +5,7 @@ import requests
 import time
 import json
 
-BASE_URL = "https://jubasquare-odoo-v2.preview.emergentagent.com"
+BASE_URL = "https://shipping-fee-system.preview.emergentagent.com"
 API_BASE = f"{BASE_URL}/api"
 
 # Get admin token

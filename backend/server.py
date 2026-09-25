@@ -109,6 +109,17 @@ DEFAULT_SETTINGS = {
     "maintenance_mode": False,
     "login_attempt_limit": 5,
     "commission_rate": 0.10,
+    # Iter 36 — Checkout charges (customer pays to JubaSquare/admin):
+    #   service_fee_rate  → fraction of subtotal (e.g. 0.05 = 5%), all orders.
+    #   customs_rate      → fraction of out-of-country shop subtotal (shipments only).
+    #   customs_fixed_usd → flat customs/handling charge per out-of-country shipment.
+    "service_fee_rate": 0.0,
+    "customs_rate": 0.0,
+    "customs_fixed_usd": 0.0,
+    # Iter 36 — International sellers (out-of-country shops) are paid by bank
+    # transfer and their earnings are held this many days after delivery
+    # before becoming available for payout.
+    "international_payout_hold_days": 30,
     # If TRUE → admin's Delivery Pricing rules apply to all orders.
     # If FALSE (default) → the seller's own shop-level delivery settings
     # (delivery_mode/delivery_fee_usd/delivery_per_area) are used, with the
@@ -727,7 +738,14 @@ class ShopIn(BaseModel):
     delivery_mode: Literal["free", "fixed", "per_area"] = "free"
     delivery_fee_usd: float = 0.0
     delivery_per_area: List[DeliveryAreaFee] = Field(default_factory=list)
-    # Per-shop override for who runs the delivery. Defaults to "default" =
+    # Iter 36 — International shipping. `out_of_country` is ADMIN-toggled
+    # (sellers cannot self-set it). When true the storefront shows an
+    # "Outside South Sudan" badge and checkout adds shipping + customs.
+    # `shipping_fee_usd` is a per-shop flat shipping fee the seller sets
+    # (added on top of any per-item product.shipping_fee_usd).
+    out_of_country: bool = False
+    country: Optional[str] = ""
+    shipping_fee_usd: float = 0.0
     # follow the platform-wide `admin_manages_delivery` setting. Set to
     # "seller" or "admin" to lock this shop to one mode regardless of the
     # global toggle. Admin-editable only.
@@ -800,6 +818,10 @@ class ProductIn(BaseModel):
     is_wholesale: bool = False
     min_order_qty: int = 1
     bulk_price_usd: Optional[float] = None
+    # Iter 36 — Per-item shipping fee (added at checkout when the product's
+    # shop is flagged out_of_country). Stacks with the shop's flat
+    # shipping_fee_usd.
+    shipping_fee_usd: float = 0.0
     mode: Literal["marketplace", "wholesale"] = "marketplace"
     pricing_tiers: List[dict] = Field(default_factory=list)
     # Iter 27 — Seller-defined section this product belongs to (max 6 per
@@ -1036,10 +1058,19 @@ class SettingsIn(BaseModel):
     login_attempt_limit: Optional[int] = None
     commission_rate: Optional[float] = None
     admin_manages_delivery: Optional[bool] = None
+    service_fee_rate: Optional[float] = None
+    customs_rate: Optional[float] = None
+    customs_fixed_usd: Optional[float] = None
+    international_payout_hold_days: Optional[int] = None
 
 
 class InvoiceStatusIn(BaseModel):
     status: Literal["Paid", "Unpaid", "Overdue"]
+    # Iter 36 — when marking Paid, admin can record how/when the seller paid
+    # the commission (settlement audit trail).
+    payment_reference: Optional[str] = None
+    payment_method: Optional[Literal["cash", "bank", "mobile_money", "other"]] = None
+    paid_at: Optional[str] = None
 
 
 class AreaIn(BaseModel):
@@ -1516,7 +1547,6 @@ async def serve_upload(filename: str):
         )
 
     raise HTTPException(404, "File not found")
-    return {"ok": True, "url": public_url, "filename": fname}
 
 
 # ----------------------------------------------------------------------------
@@ -1534,6 +1564,9 @@ async def public_settings():
             "module_restaurants": s.get("module_restaurants", True),
             "module_wholesale": s.get("module_wholesale", True),
             "maintenance_mode": s.get("maintenance_mode", False),
+            "service_fee_rate": s.get("service_fee_rate", 0.0),
+            "customs_rate": s.get("customs_rate", 0.0),
+            "customs_fixed_usd": s.get("customs_fixed_usd", 0.0),
             "areas": s.get("areas", DEFAULT_AREAS),
             "homepage": s.get("homepage", DEFAULT_HOMEPAGE),
         }
@@ -2594,6 +2627,10 @@ async def create_shop(body: ShopIn, user: dict = Depends(require_role("seller", 
     # the "seller manages" default they expect at signup.
     if (payload.get("delivery_managed_by") or "default") == "default":
         payload["delivery_managed_by"] = "admin" if s.get("admin_manages_delivery") else "seller"
+    # out_of_country is ADMIN-only. A seller creating a shop always starts
+    # in-country; admin flips it via /admin/shops/{id}/out-of-country.
+    if user["role"] != "admin":
+        payload["out_of_country"] = False
     shop = {
         "id": str(uuid.uuid4()),
         "seller_id": user["id"],
@@ -2640,6 +2677,22 @@ async def admin_toggle_shop_ltg(shop_id: str, body: dict = Body(default_factory=
     return {"ok": True, "is_ltg_partner": val}
 
 
+@api.put("/admin/shops/{shop_id}/out-of-country")
+async def admin_toggle_shop_out_of_country(shop_id: str, body: dict = Body(default_factory=dict), user: dict = Depends(require_role("admin"))):
+    """Admin-only toggle marking a shop as located outside South Sudan.
+    When true the storefront shows an 'Outside South Sudan' badge and
+    checkout adds international shipping + customs. Optionally set a country
+    label."""
+    val = bool(body.get("out_of_country"))
+    setter = {"out_of_country": val, "updated_at": now_iso()}
+    if "country" in body:
+        setter["country"] = str(body.get("country") or "")[:60]
+    r = await db.shops.update_one({"id": shop_id}, {"$set": setter})
+    if not r.matched_count:
+        raise HTTPException(404, "Shop not found")
+    return {"ok": True, "out_of_country": val, "country": setter.get("country")}
+
+
 @api.put("/admin/restaurants/{restaurant_id}/ltg-partner")
 async def admin_toggle_restaurant_ltg(restaurant_id: str, body: dict = Body(default_factory=dict), user: dict = Depends(require_role("admin"))):
     """Admin-only 'Part of LTG' toggle for restaurants (see shop twin)."""
@@ -2671,6 +2724,10 @@ async def update_shop(shop_id: str, body: ShopIn, user: dict = Depends(require_r
     if user["role"] != "admin" and shop["seller_id"] != user["id"]:
         raise HTTPException(403, "Forbidden")
     updates = body.model_dump()
+    # out_of_country is ADMIN-only — sellers can't self-set it. Preserve the
+    # existing value on a seller edit.
+    if user["role"] != "admin":
+        updates.pop("out_of_country", None)
     # Iter 27 — Enforce the 6-section maximum, dedupe by id, and drop any
     # blank names. Sellers can only have 6 product-sections per shop.
     ps = updates.get("product_sections") or []
@@ -2689,8 +2746,8 @@ async def update_shop(shop_id: str, body: ShopIn, user: dict = Depends(require_r
             "sort_order": int(s.get("sort_order") or 0),
             "is_promo_section": bool(s.get("is_promo_section")),
         })
-    if len(clean_ps) > 20:
-        raise HTTPException(400, "Maximum 20 product sections allowed")
+    if len(clean_ps) > 25:
+        raise HTTPException(400, "Maximum 25 product sections allowed")
     updates["product_sections"] = clean_ps
     # LTG partner status is ADMIN-ONLY (set via /admin/shops/{id}/ltg-partner).
     # Strip the field from a seller's payload so they can't self-award.
@@ -3132,12 +3189,16 @@ async def list_products(category_id: Optional[str] = None, category: Optional[st
 
     shop_ids_in = list({p["shop_id"] for p in products})
     shops_meta = await db.shops.find(
-        {"id": {"$in": shop_ids_in}}, {"_id": 0, "id": 1, "verification": 1}).to_list(INTERNAL_CAP)
+        {"id": {"$in": shop_ids_in}}, {"_id": 0, "id": 1, "verification": 1, "out_of_country": 1, "country": 1}).to_list(INTERNAL_CAP)
     verif_by_shop = {sh["id"]: sh.get("verification", "Pending") for sh in shops_meta}
+    ooc_by_shop = {sh["id"]: bool(sh.get("out_of_country")) for sh in shops_meta}
+    country_by_shop = {sh["id"]: (sh.get("country") or "") for sh in shops_meta}
 
     for p in products:
         p["exchange_rate_ssp"] = rate_by_seller.get(p["seller_id"], global_rate)
         p["shop_verification"] = verif_by_shop.get(p["shop_id"], "Pending")
+        p["shop_out_of_country"] = ooc_by_shop.get(p["shop_id"], False)
+        p["shop_country"] = country_by_shop.get(p["shop_id"], "")
 
     # In-stock first: within the same verification tier, products WITH stock
     # come before out-of-stock products. Sellers can still choose to auto-hide
@@ -3437,8 +3498,10 @@ async def get_product(product_id: str, request: Request):
     global_rate = float(s.get("global_rate", 600.0))
     rec = await db.exchange_rates.find_one({"seller_id": p["seller_id"]}, {"_id": 0})
     p["exchange_rate_ssp"] = float(rec.get("rate", global_rate)) if rec else global_rate
-    sh = await db.shops.find_one({"id": p["shop_id"]}, {"_id": 0, "verification": 1, "seller_id": 1, "is_public": 1, "is_deleted": 1})
+    sh = await db.shops.find_one({"id": p["shop_id"]}, {"_id": 0, "verification": 1, "seller_id": 1, "is_public": 1, "is_deleted": 1, "out_of_country": 1, "country": 1})
     p["shop_verification"] = (sh or {}).get("verification", "Pending")
+    p["shop_out_of_country"] = bool((sh or {}).get("out_of_country"))
+    p["shop_country"] = (sh or {}).get("country") or ""
     # Gate product visibility on shop status: not Verified (when required) OR hidden OR deleted
     # means only owner/admin can view.
     require_verified = s.get("require_verification", True)
@@ -4083,8 +4146,8 @@ async def update_restaurant(restaurant_id: str, body: RestaurantIn, user: dict =
             "sort_order": int(s.get("sort_order") or 0),
             "is_promo_section": bool(s.get("is_promo_section")),
         })
-    if len(clean_ms) > 20:
-        raise HTTPException(400, "Maximum 20 menu sections allowed")
+    if len(clean_ms) > 25:
+        raise HTTPException(400, "Maximum 25 menu sections allowed")
     update_data["menu_sections"] = clean_ms
     # LTG partner status is ADMIN-ONLY. Only add to update when caller is admin.
     if user["role"] == "admin" and body.is_ltg_partner is not None:
@@ -5049,6 +5112,49 @@ async def get_trending_products(limit: Optional[int] = 10):
 # ----------------------------------------------------------------------------
 # Orders
 # ----------------------------------------------------------------------------
+async def _compute_order_extras(shops, shop_subtotals, shop_item_shipping, subtotal):
+    """Iter 36 — compute customer-facing checkout charges paid to JubaSquare:
+      • International shipping + customs for OUT-OF-COUNTRY shops only.
+      • Service fee = global % of the whole order subtotal (all orders).
+    Returns {shipping_fee_usd, customs_fee_usd, service_fee_usd, international_breakdown}.
+    """
+    settings = await get_settings()
+    service_rate = float(settings.get("service_fee_rate") or 0)
+    customs_rate = float(settings.get("customs_rate") or 0)
+    customs_fixed = float(settings.get("customs_fixed_usd") or 0)
+    shipping_total = 0.0
+    customs_total = 0.0
+    breakdown = []
+    for sh in (shops or []):
+        if not sh.get("out_of_country"):
+            continue
+        sid = sh["id"]
+        sub = round(float(shop_subtotals.get(sid, 0)), 2)
+        if sub <= 0:
+            continue
+        flat = float(sh.get("shipping_fee_usd") or 0)
+        per_item = round(float(shop_item_shipping.get(sid, 0)), 2)
+        ship = round(flat + per_item, 2)
+        cust = round(sub * customs_rate + customs_fixed, 2)
+        shipping_total += ship
+        customs_total += cust
+        breakdown.append({
+            "shop_id": sid,
+            "shop_name": sh.get("name", "—"),
+            "country": sh.get("country", ""),
+            "shipping_fee_usd": ship,
+            "customs_fee_usd": cust,
+        })
+    service_fee = round(float(subtotal) * service_rate, 2)
+    return {
+        "shipping_fee_usd": round(shipping_total, 2),
+        "customs_fee_usd": round(customs_total, 2),
+        "service_fee_usd": service_fee,
+        "service_fee_rate": service_rate,
+        "international_breakdown": breakdown,
+    }
+
+
 @api.post("/orders")
 async def place_order(body: OrderIn, user: dict = Depends(get_current_user)):
     s = await get_settings()
@@ -5146,7 +5252,19 @@ async def place_order(body: OrderIn, user: dict = Depends(get_current_user)):
                 "delivery_area": delivery_area,
             })
 
-    total = round(subtotal + delivery_fee, 2)
+    # Iter 36 — international shipping + customs + global service fee
+    shop_subtotals: Dict[str, float] = {}
+    shop_item_shipping: Dict[str, float] = {}
+    for si in secure_items:
+        p = products_by_id.get(si["item_id"])
+        if not p:
+            continue
+        sid = p.get("shop_id")
+        shop_subtotals[sid] = shop_subtotals.get(sid, 0.0) + si["price_usd"] * si["quantity"]
+        shop_item_shipping[sid] = shop_item_shipping.get(sid, 0.0) + float(p.get("shipping_fee_usd") or 0) * si["quantity"]
+    _extras = await _compute_order_extras(shops, shop_subtotals, shop_item_shipping, subtotal)
+
+    total = round(subtotal + delivery_fee + _extras["shipping_fee_usd"] + _extras["customs_fee_usd"] + _extras["service_fee_usd"], 2)
     order = {
         "id": str(uuid.uuid4()),
         "customer_id": user["id"],
@@ -5156,6 +5274,10 @@ async def place_order(body: OrderIn, user: dict = Depends(get_current_user)):
         "subtotal_usd": round(subtotal, 2),
         "delivery_fee_usd": round(delivery_fee, 2),
         "delivery_breakdown": delivery_breakdown,
+        "shipping_fee_usd": _extras["shipping_fee_usd"],
+        "customs_fee_usd": _extras["customs_fee_usd"],
+        "service_fee_usd": _extras["service_fee_usd"],
+        "international_breakdown": _extras["international_breakdown"],
         "total_usd": total,
         "area": body.area, "address": body.address, "phone": body.phone,
         "note": body.note, "order_kind": body.order_kind,
@@ -6127,6 +6249,7 @@ async def quote_order(body: OrderIn, _: dict = Depends(get_current_user)):
     subtotal = sum(it.price_usd * it.quantity + sum(sd.price_usd for sd in (it.sides or [])) * it.quantity for it in body.items)
     item_ids = [it.item_id for it in body.items]
     products = await db.products.find({"id": {"$in": item_ids}}, {"_id": 0}).to_list(2000)
+    products_by_id = {p["id"]: p for p in products}
     shop_ids_in_order = list({p["shop_id"] for p in products})
     
     # Use admin delivery pricing rules (same as actual order creation)
@@ -6134,8 +6257,10 @@ async def quote_order(body: OrderIn, _: dict = Depends(get_current_user)):
     
     delivery_fee = 0.0
     breakdown = []
-    if shop_ids_in_order and body.area:
+    shops = []
+    if shop_ids_in_order:
         shops = await db.shops.find({"id": {"$in": shop_ids_in_order}}, {"_id": 0}).to_list(500)
+    if shops and body.area:
         for sh in shops:
             # Calculate delivery fee using admin rules
             pickup_area = sh.get("area", "")
@@ -6157,10 +6282,29 @@ async def quote_order(body: OrderIn, _: dict = Depends(get_current_user)):
                 "pickup_area": pickup_area,
                 "delivery_area": delivery_area,
             })
+
+    # Iter 36 — international shipping + customs + global service fee
+    shop_subtotals: Dict[str, float] = {}
+    shop_item_shipping: Dict[str, float] = {}
+    for it in body.items:
+        p = products_by_id.get(it.item_id)
+        if not p:
+            continue
+        sid = p.get("shop_id")
+        qty = max(1, int(it.quantity))
+        shop_subtotals[sid] = shop_subtotals.get(sid, 0.0) + it.price_usd * qty
+        shop_item_shipping[sid] = shop_item_shipping.get(sid, 0.0) + float(p.get("shipping_fee_usd") or 0) * qty
+    _extras = await _compute_order_extras(shops, shop_subtotals, shop_item_shipping, subtotal)
+    grand_total = round(subtotal + delivery_fee + _extras["shipping_fee_usd"] + _extras["customs_fee_usd"] + _extras["service_fee_usd"], 2)
     return {
         "subtotal_usd": round(subtotal, 2),
         "delivery_fee_usd": round(delivery_fee, 2),
-        "total_usd": round(subtotal + delivery_fee, 2),
+        "shipping_fee_usd": _extras["shipping_fee_usd"],
+        "customs_fee_usd": _extras["customs_fee_usd"],
+        "service_fee_usd": _extras["service_fee_usd"],
+        "service_fee_rate": _extras["service_fee_rate"],
+        "international_breakdown": _extras["international_breakdown"],
+        "total_usd": grand_total,
         "delivery_breakdown": breakdown,
     }
 
@@ -7643,58 +7787,55 @@ def _iso_week_range(dt: datetime):
 
 
 async def _rebuild_invoices():
-    """Regenerate invoices from all orders. One invoice per (seller, shop, week).
-    Each shop can override commission_rate; otherwise uses global settings rate."""
+    """Regenerate marketplace commission invoices from DELIVERED COD order
+    splits (Iter 36 fix). One invoice per (seller, shop, ISO-week).
+
+    Previously this summed EVERY placed order regardless of whether it was
+    actually delivered, which made the invoice 'sales' number far higher
+    than the real cash-collected sales. We now bucket only
+    `seller_order_splits` that were delivered and NOT returned/failed, and
+    reuse each split's stored product_subtotal_usd + platform_commission_usd
+    (which already carry the per-shop commission-rate snapshot)."""
     settings = await get_settings()
     global_rate = float(settings.get("commission_rate", 0.10))
 
-    products = await db.products.find({}, {"_id": 0}).to_list(5000)
-    menu_items = await db.menu_items.find({}, {"_id": 0}).to_list(5000)
-    restaurants = await db.restaurants.find({}, {"_id": 0}).to_list(500)
     shops = await db.shops.find({}, {"_id": 0}).to_list(500)
     shop_by_id = {s["id"]: s for s in shops}
-    rest_by_id = {r["id"]: r for r in restaurants}
-
-    # container_id -> effective commission rate (shop override or global)
     rate_for = {}
     for s in shops:
         r = s.get("commission_rate")
         rate_for[s["id"]] = float(r) if r is not None else global_rate
-    for r in restaurants:
-        rc = r.get("commission_rate")
-        rate_for[r["id"]] = float(rc) if rc is not None else global_rate
 
-    lookup = {}
-    for p in products:
-        shop = shop_by_id.get(p["shop_id"], {})
-        lookup[p["id"]] = {"seller_id": p["seller_id"], "shop_id": p["shop_id"], "shop_name": shop.get("name", "—")}
-    for m in menu_items:
-        rest = rest_by_id.get(m["restaurant_id"], {})
-        lookup[m["id"]] = {"seller_id": m["seller_id"], "shop_id": m["restaurant_id"], "shop_name": rest.get("name", "—")}
+    # Only count real, completed sales: delivered and not returned/failed.
+    splits = await db.seller_order_splits.find(
+        {
+            "delivery_status": "delivered",
+            "return_status": {"$in": ["not_required", None]},
+        },
+        {"_id": 0},
+    ).to_list(20000)
 
-    orders = await db.orders.find({}, {"_id": 0}).to_list(5000)
     buckets: dict = {}
-    for o in orders:
+    for sp in splits:
+        seller_id = sp.get("seller_id")
+        shop_id = sp.get("shop_id")
+        if not seller_id or not shop_id:
+            continue
         try:
-            created = datetime.fromisoformat(o["created_at"])
+            created = datetime.fromisoformat(sp["created_at"])
         except Exception:
             continue
         ws, we, label = _iso_week_range(created)
-        for it in o.get("items", []):
-            ref = lookup.get(it.get("item_id"))
-            if not ref:
-                continue
-            key = (ref["seller_id"], ref["shop_id"], ws)
-            b = buckets.setdefault(key, {
-                "seller_id": ref["seller_id"], "shop_id": ref["shop_id"], "shop_name": ref["shop_name"],
-                "week_start": ws, "week_end": we, "week_label": label,
-                "total_sales": 0.0, "order_count": 0, "_orders": set(),
-            })
-            qty = int(it.get("quantity", 1))
-            price = float(it.get("price_usd", 0))
-            sides_total = sum(float(s.get("price_usd", 0)) for s in (it.get("sides") or []))
-            b["total_sales"] += (price + sides_total) * qty
-            b["_orders"].add(o["id"])
+        key = (seller_id, shop_id, ws)
+        b = buckets.setdefault(key, {
+            "seller_id": seller_id, "shop_id": shop_id,
+            "shop_name": sp.get("shop_name") or shop_by_id.get(shop_id, {}).get("name", "—"),
+            "week_start": ws, "week_end": we, "week_label": label,
+            "total_sales": 0.0, "commission": 0.0, "_orders": set(),
+        })
+        b["total_sales"] += float(sp.get("product_subtotal_usd") or 0)
+        b["commission"] += float(sp.get("platform_commission_usd") or 0)
+        b["_orders"].add(sp.get("order_id"))
 
     existing = {
         (inv["seller_id"], inv["shop_id"], inv["week_start"]): inv
@@ -7705,7 +7846,7 @@ async def _rebuild_invoices():
     now = now_iso()
     for (seller_id, shop_id, ws), b in buckets.items():
         effective_rate = rate_for.get(shop_id, global_rate)
-        commission = round(b["total_sales"] * effective_rate, 2)
+        commission = round(b["commission"], 2)
         prev = existing.get((seller_id, shop_id, ws), {})
         await db.invoices.insert_one({
             "id": prev.get("id", str(uuid.uuid4())),
@@ -7721,6 +7862,9 @@ async def _rebuild_invoices():
             "order_count": len(b["_orders"]),
             "commission_rate": effective_rate,
             "status": prev.get("status", "Unpaid"),
+            "payment_reference": prev.get("payment_reference"),
+            "payment_method": prev.get("payment_method"),
+            "paid_at": prev.get("paid_at"),
             "created_at": prev.get("created_at", now),
             "updated_at": now,
         })
@@ -7746,7 +7890,14 @@ async def admin_set_invoice_status(invoice_id: str, body: InvoiceStatusIn, _: di
     inv = await db.invoices.find_one({"id": invoice_id})
     if not inv:
         raise HTTPException(404, "Invoice not found")
-    await db.invoices.update_one({"id": invoice_id}, {"$set": {"status": body.status, "updated_at": now_iso()}})
+    setter = {"status": body.status, "updated_at": now_iso()}
+    if body.status == "Paid":
+        setter["paid_at"] = body.paid_at or now_iso()
+        if body.payment_reference is not None:
+            setter["payment_reference"] = body.payment_reference.strip()[:120]
+        if body.payment_method is not None:
+            setter["payment_method"] = body.payment_method
+    await db.invoices.update_one({"id": invoice_id}, {"$set": setter})
 
     sid = inv.get("seller_id")
     amount = float(inv.get("commission") or inv.get("amount_owed") or 0)
@@ -7857,6 +8008,9 @@ async def _rebuild_restaurant_invoices():
             "order_count": len(b["_orders"]),
             "commission_rate": effective_rate,
             "status": prev.get("status", "Unpaid"),
+            "payment_reference": prev.get("payment_reference"),
+            "payment_method": prev.get("payment_method"),
+            "paid_at": prev.get("paid_at"),
             "created_at": prev.get("created_at", now),
             "updated_at": now,
         })
@@ -7884,9 +8038,16 @@ async def admin_set_restaurant_invoice_status(
     inv = await db.restaurant_invoices.find_one({"id": invoice_id})
     if not inv:
         raise HTTPException(404, "Restaurant invoice not found")
+    setter = {"status": body.status, "updated_at": now_iso()}
+    if body.status == "Paid":
+        setter["paid_at"] = body.paid_at or now_iso()
+        if body.payment_reference is not None:
+            setter["payment_reference"] = body.payment_reference.strip()[:120]
+        if body.payment_method is not None:
+            setter["payment_method"] = body.payment_method
     await db.restaurant_invoices.update_one(
         {"id": invoice_id},
-        {"$set": {"status": body.status, "updated_at": now_iso()}},
+        {"$set": setter},
     )
 
     sid = inv.get("seller_id")

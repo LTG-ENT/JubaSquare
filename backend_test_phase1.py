@@ -14,7 +14,7 @@ from openpyxl import Workbook
 from io import BytesIO
 
 # Base URL from frontend/.env
-BASE_URL = "https://jubasquare-odoo-v2.preview.emergentagent.com/api"
+BASE_URL = "https://shipping-fee-system.preview.emergentagent.com/api"
 
 # Test credentials
 ADMIN_EMAIL = "admin@jubasquare.com"
