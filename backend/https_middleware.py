@@ -53,21 +53,18 @@ class HTTPSAndCanonicalMiddleware(BaseHTTPMiddleware):
             # http:// → https://  OR  apex → www  →  single redirect to canonical origin.
             wants_https = proto != "https"
             wants_www = host.split(":")[0] != CANONICAL_HOST
-            if wants_https or wants_www:
+            # CRITICAL (Iter 37 fix): NEVER redirect /api/* requests. A cross-origin
+            # redirect (e.g. apex jubasquare.com → www.jubasquare.com) is NOT followed
+            # by the browser on an XHR/preflighted POST, so axios surfaces it as a
+            # "Network error" and login breaks in production (but not in preview,
+            # which is same-origin). The API accepts either host and CORS is open, so
+            # just let API calls through untouched. Only canonicalise browser-navigable
+            # page requests (GET/HEAD, non-/api).
+            is_api = request.url.path.startswith("/api/")
+            if (wants_https or wants_www) and not is_api and request.method in ("GET", "HEAD"):
                 new_url = f"https://{CANONICAL_HOST}{request.url.path}"
                 if request.url.query:
                     new_url = f"{new_url}?{request.url.query}"
-                # 33.6.1 — Use 308 (Permanent Redirect) so POST/PUT/DELETE
-                # preserve their method + body. Browsers converting a 301 to
-                # GET on redirect broke /api/auth/login (405 Method Not
-                # Allowed). 308 is treated as canonical-permanent by Google
-                # for SEO, same as 301, but keeps the method.
-                # Also: skip /api requests entirely for CORS preflight safety
-                # — the API accepts either host, and the SPA only ever calls
-                # its own origin. Only browser-navigable page requests need
-                # to be canonicalised.
-                if request.url.path.startswith("/api/") or request.method not in ("GET", "HEAD"):
-                    return RedirectResponse(new_url, status_code=308)
                 return RedirectResponse(new_url, status_code=301)
 
         response = await call_next(request)
