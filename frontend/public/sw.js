@@ -7,7 +7,7 @@
  * Version bumped to invalidate old caches on deploys.
  */
 
-const SW_VERSION = "js-sw-v2"; /* Bump to invalidate stale caches when app UI changes */
+const SW_VERSION = "js-sw-v3"; /* Bump to invalidate stale caches when app UI changes */
 const RUNTIME_CACHE = `js-runtime-${SW_VERSION}`;
 const STATIC_CACHE = `js-static-${SW_VERSION}`;
 

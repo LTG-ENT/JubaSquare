@@ -30,7 +30,7 @@ export const CartProvider = ({ children }) => {
   useEffect(() => {
     const loadExchangeRate = async () => {
       try {
-        const response = await fetch('/api/admin/settings');
+        const response = await fetch('/api/settings/public');
         const data = await response.json();
         const rate = Number(data.global_rate ?? 600);
         if (rate !== exchangeRate) {

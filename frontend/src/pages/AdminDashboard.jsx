@@ -328,6 +328,42 @@ function AdminShopsTab() {
     }
   };
 
+  // Iter 37 — manual suspend / unsuspend from the detail modal (shops only).
+  const [suspendForm, setSuspendForm] = useState({ duration_type: "weekly", days: 7, note: "" });
+  const suspendShop = async () => {
+    try {
+      const payload = { duration_type: suspendForm.duration_type, note: suspendForm.note };
+      if (suspendForm.duration_type === "custom" || suspendForm.duration_type === "days") {
+        payload.days = parseInt(suspendForm.days, 10) || 0;
+      }
+      const { data } = await api.post(`/admin/shops/${detail.id}/suspend`, payload);
+      toast.success("Shop suspended");
+      setDetail({ ...detail, suspended: true, suspension_reason: "manual", suspension_until: data.suspension_until });
+      load();
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail) || "Failed to suspend");
+    }
+  };
+  const unsuspendShop = async () => {
+    try {
+      await api.post(`/admin/shops/${detail.id}/unsuspend`);
+      toast.success("Shop reactivated");
+      setDetail({ ...detail, suspended: false, suspension_reason: null, suspension_until: null });
+      load();
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail) || "Failed to reactivate");
+    }
+  };
+  const saveGraceDays = async (days) => {
+    try {
+      const { data } = await api.put(`/admin/shops/${detail.id}/commission-grace`, { days: days === "" ? null : days });
+      setDetail({ ...detail, commission_grace_days: data.commission_grace_days });
+      toast.success("Grace period updated");
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail) || "Failed to save grace period");
+    }
+  };
+
   const allRows = useMemo(() => {
     if (kindFilter === "shops") return shops;
     if (kindFilter === "restaurants") return restaurants;
@@ -439,6 +475,11 @@ function AdminShopsTab() {
                     <div className="flex items-center gap-3">
                       <img src={s.image_url || undefined} alt="" className="w-10 h-10 rounded-lg object-cover bg-gray-100" />
                       <p className="font-semibold text-[var(--js-text)]">{s.name}</p>
+                      {s.suspended && (
+                        <span className="inline-flex items-center gap-1 bg-[#D90429] text-white text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full" data-testid={`row-suspended-${s.id}`}>
+                          <Ban className="w-3 h-3" /> Suspended
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td className="p-4 hidden sm:table-cell">
@@ -558,6 +599,105 @@ function AdminShopsTab() {
                   )}
                 </div>
               )}
+
+              {/* Iter 37 — Shop suspension (shops only) */}
+              {detail._kind !== "restaurant" && (
+                <div className={"rounded-2xl p-4 border " + (detail.suspended ? "bg-[#D90429]/5 border-[#D90429]/40" : "bg-[var(--js-subtle)] border-[var(--js-border)]")} data-testid="shop-suspension-card">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-display font-semibold text-sm mb-1 flex items-center gap-1.5">
+                        <Ban className="w-4 h-4" /> Suspension
+                      </h3>
+                      <p className="text-xs text-[var(--js-text-secondary)]">
+                        A suspended shop is hidden from customers and cannot take new orders. The seller can still log in to pay what they owe.
+                      </p>
+                    </div>
+                    {detail.suspended && (
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full bg-[#D90429] text-white whitespace-nowrap">
+                        Suspended
+                      </span>
+                    )}
+                  </div>
+
+                  {detail.suspended ? (
+                    <div className="mt-3">
+                      <div className="text-xs text-[var(--js-text)] bg-white border border-[var(--js-border)] rounded-xl p-3">
+                        <div><b>Reason:</b> {detail.suspension_reason === "commission_overdue" ? "Unpaid commission (auto)" : "Manual (admin)"}</div>
+                        {detail.suspension_until ? (
+                          <div><b>Auto-reactivates:</b> {new Date(detail.suspension_until).toLocaleString()}</div>
+                        ) : (
+                          <div><b>Until:</b> {detail.suspension_reason === "commission_overdue" ? "commission is paid" : "manually lifted"}</div>
+                        )}
+                        {detail.suspension_note ? <div className="text-[var(--js-text-secondary)] mt-1">{detail.suspension_note}</div> : null}
+                      </div>
+                      <button
+                        onClick={unsuspendShop}
+                        data-testid="unsuspend-shop-btn"
+                        className="mt-3 inline-flex items-center gap-1.5 bg-[#2D6A4F] hover:bg-[#245a41] text-white text-xs font-bold px-4 py-2 rounded-lg"
+                      >
+                        <CheckCircle2 className="w-4 h-4" /> Reactivate now
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mt-3 space-y-2">
+                      <div className="flex gap-2 flex-wrap">
+                        <select
+                          value={suspendForm.duration_type}
+                          onChange={(e) => setSuspendForm({ ...suspendForm, duration_type: e.target.value })}
+                          data-testid="suspend-duration-type"
+                          className="px-3 py-2 border border-[var(--js-border)] rounded-xl text-sm focus:outline-none focus:border-[#D90429]"
+                        >
+                          <option value="weekly">1 week</option>
+                          <option value="monthly">1 month</option>
+                          <option value="custom">Custom days</option>
+                          <option value="indefinite">Indefinite</option>
+                        </select>
+                        {(suspendForm.duration_type === "custom" || suspendForm.duration_type === "days") && (
+                          <input
+                            type="number" min="1"
+                            value={suspendForm.days}
+                            onChange={(e) => setSuspendForm({ ...suspendForm, days: e.target.value })}
+                            data-testid="suspend-days-input"
+                            className="w-24 px-3 py-2 border border-[var(--js-border)] rounded-xl text-sm focus:outline-none focus:border-[#D90429]"
+                            placeholder="days"
+                          />
+                        )}
+                      </div>
+                      <input
+                        type="text"
+                        value={suspendForm.note}
+                        onChange={(e) => setSuspendForm({ ...suspendForm, note: e.target.value })}
+                        placeholder="Reason / note (optional)"
+                        data-testid="suspend-note-input"
+                        className="w-full px-3 py-2 border border-[var(--js-border)] rounded-xl text-sm focus:outline-none focus:border-[#D90429]"
+                      />
+                      <button
+                        onClick={suspendShop}
+                        data-testid="suspend-shop-btn"
+                        className="inline-flex items-center gap-1.5 bg-[#D90429] hover:bg-[#b8031f] text-white text-xs font-bold px-4 py-2 rounded-lg"
+                      >
+                        <Ban className="w-4 h-4" /> Suspend shop
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="mt-3 pt-3 border-t border-[var(--js-border)]">
+                    <label className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">
+                      Auto-suspend grace period (days) — override
+                    </label>
+                    <input
+                      type="number" min="0"
+                      defaultValue={detail.commission_grace_days ?? ""}
+                      onBlur={(e) => saveGraceDays(e.target.value === "" ? "" : (parseInt(e.target.value, 10) || 0))}
+                      placeholder="Use global default"
+                      data-testid="shop-grace-days-input"
+                      className="w-full px-3 py-2 border border-[var(--js-border)] rounded-xl text-sm focus:outline-none focus:border-[#C84B31]"
+                    />
+                    <p className="text-[11px] text-[var(--js-text-secondary)] mt-1">Days after a commission week ends before this shop is auto-suspended for non-payment. Leave blank to use the global default from Settings.</p>
+                  </div>
+                </div>
+              )}
+
 
               <div className="bg-[var(--js-subtle)] rounded-2xl p-4">
                 <h3 className="font-display font-semibold text-sm mb-1">Custom commission rate</h3>

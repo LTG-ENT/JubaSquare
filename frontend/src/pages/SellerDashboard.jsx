@@ -366,8 +366,28 @@ function ShopsTab({ currency, exchangeRate }) {
     ...restaurants.map((r) => ({ ...r, _kind: "restaurant" })),
   ];
 
+  const suspendedShops = combined.filter((s) => s.suspended);
+
   return (
     <div>
+      {suspendedShops.length > 0 && (
+        <div className="mb-5 rounded-2xl border border-[#D90429]/40 bg-[#D90429]/5 p-4" data-testid="seller-suspension-banner">
+          <h3 className="font-display font-bold text-[#D90429] flex items-center gap-2">
+            {suspendedShops.length === 1 ? `"${suspendedShops[0].name}" is suspended` : `${suspendedShops.length} of your shops are suspended`}
+          </h3>
+          <p className="text-sm text-[var(--js-text)] mt-1">
+            {suspendedShops.some((s) => s.suspension_reason === "commission_overdue")
+              ? "This is due to unpaid commission owed to JubaSquare. Your shop is hidden from customers and can't take orders until the commission is paid. Pay your outstanding commission and your shop reactivates automatically."
+              : "An admin has temporarily suspended this shop. It is hidden from customers and can't take orders. It will reactivate automatically when the suspension period ends, or contact support."}
+          </p>
+          {suspendedShops.map((s) => (
+            <div key={s.id} className="text-xs text-[var(--js-text-secondary)] mt-1">
+              • <b>{s.name}</b> — {s.suspension_reason === "commission_overdue" ? "unpaid commission" : "admin suspension"}
+              {s.suspension_until ? ` · reactivates ${new Date(s.suspension_until).toLocaleDateString()}` : ""}
+            </div>
+          ))}
+        </div>
+      )}
       <div className="flex items-center justify-between mb-6">
         <p className="text-sm text-[var(--js-text-secondary)]">{combined.length} business{combined.length !== 1 && "es"} ({shops.length} shops · {restaurants.length} restaurants)</p>
         <button

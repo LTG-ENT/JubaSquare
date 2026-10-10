@@ -38,13 +38,29 @@ export function getPushPermission() {
   return Notification.permission; // "granted" | "denied" | "default"
 }
 
+let _reloadingForSW = false;
+
 export async function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return null;
   try {
-    const reg = await navigator.serviceWorker.register(SW_PATH, { scope: "/" });
-    // Auto-update: check for a new SW on visibility (once per session is enough)
+    // When a new service worker takes control (e.g. after a deploy or a
+    // preview-domain change), reload ONCE so the page runs the fresh bundle
+    // instead of a stale cached one that may call an old backend URL.
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (_reloadingForSW) return;
+      _reloadingForSW = true;
+      window.location.reload();
+    });
+
+    const reg = await navigator.serviceWorker.register(SW_PATH, { scope: "/", updateViaCache: "none" });
+    // Auto-update: check for a new SW immediately and whenever the tab regains focus.
     if (reg.update) {
       try { reg.update(); } catch { /* ignore */ }
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") {
+          try { reg.update(); } catch { /* ignore */ }
+        }
+      });
     }
     return reg;
   } catch (e) {

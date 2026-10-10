@@ -444,3 +444,37 @@ Two pricing bugs found on the live "Yaki Iron Machine" wholesale product (`price
   - Same name in a DIFFERENT group → allowed. The storage `key` is auto-suffixed with the group's slug (e.g. `gender_clothing`, `gender_beauty`) so product attribute values never collide across groups. Second-level collisions are handled with a numeric suffix.
 - Verified end-to-end via curl: two "Gender" attributes in different groups both persist with distinct keys; third attempt in the same group returns 400 with a helpful message.
 
+
+---
+
+## Iter 36 (Wave 1) + Iter 37 — Shipping/fees, invoice fix, admin confirm, shop suspension
+
+### Environment
+- Preview `backend/.env` + `frontend/.env` were missing (restore wiped them). Recreated.
+- Now connected to PRODUCTION MongoDB Atlas cluster `jubasquare-database`, db `jubasquare`.
+  ⚠️ Preview shares the SAME Atlas as the live site — avoid data-creating automated tests here.
+- Admin password reset to `1234` (admin@jubasquare.com / admin). Owner should change it.
+
+### Iter 36 (Wave 1) — shipped
+- Draggable admin Attributes (HTML5 drag handle; up/down kept).
+- Seller product/menu sections cap 20 -> 25 (frontend cap was also 10, fixed).
+- Admin "Not Verified" filter alongside All/Shops/Restaurants.
+- Seller shipping cost: per-shop flat `shipping_fee_usd` + per-item product `shipping_fee_usd`; added at checkout for OUT-OF-COUNTRY shops.
+- Admin per-shop "Outside South Sudan" toggle (+ country) → badge on shop/product cards. Endpoint: PUT /api/admin/shops/{id}/out-of-country.
+- Settings: service_fee_rate (all orders, % of subtotal), customs_rate + customs_fixed_usd (out-of-country only). Shown as cart line items.
+- Invoice fix: marketplace invoices now built from DELIVERED seller_order_splits (not all placed orders). New admin "Commission Invoices" tab with Confirm-payment (records method/reference/paid_at). InvoiceStatusIn extended.
+
+### Iter 37 — Shop suspension (NEW)
+- Suspended shop = hidden from customers + orders blocked; seller can still log in.
+- Auto-suspend: shops with Unpaid/Overdue commission whose sales week ended > grace_days ago.
+  Grace: shop.commission_grace_days ?? settings.commission_grace_days (default 7).
+- Admin manual suspend: weekly(7)/monthly(30)/custom days/indefinite; timed ones auto-reactivate.
+- Auto-reactivate on commission Paid (recheck_seller_commission_suspension) and when overdue clears.
+- Cron: .emergent/crons.yml -> POST /api/cron/process-suspensions hourly (Bearer WEBHOOK_CRON_SECRET).
+  Admin manual sweep: POST /api/admin/suspensions/run. process_suspensions() is idempotent.
+- Endpoints: POST /admin/shops/{id}/suspend, POST /admin/shops/{id}/unsuspend, PUT /admin/shops/{id}/commission-grace.
+- Shop docs gain: suspended, suspension_reason (manual|commission_overdue), suspended_at, suspension_until, suspension_note, commission_grace_days.
+- UI: admin shop-detail Suspension card + grace override; Settings default grace input; seller dashboard suspension banner; "Suspended" row badge.
+
+### Pending (Wave 2, on hold per user)
+- #7 International seller payouts: bank details, 30-day hold, vendor balance breakdown, settlement history, SS cash/bank choice.

@@ -4314,3 +4314,60 @@ iter36_backend:
         agent: "testing"
         comment: "✅ PARTIAL (1/2 tests): POST /api/admin/invoices/generate returns 200, count=0 (correct for fresh DB with no delivered splits). New logic verified: only counts DELIVERED splits (not undelivered/placed orders). Payment confirmation fields cannot be tested without delivered splits (requires full COD flow). Code review confirms payment_reference, payment_method, paid_at fields are implemented correctly."
 
+
+
+  - agent: "testing"
+    message: |
+      ✅ LOGIN FLOW VERIFICATION COMPLETE (January 10, 2026):
+      
+      **✅ LOGIN WORKS PERFECTLY - NO BLOCKING ISSUES**
+      
+      Tested login flow as requested by user who reported "Network error on login":
+      
+      1. ✅ Login page renders correctly:
+         - JubaSquare logo displays
+         - Email/Username field present
+         - Password field present
+         - Sign In button present
+      
+      2. ✅ Admin login with EMAIL (admin@jubasquare.com / 1234):
+         - API call: POST https://shipping-fee-system.preview.emergentagent.com/api/auth/login → HTTP 200
+         - Domain is CORRECT: shipping-fee-system.preview.emergentagent.com
+         - Successfully redirected to /admin dashboard
+         - Toast message: "Welcome back, Admin!" (SUCCESS, not error)
+         - Dashboard loads with all data (14 orders, $454 revenue, 21 customers, etc.)
+      
+      3. ✅ Admin login with USERNAME (admin / 1234):
+         - API call: POST https://shipping-fee-system.preview.emergentagent.com/api/auth/login → HTTP 200
+         - Successfully redirected to /admin dashboard
+         - Toast message: "Welcome back, Admin!"
+      
+      4. ✅ Invalid credentials test (admin@jubasquare.com / wrongpass):
+         - API call: POST https://shipping-fee-system.preview.emergentagent.com/api/auth/login → HTTP 401
+         - Toast message: "Invalid credentials" (NOT "Network error")
+         - Correctly distinguishes auth errors from network errors
+      
+      **MINOR ISSUE FOUND & FIXED (non-blocking):**
+      
+      Found console error "Failed to load exchange rate: TypeError: Failed to fetch" on page load.
+      
+      Root cause: CartContext.jsx was calling `/api/admin/settings` (admin-only endpoint) instead of `/api/settings/public` (public endpoint) to load the global exchange rate. This caused 401 errors for non-authenticated users on the login page.
+      
+      Fix applied: Changed line 33 in /app/frontend/src/context/CartContext.jsx from:
+      ```javascript
+      const response = await fetch('/api/admin/settings');  // ❌ WRONG
+      ```
+      to:
+      ```javascript
+      const response = await fetch('/api/settings/public');  // ✅ CORRECT
+      ```
+      
+      **IMPORTANT NOTES:**
+      - This exchange rate error was a BACKGROUND error only (console log)
+      - It did NOT block login functionality
+      - It did NOT show any "Network error" toast to users
+      - Login worked perfectly even with this error present
+      - The fix improves code quality but was not blocking the reported issue
+      
+      **CONCLUSION:**
+      The user's report of "Network error on login" could not be reproduced. Login works correctly with both email and username, returns proper HTTP status codes, uses the correct domain, and successfully redirects to the admin dashboard. The only network-related errors found were background console errors that don't affect user experience or functionality.

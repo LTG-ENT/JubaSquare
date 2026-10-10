@@ -5,6 +5,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 import os
+import hmac
 import uuid
 import logging
 import json
@@ -16,7 +17,7 @@ import jwt
 import secrets
 import re
 from pathlib import Path as _FsPath
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Query, Body
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Query, Body, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -120,6 +121,10 @@ DEFAULT_SETTINGS = {
     # transfer and their earnings are held this many days after delivery
     # before becoming available for payout.
     "international_payout_hold_days": 30,
+    # Iter 37 — default grace period (days) after a commission invoice's week
+    # ends before a shop with unpaid commission is AUTO-SUSPENDED. Per-shop
+    # override via shop.commission_grace_days.
+    "commission_grace_days": 7,
     # If TRUE → admin's Delivery Pricing rules apply to all orders.
     # If FALSE (default) → the seller's own shop-level delivery settings
     # (delivery_mode/delivery_fee_usd/delivery_per_area) are used, with the
@@ -1062,6 +1067,7 @@ class SettingsIn(BaseModel):
     customs_rate: Optional[float] = None
     customs_fixed_usd: Optional[float] = None
     international_payout_hold_days: Optional[int] = None
+    commission_grace_days: Optional[int] = None
 
 
 class InvoiceStatusIn(BaseModel):
@@ -2496,6 +2502,9 @@ async def list_shops(
         pass
     if s.get("require_verification", True) and not caller_is_admin:
         q["$and"].append({"verification": "Verified"})
+    # Iter 37 — hide suspended shops from customers (admin still sees them).
+    if not caller_is_admin:
+        q["$and"].append({"suspended": {"$ne": True}})
     if category:
         q["category"] = category
     if area:
@@ -3160,7 +3169,7 @@ async def list_products(category_id: Optional[str] = None, category: Optional[st
     if not shop_id:
         s_gate = await get_settings()
         require_verified = s_gate.get("require_verification", True)
-        hide_q: dict = {"$or": [{"is_public": False}, {"is_deleted": True}]}
+        hide_q: dict = {"$or": [{"is_public": False}, {"is_deleted": True}, {"suspended": True}]}
         if require_verified:
             hide_q = {"$or": hide_q["$or"] + [{"verification": {"$ne": "Verified"}}]}
         hidden_shops = {sh["id"] for sh in await db.shops.find(
@@ -5229,12 +5238,13 @@ async def place_order(body: OrderIn, user: dict = Depends(get_current_user)):
     
     if shop_ids_in_order:
         shops = await db.shops.find({"id": {"$in": shop_ids_in_order}}, {"_id": 0}).to_list(500)
+        # Iter 37 — block checkout for suspended shops.
+        suspended_names = [sh.get("name", "a shop") for sh in shops if sh.get("suspended")]
+        if suspended_names:
+            raise HTTPException(status_code=400, detail=f"{suspended_names[0]} is temporarily unavailable and not accepting orders right now.")
         for sh in shops:
-            # Calculate delivery fee using admin rules
-            # pickup_area = shop area, delivery_area = customer area
             pickup_area = sh.get("area", "")
             delivery_area = body.area
-            
             fee = await _calculate_delivery_fee(
                 pickup_area=pickup_area,
                 delivery_area=delivery_area,
@@ -7786,6 +7796,194 @@ def _iso_week_range(dt: datetime):
     return monday.date().isoformat(), sunday.date().isoformat(), label
 
 
+# ----------------------------------------------------------------------------
+# Iter 37 — Shop suspension (auto for unpaid commission + admin manual/timed)
+# ----------------------------------------------------------------------------
+class SuspendShopIn(BaseModel):
+    # weekly=7d, monthly=30d, days/custom=`days`; omit/0 days = indefinite (until admin lifts)
+    duration_type: Literal["days", "weekly", "monthly", "custom", "indefinite"] = "custom"
+    days: Optional[int] = None
+    note: Optional[str] = ""
+
+
+def _shop_grace_days(shop: dict, settings: dict) -> int:
+    v = shop.get("commission_grace_days")
+    if v is None:
+        v = settings.get("commission_grace_days", 7)
+    try:
+        return max(0, int(v))
+    except Exception:
+        return 7
+
+
+async def _shop_has_overdue_commission(shop_id: str, grace_days: int) -> bool:
+    """True if the shop has any Unpaid/Overdue commission invoice whose sales
+    week ended more than `grace_days` days ago."""
+    today = datetime.now(timezone.utc).date()
+    for coll in (db.invoices, db.restaurant_invoices):
+        rows = await coll.find(
+            {"shop_id": shop_id, "status": {"$in": ["Unpaid", "Overdue"]}},
+            {"_id": 0, "week_end": 1, "created_at": 1},
+        ).to_list(1000)
+        for inv in rows:
+            ref = inv.get("week_end") or inv.get("created_at") or ""
+            try:
+                due = datetime.fromisoformat(str(ref)[:10]).date()
+            except Exception:
+                continue
+            if (today - due).days > grace_days:
+                return True
+    return False
+
+
+async def _set_shop_suspension(shop_id: str, suspended: bool, reason=None, until=None, note=None):
+    if suspended:
+        setter = {
+            "suspended": True,
+            "suspension_reason": reason,
+            "suspended_at": now_iso(),
+            "suspension_until": until,
+            "suspension_note": note or "",
+            "updated_at": now_iso(),
+        }
+    else:
+        setter = {
+            "suspended": False,
+            "suspension_reason": None,
+            "suspended_at": None,
+            "suspension_until": None,
+            "updated_at": now_iso(),
+        }
+    await db.shops.update_one({"id": shop_id}, {"$set": setter})
+
+
+async def process_suspensions() -> dict:
+    """Idempotent sweep: expire timed manual suspensions, auto-suspend shops
+    with commission overdue past grace, and lift commission suspensions once
+    the overdue invoices are cleared. Manual suspensions are never touched by
+    the commission rules (only by their own timer or an admin un-suspend)."""
+    settings = await get_settings()
+    now = datetime.now(timezone.utc)
+    result = {"auto_suspended": 0, "commission_lifted": 0, "manual_expired": 0}
+    shops = await db.shops.find(
+        {"is_deleted": {"$ne": True}},
+        {"_id": 0, "id": 1, "suspended": 1, "suspension_reason": 1, "suspension_until": 1, "commission_grace_days": 1},
+    ).to_list(5000)
+    for sh in shops:
+        sid = sh["id"]
+        suspended = bool(sh.get("suspended"))
+        reason = sh.get("suspension_reason")
+        if suspended and reason == "manual":
+            until = sh.get("suspension_until")
+            if until:
+                try:
+                    udt = datetime.fromisoformat(until)
+                    if udt.tzinfo is None:
+                        udt = udt.replace(tzinfo=timezone.utc)
+                    if now >= udt:
+                        await _set_shop_suspension(sid, False)
+                        result["manual_expired"] += 1
+                except Exception:
+                    pass
+            continue  # manual suspensions are not governed by commission rules
+        grace = _shop_grace_days(sh, settings)
+        overdue = await _shop_has_overdue_commission(sid, grace)
+        if overdue and not suspended:
+            await _set_shop_suspension(sid, True, reason="commission_overdue", until=None,
+                                       note="Auto-suspended: unpaid commission past grace period")
+            result["auto_suspended"] += 1
+        elif (not overdue) and suspended and reason == "commission_overdue":
+            await _set_shop_suspension(sid, False)
+            result["commission_lifted"] += 1
+    return result
+
+
+async def recheck_seller_commission_suspension(seller_id: str):
+    """After an invoice is marked Paid, lift commission suspension on the
+    seller's shops that no longer have any overdue commission."""
+    settings = await get_settings()
+    shops = await db.shops.find(
+        {"seller_id": seller_id, "suspended": True, "suspension_reason": "commission_overdue"},
+        {"_id": 0, "id": 1, "commission_grace_days": 1},
+    ).to_list(500)
+    for sh in shops:
+        grace = _shop_grace_days(sh, settings)
+        if not await _shop_has_overdue_commission(sh["id"], grace):
+            await _set_shop_suspension(sh["id"], False)
+
+
+@api.post("/admin/shops/{shop_id}/suspend")
+async def admin_suspend_shop(shop_id: str, body: SuspendShopIn, user: dict = Depends(require_role("admin"))):
+    """Admin manual suspension. Duration: weekly(7d), monthly(30d), days/custom
+    (uses `days`), or indefinite (until lifted). Auto-reactivates when the timer
+    expires (handled by the suspension cron)."""
+    shop = await db.shops.find_one({"id": shop_id}, {"_id": 0, "id": 1})
+    if not shop:
+        raise HTTPException(404, "Shop not found")
+    dt = body.duration_type
+    days = body.days
+    if dt == "weekly":
+        days = 7
+    elif dt == "monthly":
+        days = 30
+    elif dt in ("days", "custom"):
+        try:
+            days = int(days or 0)
+        except Exception:
+            days = 0
+    else:  # indefinite
+        days = 0
+    until = None
+    if days and days > 0:
+        until = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+    await _set_shop_suspension(shop_id, True, reason="manual", until=until, note=body.note)
+    return {"ok": True, "suspended": True, "suspension_until": until, "days": days}
+
+
+@api.post("/admin/shops/{shop_id}/unsuspend")
+async def admin_unsuspend_shop(shop_id: str, user: dict = Depends(require_role("admin"))):
+    shop = await db.shops.find_one({"id": shop_id}, {"_id": 0, "id": 1})
+    if not shop:
+        raise HTTPException(404, "Shop not found")
+    await _set_shop_suspension(shop_id, False)
+    return {"ok": True, "suspended": False}
+
+
+@api.put("/admin/shops/{shop_id}/commission-grace")
+async def admin_set_shop_commission_grace(shop_id: str, body: dict = Body(default_factory=dict), user: dict = Depends(require_role("admin"))):
+    """Per-shop override of the auto-suspension grace days (null = use global default)."""
+    days = body.get("days")
+    val = None
+    if days not in (None, ""):
+        try:
+            val = max(0, int(days))
+        except Exception:
+            raise HTTPException(400, "days must be an integer")
+    r = await db.shops.update_one({"id": shop_id}, {"$set": {"commission_grace_days": val, "updated_at": now_iso()}})
+    if not r.matched_count:
+        raise HTTPException(404, "Shop not found")
+    return {"ok": True, "commission_grace_days": val}
+
+
+@api.post("/admin/suspensions/run")
+async def admin_run_suspensions(user: dict = Depends(require_role("admin"))):
+    """Run the suspension sweep now (synchronously) and return what changed."""
+    return await process_suspensions()
+
+
+@api.post("/cron/process-suspensions")
+async def cron_process_suspensions(request: Request, background_tasks: BackgroundTasks):
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    secret = os.environ.get("WEBHOOK_CRON_SECRET", "")
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else ""
+    if not secret or not hmac.compare_digest(token, secret):
+        raise HTTPException(401, "Unauthorized")
+    background_tasks.add_task(process_suspensions)
+    return {"ok": True, "queued": True}
+
+
+
 async def _rebuild_invoices():
     """Regenerate marketplace commission invoices from DELIVERED COD order
     splits (Iter 36 fix). One invoice per (seller, shop, ISO-week).
@@ -7919,6 +8117,8 @@ async def admin_set_invoice_status(invoice_id: str, body: InvoiceStatusIn, _: di
                 ntype="commission",
                 meta={"invoice_id": invoice_id, "paid": True},
             )
+            # Iter 37 — auto-lift commission suspension if no overdue remains
+            await recheck_seller_commission_suspension(sid)
 
     return await db.invoices.find_one({"id": invoice_id}, {"_id": 0})
 
@@ -8061,6 +8261,7 @@ async def admin_set_restaurant_invoice_status(
                 ntype="commission",
                 meta={"restaurant_invoice_id": invoice_id, "paid": True},
             )
+            await recheck_seller_commission_suspension(sid)
         elif body.status == "Overdue":
             await create_notification(
                 user_id=sid,

@@ -1,0 +1,8 @@
+crons:
+  - name: shop-suspensions
+    description: "Auto-suspends shops with unpaid commission past grace and auto-reactivates expired timed suspensions"
+    cron: "0 * * * *"
+    endpoint: "{{BASE_URL}}/api/cron/process-suspensions"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true
