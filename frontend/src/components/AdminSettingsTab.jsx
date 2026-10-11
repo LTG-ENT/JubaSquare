@@ -439,6 +439,41 @@ export default function AdminSettingsTab({ onGoToShop }) {
     }
   };
 
+  const [importing, setImporting] = useState(false);
+  const exportBackup = async () => {
+    try {
+      const res = await api.get("/admin/backup/export", { responseType: "blob" });
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: "application/json" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `jubasquare-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success("Backup downloaded");
+    } catch {
+      toast.error("Export failed");
+    }
+  };
+  const importBackup = async (file, mode) => {
+    if (!file) return;
+    if (mode === "replace" && !window.confirm("REPLACE mode wipes each collection found in the file before restoring. This cannot be undone. Continue?")) return;
+    setImporting(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await api.post(`/admin/backup/import?mode=${mode}`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      const n = Object.values(res.data?.restored || {}).reduce((a, b) => a + b, 0);
+      toast.success(`Restored ${n} records. Reloading…`);
+      setTimeout(() => window.location.reload(), 1200);
+    } catch (err) {
+      toast.error(formatDetail(err.response?.data?.detail) || "Import failed");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const chargesDirty = (
     Math.abs((parseFloat(serviceDraft) || 0) / 100 - savedCharges.service) > 1e-9 ||
     Math.abs((parseFloat(customsRateDraft) || 0) / 100 - savedCharges.customsRate) > 1e-9 ||
@@ -476,7 +511,7 @@ export default function AdminSettingsTab({ onGoToShop }) {
             <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">Platform</p>
             <h2 className="font-display font-bold text-lg text-[var(--js-text)] mt-0.5">Global commission rate</h2>
             <p className="text-xs text-[var(--js-text-secondary)] mt-1 leading-relaxed">
-              This percentage is charged on every sale as JubaSquare's commission. It applies to <strong>every shop</strong> unless that shop has a custom rate set (see below).
+              This percentage is charged on every sale as the JubaSquare commission. It applies to <strong>every shop</strong> unless that shop has a custom rate set (see below).
             </p>
 
             <div className="mt-4 flex items-stretch gap-2 flex-wrap">
@@ -525,7 +560,7 @@ export default function AdminSettingsTab({ onGoToShop }) {
             <div className="mt-4 flex gap-2 items-start p-3 bg-[#FFF7E0] border border-[#E9C46A]/40 rounded-xl text-xs text-[#7A5C12]">
               <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <div>
-                <strong>How commission is applied:</strong> when invoices are generated, each shop's effective rate is
+                <strong>How commission is applied:</strong> when invoices are generated, the effective rate for each shop is
                 <code className="mx-1 px-1.5 py-0.5 bg-white rounded">shop.commission_rate ?? global_rate</code>.
                 Changing the global rate triggers invoice regeneration so pending invoices pick up the new value.
               </div>
@@ -534,7 +569,7 @@ export default function AdminSettingsTab({ onGoToShop }) {
         </div>
       </div>
 
-      {/* Iter 36 — Checkout charges (service fee %, customs %, customs fixed) */}
+      {/* Iter 37 — Checkout charges (service fee %, customs %, customs fixed) */}
       <div className="bg-white border border-[var(--js-border)] rounded-2xl p-5 sm:p-6" data-testid="settings-checkout-charges-card">
         <div className="flex items-start gap-4">
           <div className="w-11 h-11 rounded-xl bg-[#2D6A4F]/10 text-[#2D6A4F] flex items-center justify-center flex-shrink-0">
@@ -544,7 +579,7 @@ export default function AdminSettingsTab({ onGoToShop }) {
             <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">Checkout</p>
             <h2 className="font-display font-bold text-lg text-[var(--js-text)] mt-0.5">Service fee &amp; customs</h2>
             <p className="text-xs text-[var(--js-text-secondary)] mt-1 leading-relaxed">
-              The <strong>service fee</strong> is charged to the customer on every order (a % of the subtotal) and paid to JubaSquare. <strong>Customs / taxes</strong> apply only to shops marked "Outside South Sudan" — a % of that shop's subtotal plus an optional fixed charge per shipment.
+              The <strong>service fee</strong> is charged to the customer on every order (a % of the subtotal) and paid to JubaSquare. <strong>Customs / taxes</strong> apply only to shops marked as outside South Sudan — a % of that shop subtotal plus an optional fixed charge per shipment.
             </p>
 
             <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -625,6 +660,42 @@ export default function AdminSettingsTab({ onGoToShop }) {
                   <RotateCcw className="w-3.5 h-3.5" /> Discard
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Iter 37 — Data backup: export / restore */}
+      <div className="bg-white border border-[var(--js-border)] rounded-2xl p-5 sm:p-6" data-testid="settings-backup-card">
+        <div className="flex items-start gap-4">
+          <div className="w-11 h-11 rounded-xl bg-[#264653]/10 text-[#264653] flex items-center justify-center flex-shrink-0">
+            <Save className="w-5 h-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--js-text-secondary)]">Safety</p>
+            <h2 className="font-display font-bold text-lg text-[var(--js-text)] mt-0.5">Backup &amp; restore</h2>
+            <p className="text-xs text-[var(--js-text-secondary)] mt-1 leading-relaxed">
+              Download a full snapshot of everything (settings, shops, products, users, orders…) to a single file. Keep it safe — if anything is lost you can upload it here to restore. <b>Merge</b> adds/updates records without deleting anything; <b>Replace</b> wipes each collection in the file first.
+            </p>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={exportBackup}
+                data-testid="backup-export-btn"
+                className="inline-flex items-center gap-1.5 text-sm font-bold px-5 py-2.5 rounded-xl bg-[#264653] hover:bg-[#1d3640] text-white"
+              >
+                <Save className="w-4 h-4" /> Download backup
+              </button>
+              <label className="inline-flex items-center gap-1.5 text-sm font-bold px-5 py-2.5 rounded-xl border border-[var(--js-border)] text-[var(--js-text)] hover:border-[#1A1A1A] cursor-pointer" data-testid="backup-import-merge">
+                {importing ? "Restoring…" : "Restore (merge)"}
+                <input type="file" accept="application/json,.json" className="hidden" disabled={importing}
+                  onChange={(e) => { importBackup(e.target.files?.[0], "merge"); e.target.value = ""; }} />
+              </label>
+              <label className="inline-flex items-center gap-1.5 text-xs font-bold px-4 py-2 rounded-xl border border-[#D90429]/40 text-[#D90429] hover:bg-[#D90429]/5 cursor-pointer" data-testid="backup-import-replace">
+                Restore (replace)
+                <input type="file" accept="application/json,.json" className="hidden" disabled={importing}
+                  onChange={(e) => { importBackup(e.target.files?.[0], "replace"); e.target.value = ""; }} />
+              </label>
             </div>
           </div>
         </div>

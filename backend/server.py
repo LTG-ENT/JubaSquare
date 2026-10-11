@@ -2,7 +2,10 @@ from dotenv import load_dotenv
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / ".env")
+# override=False → real environment variables (platform-injected production
+# secrets) always win over this file. The deployed image also excludes
+# backend/.env (see /app/.dockerignore) so prod can never use preview creds.
+load_dotenv(ROOT_DIR / ".env", override=False)
 
 import os
 import hmac
@@ -547,13 +550,17 @@ async def get_current_user(request: Request) -> dict:
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    settings = await get_settings()
-    if payload.get("tv", 1) != settings.get("token_version", 1):
-        raise HTTPException(status_code=401, detail="Session invalidated by admin")
-
     user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+
+    # Iter 37 — "force logout all users" bumps settings.token_version. Admins
+    # are EXEMPT so an admin can trigger the logout without logging themselves
+    # (and other admins) out.
+    if user.get("role") != "admin":
+        settings = await get_settings()
+        if payload.get("tv", 1) != settings.get("token_version", 1):
+            raise HTTPException(status_code=401, detail="Session invalidated by admin")
     # Iter 29 — soft-deleted users cannot use the API. `is_deleted` is set by
     # admin_delete_user; the token itself is still valid but every request
     # returns 401 so any lingering client sessions terminate cleanly.
@@ -7797,6 +7804,96 @@ def _iso_week_range(dt: datetime):
 
 
 # ----------------------------------------------------------------------------
+# Iter 37 — Admin data backup: manual export (download) + import (restore)
+# ----------------------------------------------------------------------------
+_BACKUP_SKIP = {"system.indexes", "system.views", "sessions"}
+
+
+@api.get("/admin/backup/export")
+async def admin_backup_export(user: dict = Depends(require_role("admin"))):
+    """Download a full JSON snapshot of every collection (settings, shops,
+    users, orders, …). Keep this file safe — admin can re-upload it via
+    /admin/backup/import to restore everything."""
+    from fastapi.responses import Response as _Resp
+    names = await db.list_collection_names()
+    data = {}
+    for name in names:
+        if name in _BACKUP_SKIP or name.startswith("system."):
+            continue
+        data[name] = await db[name].find({}, {"_id": 0}).to_list(200000)
+    payload = {
+        "_backup_meta": {
+            "created_at": now_iso(),
+            "db": os.environ.get("DB_NAME"),
+            "version": 1,
+            "counts": {k: len(v) for k, v in data.items()},
+        },
+        "collections": data,
+    }
+    body = json.dumps(payload, default=str)
+    fname = f"jubasquare-backup-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.json"
+    return _Resp(content=body, media_type="application/json",
+                 headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+
+@api.get("/admin/backup/summary")
+async def admin_backup_summary(user: dict = Depends(require_role("admin"))):
+    """Lightweight counts so the UI can show what a backup would contain."""
+    names = await db.list_collection_names()
+    out = {}
+    for name in names:
+        if name in _BACKUP_SKIP or name.startswith("system."):
+            continue
+        out[name] = await db[name].count_documents({})
+    return {"db": os.environ.get("DB_NAME"), "collections": out, "total_documents": sum(out.values())}
+
+
+@api.post("/admin/backup/import")
+async def admin_backup_import(
+    file: UploadFile = File(...),
+    mode: str = Query("merge", pattern="^(merge|replace)$"),
+    user: dict = Depends(require_role("admin")),
+):
+    """Restore from a backup file produced by /admin/backup/export.
+    mode=merge (default): upsert each doc by its `id` (keeps anything not in
+    the file). mode=replace: wipe each collection in the file first, then load.
+    Never touches collections that aren't in the file."""
+    raw = await file.read()
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        raise HTTPException(400, "Invalid backup file — not valid JSON")
+    collections = payload.get("collections")
+    if not isinstance(collections, dict):
+        # also accept a raw {collection: [docs]} shape
+        collections = payload if isinstance(payload, dict) else None
+    if not isinstance(collections, dict):
+        raise HTTPException(400, "Backup file has no 'collections' object")
+
+    report = {}
+    for name, docs in collections.items():
+        if name in _BACKUP_SKIP or name.startswith("system.") or name.startswith("_"):
+            continue
+        if not isinstance(docs, list):
+            continue
+        coll = db[name]
+        if mode == "replace":
+            await coll.delete_many({})
+        count = 0
+        for d in docs:
+            if not isinstance(d, dict):
+                continue
+            d.pop("_id", None)
+            if d.get("id"):
+                await coll.replace_one({"id": d["id"]}, d, upsert=True)
+            else:
+                await coll.insert_one(d)
+            count += 1
+        report[name] = count
+    return {"ok": True, "mode": mode, "restored": report}
+
+
+# ----------------------------------------------------------------------------
 # Iter 37 — Shop suspension (auto for unpaid commission + admin manual/timed)
 # ----------------------------------------------------------------------------
 class SuspendShopIn(BaseModel):
@@ -8497,7 +8594,13 @@ async def seed_production():
 
 @app.on_event("startup")
 async def on_startup():
-    await seed_production()
+    # Iter 37 — never let seeding crash-loop the pod. If index creation or the
+    # admin seed fails (e.g. a DB permission issue), log it and keep serving so
+    # the app stays reachable instead of returning "Network error" everywhere.
+    try:
+        await seed_production()
+    except Exception as exc:
+        log.error("seed_production() failed at startup (continuing anyway): %s", exc)
     # Init Emergent Object Storage session key (non-fatal — uploads fall
     # back to local disk if this fails).
     try:

@@ -1,0 +1,4 @@
+# Never bake local/preview backend secrets into the deployed image.
+# Production must use platform-injected secrets (MONGO_URL, DB_NAME, JWT_SECRET)
+# so it can never fall back to the wrong database. (Iter 37 deploy fix)
+backend/.env

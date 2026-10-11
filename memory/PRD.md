@@ -478,3 +478,26 @@ Two pricing bugs found on the live "Yaki Iron Machine" wholesale product (`price
 
 ### Pending (Wave 2, on hold per user)
 - #7 International seller payouts: bank details, 30-day hold, vendor balance breakdown, settlement history, SS cash/bank choice.
+
+---
+
+## Iter 37b — Deploy-crash fix + data backup + force-logout exemption
+
+### Production deploy crash (FIXED in code; needs user secret + redeploy)
+- RCA (from deployer): recreated preview backend/.env (external Atlas + db 'jubasquare') got baked into the deploy image and overrode platform secrets → prod hit external Atlas where 'Admin' lacks index perms → seed_production() crashed → pod crash-loop → every /api = Network error. Real prod data is in Emergent-managed DB 'shipping-fee-system-jubasquare'.
+- Code fixes: /app/.dockerignore excludes backend/.env; load_dotenv(override=False); on_startup wraps seed_production() in try/except (pod stays up even if seeding fails — verified it logs + continues).
+- USER ACTION: Deployment Panel > Secrets → DB_NAME=shipping-fee-system-jubasquare, MONGO_URL=Emergent-managed string (NOT external Atlas), JWT_SECRET set → redeploy.
+- Also fixed earlier: 308 redirect on /api in https_middleware (apex→www canonical no longer redirects /api, only page GETs). This was the original prod login "Network error".
+
+### Data backup/restore (NEW, tested 10/10)
+- GET /api/admin/backup/export (download full JSON of all collections), GET /api/admin/backup/summary, POST /api/admin/backup/import?mode=merge|replace. Admin Settings has Download/Restore UI.
+- Platform also keeps automatic Mongo backups (hourly/daily/weekly/monthly/yearly + 7-day PITR); restore via support@emergent.sh.
+
+### Force-logout exempts admins (NEW, tested)
+- get_current_user skips token_version check for role==admin, so POST /api/admin/force-logout-all no longer logs admins out.
+
+### Preview DB note
+- Preview reverted to LOCAL MongoDB (external Atlas was wrong DB + started timing out). Real prod data untouched in prod DB.
+
+### Still PENDING (user's list, not yet done)
+#3 admin Footer tab error + Homepage "Failed to load homepage config"; #4 seller wallet/active-orders payout+driver visibility by delivery owner + light up on active orders; #5a seller sales analytics shop/restaurant dropdown; #5b(toast) top-right notification click navigates; #6 Hybrid delivery wording (Seller delivering / JubaSquare delivering); #7 seller-delivery driver phone prompt on dispatch (hide from customer after delivered, always show to seller); #8 seller Messages -> message JubaSquare (not "admin"); #9 restaurant side "required" toggle in side options; #10 service fee+tax on restaurant orders + pickup option + phone 10-12 digits; #11 customers can't cancel restaurant order in 'preparing'. Plus Wave 2 #7 international payouts.
