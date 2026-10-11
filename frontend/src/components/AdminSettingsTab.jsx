@@ -351,6 +351,9 @@ export default function AdminSettingsTab({ onGoToShop }) {
   const [savedCharges, setSavedCharges] = useState({ service: 0, customsRate: 0, customsFixed: 0 });
   const [graceDraft, setGraceDraft] = useState("7");
   const [savedGrace, setSavedGrace] = useState(7);
+  const [holdDraft, setHoldDraft] = useState("30");
+  const [bankFeeDraft, setBankFeeDraft] = useState("0");
+  const [savedPayout, setSavedPayout] = useState({ hold: 30, bankFee: 0 });
   const [savingCharges, setSavingCharges] = useState(false);
 
   const load = async () => {
@@ -372,6 +375,11 @@ export default function AdminSettingsTab({ onGoToShop }) {
       setCustomsFixedDraft(String(cf));
       const grace = Number(s.data.commission_grace_days ?? 7);
       setSavedGrace(grace);
+      const hold = Number(s.data.international_payout_hold_days ?? 30);
+      const bf = Number(s.data.bank_transfer_fee_usd ?? 0);
+      setSavedPayout({ hold, bankFee: bf });
+      setHoldDraft(String(hold));
+      setBankFeeDraft(String(bf));
       setGraceDraft(String(grace));
       setShops(sh.data || []);
     } catch (err) {
@@ -429,6 +437,8 @@ export default function AdminSettingsTab({ onGoToShop }) {
         customs_rate: Math.round(cr * 100) / 10000,
         customs_fixed_usd: Math.round(cf * 100) / 100,
         commission_grace_days: Math.max(0, parseInt(graceDraft, 10) || 0),
+        international_payout_hold_days: Math.max(0, parseInt(holdDraft, 10) || 0),
+        bank_transfer_fee_usd: Math.max(0, Math.round((parseFloat(bankFeeDraft) || 0) * 100) / 100),
       });
       toast.success("Checkout charges saved");
       await load();
@@ -478,7 +488,9 @@ export default function AdminSettingsTab({ onGoToShop }) {
     Math.abs((parseFloat(serviceDraft) || 0) / 100 - savedCharges.service) > 1e-9 ||
     Math.abs((parseFloat(customsRateDraft) || 0) / 100 - savedCharges.customsRate) > 1e-9 ||
     Math.abs((parseFloat(customsFixedDraft) || 0) - savedCharges.customsFixed) > 1e-9 ||
-    (parseInt(graceDraft, 10) || 0) !== savedGrace
+    (parseInt(graceDraft, 10) || 0) !== savedGrace ||
+    (parseInt(holdDraft, 10) || 0) !== savedPayout.hold ||
+    Math.abs((parseFloat(bankFeeDraft) || 0) - savedPayout.bankFee) > 1e-9
   );
 
   const resetShopCommission = async (shop) => {
@@ -641,6 +653,27 @@ export default function AdminSettingsTab({ onGoToShop }) {
               </p>
             </div>
 
+            <div className="mt-4 pt-4 border-t border-[var(--js-border)] grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">International payout hold</label>
+                <div className="flex items-center gap-2">
+                  <input type="number" min="0" step="1" value={holdDraft} onChange={(e) => setHoldDraft(e.target.value)} data-testid="settings-payout-hold-input"
+                    className="w-24 bg-[var(--js-bg)] border border-[var(--js-border)] rounded-xl px-3 py-2.5 text-base font-bold focus:outline-none focus:border-[#2D6A4F]" />
+                  <span className="text-sm text-[var(--js-text-secondary)]">days after delivery</span>
+                </div>
+                <p className="text-xs text-[var(--js-text-secondary)] mt-1">Earnings of sellers outside South Sudan become available only after this hold (and only with no open dispute).</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[var(--js-text-secondary)] mb-1">Bank transfer fee (per payout)</label>
+                <div className="relative w-32">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[var(--js-text-secondary)]">$</span>
+                  <input type="number" min="0" step="0.01" value={bankFeeDraft} onChange={(e) => setBankFeeDraft(e.target.value)} data-testid="settings-bank-fee-input"
+                    className="w-full bg-[var(--js-bg)] border border-[var(--js-border)] rounded-xl pl-7 pr-3 py-2.5 text-base font-bold focus:outline-none focus:border-[#2D6A4F]" />
+                </div>
+                <p className="text-xs text-[var(--js-text-secondary)] mt-1">Deducted from each bank-transfer payout. Cash payouts have no fee.</p>
+              </div>
+            </div>
+
             <div className="mt-4 flex gap-2 flex-wrap">
               <button
                 type="button"
@@ -654,7 +687,7 @@ export default function AdminSettingsTab({ onGoToShop }) {
               {chargesDirty && (
                 <button
                   type="button"
-                  onClick={() => { setServiceDraft((savedCharges.service * 100).toString()); setCustomsRateDraft((savedCharges.customsRate * 100).toString()); setCustomsFixedDraft(String(savedCharges.customsFixed)); setGraceDraft(String(savedGrace)); }}
+                  onClick={() => { setServiceDraft((savedCharges.service * 100).toString()); setCustomsRateDraft((savedCharges.customsRate * 100).toString()); setCustomsFixedDraft(String(savedCharges.customsFixed)); setGraceDraft(String(savedGrace)); setHoldDraft(String(savedPayout.hold)); setBankFeeDraft(String(savedPayout.bankFee)); }}
                   className="inline-flex items-center gap-1.5 text-xs font-bold px-4 py-2 rounded-xl border border-[var(--js-border)] text-[var(--js-text)] hover:border-[#1A1A1A]"
                 >
                   <RotateCcw className="w-3.5 h-3.5" /> Discard

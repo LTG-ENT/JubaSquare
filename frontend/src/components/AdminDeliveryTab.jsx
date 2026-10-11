@@ -464,10 +464,16 @@ function PayoutsPane() {
 
   const markPaid = async (p) => {
     if (payingIds.has(p.id)) return;
-    if (!confirm(`Mark payout of ${formatPrice(p.amount_usd, p.exchange_rate_ssp || exchangeRate, currency)} to ${p.seller_name} as paid directly (no OTP)?`)) return;
+    let body = {};
+    if (p.payout_method === "bank") {
+      const ref = window.prompt(`Bank transfer of ${formatPrice(p.net_amount_usd ?? p.amount_usd, p.exchange_rate_ssp || exchangeRate, currency)} to ${p.seller_name}.\nEnter the bank transfer reference:`);
+      if (ref === null) return;
+      if (!ref.trim()) { toast.error("Transfer reference is required"); return; }
+      body = { reference: ref.trim() };
+    } else if (!confirm(`Mark payout of ${formatPrice(p.amount_usd, p.exchange_rate_ssp || exchangeRate, currency)} to ${p.seller_name} as paid directly (no OTP)?`)) return;
     setPayingIds((prev) => { const n = new Set(prev); n.add(p.id); return n; });
     try {
-      await api.post(`/admin/payouts/${p.id}/mark-paid`);
+      await api.post(`/admin/payouts/${p.id}/mark-paid`, body);
       toast.success("Payout marked paid");
       load();
     } catch (err) { toast.error(formatDetail(err.response?.data?.detail)); }
@@ -508,6 +514,7 @@ function PayoutsPane() {
               <th className="text-left px-3 py-3">Orders</th>
               <th className="text-left px-3 py-3">Amount</th>
               <th className="text-left px-3 py-3">Commission</th>
+              <th className="text-left px-3 py-3">Method</th>
               <th className="text-left px-3 py-3">Status</th>
               <th className="text-right px-3 py-3">Actions</th>
             </tr>
@@ -523,6 +530,10 @@ function PayoutsPane() {
                 <td className="px-3 py-2">{(p.split_ids?.length || 0) + (p.restaurant_order_ids?.length || 0)}</td>
                 <td className="px-3 py-2 font-semibold text-emerald-700">{formatPrice(p.amount_usd, p.exchange_rate_ssp || exchangeRate, currency)}</td>
                 <td className="px-3 py-2">{formatPrice(p.commission_deducted_usd, p.exchange_rate_ssp || exchangeRate, currency)}</td>
+                <td className="px-3 py-2 text-xs" data-testid={`payout-method-${p.id.slice(0,8)}`}>
+                  {p.payout_method === "bank" ? <span className="font-semibold text-blue-700">Bank transfer</span> : "Cash"}
+                  {p.payment_reference && <div className="font-mono text-[10px] text-[var(--js-text-secondary)]">{p.payment_reference}</div>}
+                </td>
                 <td className="px-3 py-2"><Pill value={p.status} /></td>
                 <td className="px-3 py-2 text-right space-x-1">
                   <button onClick={() => open(p)} className="text-xs px-2 py-1 rounded-full hover:bg-gray-100"><Eye className="w-4 h-4 inline" /></button>
@@ -548,7 +559,7 @@ function PayoutsPane() {
                 </td>
               </tr>
             ))}
-            {payouts.length === 0 && <tr><td colSpan={7} className="text-center py-8 text-[var(--js-text-secondary)]">No payouts yet.</td></tr>}
+            {payouts.length === 0 && <tr><td colSpan={8} className="text-center py-8 text-[var(--js-text-secondary)]">No payouts yet.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -566,6 +577,22 @@ function PayoutsPane() {
                 <div><p className="text-xs text-[var(--js-text-secondary)]">Commission deducted</p><p className="font-bold text-lg">{formatPrice(detail.commission_deducted_usd, detail.exchange_rate_ssp || exchangeRate, currency)}</p></div>
                 <div><p className="text-xs text-[var(--js-text-secondary)]">Status</p><Pill value={detail.status} /></div>
                 <div><p className="text-xs text-[var(--js-text-secondary)]">Paid at</p><p className="text-sm">{detail.paid_at || "—"}</p></div>
+                {detail.payout_method === "bank" && (
+                  <div className="col-span-2 rounded-xl border border-blue-200 bg-blue-50 p-3" data-testid="payout-bank-details">
+                    <p className="text-xs font-bold uppercase tracking-wide text-blue-800 mb-1">Bank transfer details</p>
+                    {detail.bank_details ? (
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-blue-900">
+                        <span>Account name: <strong>{detail.bank_details.account_name || "—"}</strong></span>
+                        <span>Bank: <strong>{detail.bank_details.bank_name || "—"}</strong></span>
+                        <span>Account #: <strong className="font-mono">{detail.bank_details.account_number || "—"}</strong></span>
+                        <span>SWIFT/IBAN: <strong className="font-mono">{detail.bank_details.swift_iban || "—"}</strong></span>
+                        <span>Country: <strong>{detail.bank_details.bank_country || "—"}</strong></span>
+                        <span>Transfer fee: <strong>{formatPrice(detail.transfer_fee_usd || 0, detail.exchange_rate_ssp || exchangeRate, currency)}</strong> · Net <strong>{formatPrice(detail.net_amount_usd ?? detail.amount_usd, detail.exchange_rate_ssp || exchangeRate, currency)}</strong></span>
+                      </div>
+                    ) : <p className="text-xs text-blue-900">Seller hasn't added bank details yet.</p>}
+                    {detail.payment_reference && <p className="text-xs mt-1 text-blue-900">Reference: <strong className="font-mono">{detail.payment_reference}</strong></p>}
+                  </div>
+                )}
               </div>
               <div>
                 <p className="text-xs font-bold uppercase tracking-wide text-[var(--js-text-secondary)] mb-2">Splits in this payout</p>

@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import api, { formatPrice, formatDetail } from "@/lib/api";
 import { useCart } from "@/context/CartContext";
 import { useTranslation } from "react-i18next";
@@ -45,8 +46,13 @@ const TABS = [
 ];
 
 export default function AdminDashboard() {
-  const [tab, setTab] = useState("analytics");
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState(searchParams.get("tab") || "analytics");
   const [alerts, setAlerts] = useState({});
+  useEffect(() => {
+    const t = searchParams.get("tab");
+    if (t) setTab(t);
+  }, [searchParams]);
   const { t: tr } = useTranslation();
 
   // Load admin alerts

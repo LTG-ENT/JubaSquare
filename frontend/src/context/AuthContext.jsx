@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import api, { formatDetail } from "@/lib/api";
 
 const AuthContext = createContext(null);
@@ -19,6 +19,11 @@ export const AuthProvider = ({ children }) => {
   };
 
   useEffect(() => {
+    // Returning from Google OAuth: AuthCallback exchanges session_id first.
+    if (window.location.hash?.includes("session_id=")) {
+      setLoading(false);
+      return;
+    }
     if (localStorage.getItem("js_token")) {
       refresh();
     } else {
@@ -37,6 +42,17 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const loginWithGoogleSession = useCallback(async (sessionId) => {
+    try {
+      const { data } = await api.post("/auth/google-session", { session_id: sessionId });
+      localStorage.setItem("js_token", data.token);
+      setUser(data.user);
+      return { ok: true, user: data.user };
+    } catch (e) {
+      return { ok: false, error: formatDetail(e.response?.data?.detail || e.message) };
+    }
+  }, []);
+
   const logout = async () => {
     try { await api.post("/auth/logout"); } catch { /* ignore */ }
     localStorage.removeItem("js_token");
@@ -44,7 +60,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refresh, setUser }}>
+    <AuthContext.Provider value={{ user, loading, login, loginWithGoogleSession, logout, refresh, setUser }}>
       {children}
     </AuthContext.Provider>
   );

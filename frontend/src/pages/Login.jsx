@@ -6,6 +6,7 @@ import { ArrowLeft, Loader2, LogIn as LogInIcon } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 import { Logo } from "@/components/Logo";
+import { GoogleSignInButton } from "@/components/GoogleSignInButton";
 
 export default function Login() {
   const { login } = useAuth();
@@ -99,6 +100,12 @@ export default function Login() {
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogInIcon className="w-4 h-4" />}
             {t("signIn")}
           </button>
+          <div className="flex items-center gap-3 my-5" aria-hidden="true">
+            <span className="flex-1 h-px bg-[var(--js-border)]" />
+            <span className="text-[11px] uppercase tracking-wider text-[var(--js-text-secondary)] font-semibold">or</span>
+            <span className="flex-1 h-px bg-[var(--js-border)]" />
+          </div>
+          <GoogleSignInButton testId="login-google-button" />
           <p className="text-center text-sm text-[var(--js-text-secondary)] mt-6">
             {t("newToJubaSquare")}{" "}
             <Link to="/signup" className="text-[#C84B31] font-semibold hover:underline" data-testid="signup-link">{t("createAnAccount")}</Link>

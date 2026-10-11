@@ -15,6 +15,7 @@ import DarkModeIconButton from "@/components/DarkModeIconButton";
 import FloatingChat from "@/components/FloatingChat";
 import InstallAppBanner from "@/components/InstallAppBanner";
 import MaintenancePage from "@/pages/MaintenancePage";
+import { AuthCallback } from "@/components/AuthCallback";
 import { useLocation, Navigate as RRNavigate } from "react-router-dom";
 
 // ---------------------------------------------------------------------------
@@ -99,6 +100,12 @@ const MAINTENANCE_ALLOWED_PATHS = [
   "/verify-email",
   "/admin",              // AdminDashboard root
 ];
+function OAuthHashGate({ children }) {
+  const location = useLocation();
+  if (location.hash?.includes("session_id=")) return <AuthCallback />;
+  return children;
+}
+
 function MaintenanceGate({ children }) {
   const { settings } = useSystem();
   const { user } = useAuth();
@@ -129,6 +136,7 @@ export default function App() {
           <CartProvider>
             <BrowserRouter>
               <Suspense fallback={<RouteLoader />}>
+                <OAuthHashGate>
                 <DriverGate>
                 <MaintenanceGate>
                   <Routes>
@@ -167,6 +175,7 @@ export default function App() {
                   </Routes>
                 </MaintenanceGate>
                 </DriverGate>
+                </OAuthHashGate>
               </Suspense>
               <FloatingChat />
               <InstallAppBanner />

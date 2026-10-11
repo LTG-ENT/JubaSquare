@@ -106,7 +106,9 @@ export default function NotificationBell() {
 
     // navigate based on type + role
     setOpen(false);
-    if (n.type === "order") {
+    if (n.meta?.link) {
+      navigate(n.meta.link);
+    } else if (n.type === "order") {
       if (user?.role === "customer") navigate("/orders");
       else navigate("/seller?tab=wallet");
     } else if (n.type === "commission") {

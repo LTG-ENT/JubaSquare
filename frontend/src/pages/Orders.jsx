@@ -297,6 +297,31 @@ function RestaurantReviewModal({ order, onClose, onSubmitted }) {
   );
 }
 
+const FeeLine = ({ label, value, rate, currency, testId }) => (
+  value > 0 ? (
+    <div className="flex justify-between text-[#5C5C5C]" data-testid={testId}>
+      <span>{label}</span>
+      <span className="font-medium text-[#1A1A1A]">{formatPrice(value, rate, currency)}</span>
+    </div>
+  ) : null
+);
+
+const SellerDeliveryCard = ({ testId, driverName, driverPhone, placeName, placeArea }) => (
+  <div data-testid={testId} className="bg-emerald-50 dark:bg-emerald-900/20 border-2 border-emerald-300 rounded-2xl p-4 mb-4">
+    <p className="font-bold text-sm text-emerald-900 dark:text-emerald-200 mb-2 flex items-center gap-2">
+      <Truck className="w-4 h-4" /> On the way — delivered by the seller
+    </p>
+    {driverPhone && (
+      <a href={`tel:${driverPhone}`} data-testid={`${testId}-driver-phone`} className="flex items-center gap-2 text-sm font-semibold text-[#1A1A1A] dark:text-[var(--js-text)] hover:underline">
+        <Phone className="w-4 h-4 text-emerald-700" /> {driverName ? `${driverName} · ` : "Driver · "}{driverPhone}
+      </a>
+    )}
+    <p data-testid={`${testId}-location`} className="flex items-center gap-2 text-sm text-[#5C5C5C] mt-1.5">
+      <MapPin className="w-4 h-4 text-emerald-700" /> From {placeName || "the seller"}{placeArea ? ` · ${placeArea}` : ""}
+    </p>
+  </div>
+);
+
 export default function Orders() {
   const { t: tr } = useTranslation();
   const [marketplaceOrders, setMarketplaceOrders] = useState([]);
@@ -555,7 +580,16 @@ export default function Orders() {
                     )}
 
                     {/* Delivery OTP Display for Restaurant Orders */}
-                    {showDeliveryOtp && o.customer_delivery_otp && (
+                    {showDeliveryOtp && o.seller_delivery && (
+                      <SellerDeliveryCard
+                        testId={`restaurant-seller-delivery-${o.id}`}
+                        driverName={o.seller_driver_name}
+                        driverPhone={o.seller_driver_phone}
+                        placeName={o.restaurant_name}
+                        placeArea={o.restaurant_area}
+                      />
+                    )}
+                    {showDeliveryOtp && !o.seller_delivery && o.customer_delivery_otp && (
                       <>
                       <div className="mb-4">
                         <LiveTrackingMap orderId={o.id} />
@@ -603,9 +637,11 @@ export default function Orders() {
                             <span className="font-medium text-[#1A1A1A]">{formatPrice(subtotal, restRate, currency)}</span>
                           </div>
                           <div className="flex justify-between text-[#5C5C5C]">
-                            <span>Delivery fee</span>
+                            <span>{o.delivery_type === "pickup" ? "Pickup" : "Delivery fee"}</span>
                             <span className="font-medium text-[#1A1A1A]">{deliveryFee === 0 ? "FREE" : formatPrice(deliveryFee, restRate, currency)}</span>
                           </div>
+                          <FeeLine label="Service fee" value={o.service_fee_usd} rate={restRate} currency={currency} testId={`rest-order-service-fee-${o.id}`} />
+                          <FeeLine label="Tax" value={o.tax_usd} rate={restRate} currency={currency} testId={`rest-order-tax-${o.id}`} />
                           <div className="flex justify-between pt-1.5 border-t border-[#E2E2D9]">
                             <span className="font-bold text-[#1A1A1A]">Total</span>
                             <span className="font-bold text-[#C84B31]">{totalDisplay}</span>
@@ -718,13 +754,23 @@ export default function Orders() {
                   </div>
 
                   {/* Delivery OTP Display for Marketplace Splits */}
-                  {splitsOutForDelivery.length > 0 && (
+                  {splitsOutForDelivery.filter((sp) => sp.seller_delivery).map((sp) => (
+                    <SellerDeliveryCard
+                      key={sp.id}
+                      testId={`marketplace-seller-delivery-${sp.id}`}
+                      driverName={sp.seller_driver_name}
+                      driverPhone={sp.seller_driver_phone}
+                      placeName={sp.shop_name}
+                      placeArea={sp.shop_area}
+                    />
+                  ))}
+                  {splitsOutForDelivery.some((sp) => !sp.seller_delivery) && (
                     <>
                     <div className="mb-4">
                       <LiveTrackingMap orderId={o.id} />
                     </div>
                     <div className="mb-4 space-y-2">
-                      {splitsOutForDelivery.map((split, idx) => (
+                      {splitsOutForDelivery.filter((sp) => !sp.seller_delivery).map((split, idx) => (
                         <div
                           key={split.id}
                           data-testid={`marketplace-delivery-otp-${split.id}`}
@@ -798,9 +844,10 @@ export default function Orders() {
                     // each item's own rate for multi-seller correctness.
                     const orderRate = o.exchange_rate_ssp || exchangeRate;
                     const subtotalSSP = (o.items || []).reduce((sum, it) => sum + (it.price_usd || 0) * (it.quantity || 0) * (it.exchange_rate_ssp || orderRate), 0);
+                    const extraFees = (o.service_fee_usd || 0) + (o.shipping_fee_usd || 0) + (o.customs_fee_usd || 0);
                     const totalDisplay = currency === "USD"
                       ? formatPrice(orderTotal, orderRate, currency)
-                      : `${currency} ${Math.round(subtotalSSP + (deliveryFee * orderRate)).toLocaleString("en-US")}`;
+                      : `${currency} ${Math.round(subtotalSSP + ((deliveryFee + extraFees) * orderRate)).toLocaleString("en-US")}`;
                     const subtotalDisplay = currency === "USD"
                       ? formatPrice(subtotal, orderRate, currency)
                       : `${currency} ${Math.round(subtotalSSP).toLocaleString("en-US")}`;
@@ -814,6 +861,9 @@ export default function Orders() {
                           <span>Delivery fee</span>
                           <span className="font-medium text-[#1A1A1A]">{deliveryFee === 0 ? "FREE" : formatPrice(deliveryFee, orderRate, currency)}</span>
                         </div>
+                        <FeeLine label="Shipping (outside South Sudan)" value={o.shipping_fee_usd} rate={orderRate} currency={currency} testId={`mp-order-shipping-${o.id}`} />
+                        <FeeLine label="Import / customs" value={o.customs_fee_usd} rate={orderRate} currency={currency} testId={`mp-order-customs-${o.id}`} />
+                        <FeeLine label="Service fee" value={o.service_fee_usd} rate={orderRate} currency={currency} testId={`mp-order-service-fee-${o.id}`} />
                         <div className="flex justify-between pt-1.5 border-t border-[#E2E2D9]">
                           <span className="font-bold text-[#1A1A1A]">Total</span>
                           <span className="font-bold text-[#C84B31]">{totalDisplay}</span>

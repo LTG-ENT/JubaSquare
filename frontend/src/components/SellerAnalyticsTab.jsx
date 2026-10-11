@@ -32,17 +32,25 @@ export default function SellerAnalyticsTab() {
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState(30); // 7 or 30
   const [channel, setChannel] = useState("combined");
+  const [entity, setEntity] = useState(""); // "" = all, else "shop:<id>" | "restaurant:<id>"
+  const [entities, setEntities] = useState([]);
   const { currency = "USD", exchangeRate = 1 } = useCart() || {};
 
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    api.get("/seller/analytics")
-      .then((r) => { if (alive) setData(r.data); })
+    const [kind, id] = entity ? entity.split(":") : [];
+    const params = kind === "shop" ? { shop_id: id } : kind === "restaurant" ? { restaurant_id: id } : {};
+    api.get("/seller/analytics", { params })
+      .then((r) => {
+        if (!alive) return;
+        setData(r.data);
+        if (!entity) setEntities(r.data?.entities || []);
+      })
       .catch(() => {/* silent */})
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, []);
+  }, [entity]);
 
   const fmt = (usd) => formatPrice(usd, exchangeRate, currency);
 
@@ -115,7 +123,7 @@ export default function SellerAnalyticsTab() {
     setTimeout(() => { try { w.focus(); w.print(); } catch (_) { /* popup blocked */ } }, 400);
   };
 
-  if (loading) return <div className="p-6 text-[var(--js-text-secondary)]">Loading analytics…</div>;
+  if (loading && !data) return <div className="p-6 text-[var(--js-text-secondary)]">Loading analytics…</div>;
   if (!data) return <div className="p-6 text-[var(--js-text-secondary)]">Could not load analytics.</div>;
 
   const totals = scoped.totals;
@@ -153,8 +161,33 @@ export default function SellerAnalyticsTab() {
         </div>
       </div>
 
+      {entities.length > 1 && (
+        <div className="flex items-center gap-2">
+          <label htmlFor="analytics-entity" className="text-xs font-semibold text-[var(--js-text-secondary)]">Show</label>
+          <select
+            id="analytics-entity"
+            value={entity}
+            onChange={(e) => { setEntity(e.target.value); setChannel("combined"); }}
+            data-testid="analytics-entity-select"
+            className="bg-white dark:bg-[var(--js-panel)] border border-[var(--js-border)] rounded-full px-4 py-2 text-sm font-semibold text-[var(--js-text)] focus:outline-none focus:border-[#C84B31]"
+          >
+            <option value="">All shops & restaurants</option>
+            {entities.filter((e) => e.kind === "shop").length > 0 && (
+              <optgroup label="Shops">
+                {entities.filter((e) => e.kind === "shop").map((e) => <option key={e.id} value={`shop:${e.id}`}>{e.name}</option>)}
+              </optgroup>
+            )}
+            {entities.filter((e) => e.kind === "restaurant").length > 0 && (
+              <optgroup label="Restaurants">
+                {entities.filter((e) => e.kind === "restaurant").map((e) => <option key={e.id} value={`restaurant:${e.id}`}>{e.name}</option>)}
+              </optgroup>
+            )}
+          </select>
+        </div>
+      )}
+
       {/* Channel selector */}
-      <div className="inline-flex bg-[var(--js-subtle)] rounded-full p-1 flex-wrap">
+      {!entity && <div className="inline-flex bg-[var(--js-subtle)] rounded-full p-1 flex-wrap">
         {CHANNELS.map((ch) => {
           const Icon = ch.icon;
           const active = channel === ch.id;
@@ -171,7 +204,7 @@ export default function SellerAnalyticsTab() {
             </button>
           );
         })}
-      </div>
+      </div>}
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

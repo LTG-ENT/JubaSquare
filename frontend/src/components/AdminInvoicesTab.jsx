@@ -43,7 +43,7 @@ function ConfirmPaymentModal({ invoice, kind, onClose, onConfirmed }) {
       <div className="bg-white rounded-2xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()} data-testid="confirm-payment-modal">
         <h3 className="font-display font-bold text-lg text-[var(--js-text)]">Confirm commission payment</h3>
         <p className="text-sm text-[var(--js-text-secondary)] mt-1">
-          {invoice.shop_name || invoice.restaurant_name} · {invoice.week_label} · commission <b>{money(invoice.commission ?? invoice.amount_owed)}</b>
+          {invoice.shop_name || invoice.restaurant_name} · {invoice.week_label} · amount owed <b>{money(invoice.amount_owed ?? invoice.commission)}</b>{invoice.platform_fees > 0 && <> (commission {money(invoice.commission)} + collected fees {money(invoice.platform_fees)})</>}
         </p>
         <label className="block text-xs font-semibold text-[var(--js-text-secondary)] mt-4 mb-1">Payment method</label>
         <select
@@ -139,7 +139,7 @@ export default function AdminInvoicesTab() {
     const all = [...marketplace, ...restaurant];
     const unpaid = all.filter((i) => (i.status || "Unpaid") !== "Paid");
     return {
-      owed: unpaid.reduce((s, i) => s + (Number(i.commission ?? i.amount_owed) || 0), 0),
+      owed: unpaid.reduce((s, i) => s + (Number(i.amount_owed ?? i.commission) || 0), 0),
       count: unpaid.length,
       sales: all.reduce((s, i) => s + (Number(i.total_sales) || 0), 0),
     };
@@ -219,7 +219,7 @@ export default function AdminInvoicesTab() {
                   <th className="text-left p-4">Seller / Shop</th>
                   <th className="text-left p-4 hidden md:table-cell">Period</th>
                   <th className="text-right p-4">Sales</th>
-                  <th className="text-right p-4">Commission</th>
+                  <th className="text-right p-4">Amount owed</th>
                   <th className="text-left p-4">Status</th>
                   <th className="text-right p-4">Action</th>
                 </tr>
@@ -236,7 +236,7 @@ export default function AdminInvoicesTab() {
                     </td>
                     <td className="p-4 hidden md:table-cell text-[var(--js-text-secondary)]">{i.week_label || "—"}</td>
                     <td className="p-4 text-right">{money(i.total_sales)}</td>
-                    <td className="p-4 text-right font-bold">{money(i.commission ?? i.amount_owed)}</td>
+                    <td className="p-4 text-right font-bold">{money(i.amount_owed ?? i.commission)}{i.platform_fees > 0 && <div className="text-[10px] font-normal text-[var(--js-text-secondary)]">incl. fees {money(i.platform_fees)}</div>}</td>
                     <td className="p-4">
                       <span className={`text-xs font-bold px-2 py-1 rounded-full ${
                         i.status === "Paid" ? "bg-[#2D6A4F]/10 text-[#2D6A4F]"

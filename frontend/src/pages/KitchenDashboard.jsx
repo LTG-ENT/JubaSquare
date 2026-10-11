@@ -410,7 +410,9 @@ export default function KitchenDashboard() {
   <div class="totals">
     <div>Subtotal: <strong>${fmt(itemsSubtotalUSD(order))}</strong></div>
     ${Number(order.delivery_fee || order.delivery_fee_usd || 0) > 0 ? `<div>Delivery: <strong>${fmt(Number(order.delivery_fee || order.delivery_fee_usd || 0))}</strong></div>` : ""}
-    <div class="big">TOTAL: ${fmt(itemsSubtotalUSD(order) + Number(order.delivery_fee || order.delivery_fee_usd || 0))}</div>
+    ${Number(order.service_fee_usd || 0) > 0 ? `<div>Service fee: <strong>${fmt(Number(order.service_fee_usd))}</strong></div>` : ""}
+    ${Number(order.tax_usd || 0) > 0 ? `<div>Tax: <strong>${fmt(Number(order.tax_usd))}</strong></div>` : ""}
+    <div class="big">TOTAL: ${fmt(itemsSubtotalUSD(order) + Number(order.delivery_fee || order.delivery_fee_usd || 0) + Number(order.service_fee_usd || 0) + Number(order.tax_usd || 0))}</div>
     ${curr === "SSP" ? `<div style="font-size:10px;color:#666">Rate: 1 USD = SSP ${rate.toLocaleString()}</div>` : ""}
   </div>
 

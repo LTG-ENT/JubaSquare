@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { useOptimizedPolling } from "@/hooks/useOptimizedPolling";
 import { useCart } from "@/context/CartContext";
 import { useTranslation } from "react-i18next";
 import api, { formatUSD, formatPrice, formatDetail } from "@/lib/api";
@@ -51,7 +52,16 @@ export default function SellerDashboard() {
   const [tab, setTab] = useState(initial);
   const [lowStockCount, setLowStockCount] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const [activeOrders, setActiveOrders] = useState(0);
   const [runTour, setRunTour] = useState(false);
+
+  const loadActiveOrders = useCallback(async () => {
+    try {
+      const r = await api.get("/seller/wallet");
+      setActiveOrders(r.data?.active_count || 0);
+    } catch (_) { /* silent */ }
+  }, []);
+  useOptimizedPolling(loadActiveOrders, 20000, { enabled: !!user?.id, runOnMount: true });
 
   useEffect(() => {
     const t = searchParams.get("tab");
@@ -151,6 +161,7 @@ export default function SellerDashboard() {
             const Icon = t.icon;
             const showLowStockBadge = t.id === "products" && lowStockEnabled && lowStockCount > 0;
             const showMsgBadge = t.id === "messages" && unreadMessages > 0;
+            const showActiveBadge = t.id === "wallet" && activeOrders > 0;
             return (
               <button
                 key={t.id}
@@ -166,6 +177,12 @@ export default function SellerDashboard() {
                 {showLowStockBadge && (
                   <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] text-[10px] font-bold bg-[#E9C46A] text-[#1A1A1A] rounded-full px-1.5">
                     {lowStockCount}
+                  </span>
+                )}
+                {showActiveBadge && (
+                  <span data-testid="seller-active-orders-badge" className="ml-1 relative inline-flex items-center justify-center min-w-[18px] h-[18px] text-[10px] font-bold bg-emerald-500 text-white rounded-full px-1.5">
+                    <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-60" />
+                    <span className="relative">{activeOrders}</span>
                   </span>
                 )}
                 {showMsgBadge && (

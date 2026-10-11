@@ -124,6 +124,7 @@ DEFAULT_SETTINGS = {
     # transfer and their earnings are held this many days after delivery
     # before becoming available for payout.
     "international_payout_hold_days": 30,
+    "bank_transfer_fee_usd": 0.0,
     # Iter 37 — default grace period (days) after a commission invoice's week
     # ends before a shop with unpaid commission is AUTO-SUSPENDED. Per-shop
     # override via shop.commission_grace_days.
@@ -386,6 +387,27 @@ async def enrich_restaurant_orders(orders: list[dict]) -> list[dict]:
     return orders
 
 
+async def _notification_link(user_id: str, ntype: str, meta: dict) -> str:
+    """Deep link for a notification so clicking it (in-app or OS push) opens the related screen."""
+    u = await db.users.find_one({"id": user_id}, {"_id": 0, "role": 1}) or {}
+    role = u.get("role", "customer")
+    if role == "admin":
+        return {"commission": "/admin?tab=invoices", "order": "/admin?tab=delivery"}.get(ntype, "/admin")
+    if role == "driver":
+        return "/driver"
+    if role == "seller":
+        if ntype == "commission":
+            return "/seller?tab=wallet&view=payouts" if meta.get("payout_id") else "/seller?tab=invoices"
+        if ntype in ("message", "seller_message"):
+            return "/seller?tab=wallet&view=splits" if meta.get("order_id") else "/seller?tab=messages"
+        if ntype in ("order", "delivery_request"):
+            return "/seller?tab=wallet&view=splits"
+        return "/seller?tab=notifications"
+    if ntype == "message" and meta.get("shop_id") and not meta.get("order_id"):
+        return f"/shop/{meta['shop_id']}"
+    return "/orders"
+
+
 async def create_notification(user_id: str, message: str, ntype: str = "alert", meta: Optional[dict] = None, push_category: Optional[str] = None, push_url: Optional[str] = None, push_title: Optional[str] = None) -> dict:
     """Insert an in-app notification for a single user and (best-effort) fire a Web Push.
 
@@ -394,12 +416,15 @@ async def create_notification(user_id: str, message: str, ntype: str = "alert", 
     push_url: deep-link URL to open when the user clicks the push (defaults to "/" or the meta.link).
     push_title: title on the push. Defaults to "JubaSquare".
     """
+    meta = dict(meta or {})
+    if not meta.get("link"):
+        meta["link"] = push_url or await _notification_link(user_id, ntype, meta)
     notif = {
         "id": str(uuid.uuid4()),
         "user_id": user_id,
         "message": message,
         "type": ntype,
-        "meta": meta or {},
+        "meta": meta,
         "is_read": False,
         "created_at": now_iso(),
     }
@@ -469,7 +494,7 @@ async def _generate_seller_unpaid_reminders(seller_id: str) -> int:
         last_at = _parse_iso(last.get("created_at") if last else "") if last else None
         if last_at and (now - last_at) < week:
             continue
-        amount = float(inv.get("commission") or inv.get("amount_owed") or 0)
+        amount = float(inv.get("amount_owed") or inv.get("commission") or 0)
         label = inv.get("week_label") or inv.get("shop_name") or ""
         await create_notification(
             user_id=seller_id,
@@ -488,7 +513,7 @@ async def _generate_admin_unpaid_reminders(admin_id: str) -> int:
         {"$match": {"status": {"$in": ["Unpaid", "Overdue"]}}},
         {"$group": {
             "_id": "$seller_id",
-            "amount_owed": {"$sum": "$commission"},
+            "amount_owed": {"$sum": "$amount_owed"},
             "invoice_count": {"$sum": 1},
             "oldest_created_at": {"$min": "$created_at"},
         }},
@@ -1074,6 +1099,7 @@ class SettingsIn(BaseModel):
     customs_rate: Optional[float] = None
     customs_fixed_usd: Optional[float] = None
     international_payout_hold_days: Optional[int] = None
+    bank_transfer_fee_usd: Optional[float] = None
     commission_grace_days: Optional[int] = None
 
 
@@ -1260,6 +1286,85 @@ async def login(payload: LoginIn, request: Request, response: Response):
     
     tv = settings.get("token_version", 1)
     token = create_token(user["id"], user["role"], user["email"], tv)
+    response.set_cookie(
+        key="access_token", value=token, httponly=True, secure=True,
+        samesite="none", max_age=ACCESS_TOKEN_DAYS * 24 * 3600, path="/",
+    )
+    return {
+        "token": token,
+        "user": {
+            "id": user["id"], "email": user["email"], "name": user["name"],
+            "role": user["role"], "phone": user.get("phone", ""),
+            "settings": user.get("settings", {}),
+        },
+    }
+
+
+class GoogleSessionIn(BaseModel):
+    session_id: str
+
+
+EMERGENT_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
+
+
+@api.post("/auth/google-session")
+async def google_session(body: GoogleSessionIn, response: Response):
+    """Emergent-managed Google sign-in: exchange session_id → app JWT (same shape as /auth/login)."""
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(EMERGENT_SESSION_URL, headers={"X-Session-ID": body.session_id})
+    except httpx.HTTPError:
+        raise HTTPException(502, "Google sign-in service unavailable. Please try again.")
+    if r.status_code != 200:
+        raise HTTPException(401, "Google sign-in failed or expired. Please try again.")
+    data = r.json()
+    email = (data.get("email") or "").strip().lower()
+    if not email:
+        raise HTTPException(401, "Google account has no email")
+    if await db.blocked_emails.find_one({"email": email}):
+        raise HTTPException(403, "This email has been blocked by admin")
+
+    user = await db.users.find_one({"email": email}, {"_id": 0})
+    if not user:
+        user = {
+            "id": str(uuid.uuid4()),
+            "email": email,
+            "name": (data.get("name") or email.split("@")[0]).strip(),
+            "role": "customer",
+            "phone": "",
+            "password_hash": hash_password(secrets.token_urlsafe(32)),
+            "email_verified": True,
+            "is_active": True,
+            "must_change_password": False,
+            "settings": {},
+            "auth_provider": "google",
+            "picture": data.get("picture") or "",
+            "created_at": now_iso(),
+        }
+        await db.users.insert_one(dict(user))
+    else:
+        if user.get("is_deleted"):
+            raise HTTPException(401, "Account not available")
+        if user.get("suspended"):
+            raise HTTPException(403, "Your account has been suspended. Contact support.")
+        if not user.get("is_active", True):
+            raise HTTPException(403, "Your account has been disabled. Contact support.")
+        # Google proves email ownership.
+        await db.users.update_one({"id": user["id"]}, {"$set": {
+            "email_verified": True, "picture": data.get("picture") or user.get("picture", ""),
+        }})
+
+    await db.user_sessions.insert_one({
+        "user_id": user["id"],
+        "session_token": data.get("session_token"),
+        "provider": "google",
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+        "created_at": now_iso(),
+    })
+    await db.users.update_one({"id": user["id"]}, {"$set": {"last_login": now_iso()}})
+    settings = await get_settings()
+    token = create_token(user["id"], user["role"], user["email"], settings.get("token_version", 1))
     response.set_cookie(
         key="access_token", value=token, httponly=True, secure=True,
         samesite="none", max_age=ACCESS_TOKEN_DAYS * 24 * 3600, path="/",
@@ -5497,7 +5602,11 @@ async def seller_orders(
 
 
 @api.get("/seller/analytics")
-async def seller_analytics(user: dict = Depends(require_role("seller", "admin"))):
+async def seller_analytics(
+    shop_id: Optional[str] = None,
+    restaurant_id: Optional[str] = None,
+    user: dict = Depends(require_role("seller", "admin")),
+):
     """Sales analytics for a seller.
     Returns:
       - totals: {today, week, month, all_time} for EARNING (USD, seller_earning_usd
@@ -5517,8 +5626,26 @@ async def seller_analytics(user: dict = Depends(require_role("seller", "admin"))
     week_start = (now - timedelta(days=7)).isoformat()
     month_start = (now - timedelta(days=30)).isoformat()
 
-    seller_products = await db.products.find({"seller_id": user["id"]}, {"_id": 0}).to_list(2000)
-    seller_menu = await db.menu_items.find({"seller_id": user["id"]}, {"_id": 0}).to_list(2000)
+    shops_list = await db.shops.find({"seller_id": user["id"]}, {"_id": 0, "id": 1, "name": 1}).to_list(200)
+    rests_list = await db.restaurants.find({"seller_id": user["id"]}, {"_id": 0, "id": 1, "name": 1}).to_list(200)
+    entities = [{"id": x["id"], "name": x.get("name", "—"), "kind": "shop"} for x in shops_list] + \
+               [{"id": x["id"], "name": x.get("name", "—"), "kind": "restaurant"} for x in rests_list]
+    prod_q: dict = {"seller_id": user["id"]}
+    menu_q: dict = {"seller_id": user["id"]}
+    split_q: dict = {"seller_id": user["id"]}
+    rest_q: dict = {"seller_id": user["id"]}
+    if shop_id:
+        prod_q["shop_id"] = shop_id
+        split_q["shop_id"] = shop_id
+        menu_q["restaurant_id"] = "__none__"
+        rest_q["restaurant_id"] = "__none__"
+    elif restaurant_id:
+        menu_q["restaurant_id"] = restaurant_id
+        rest_q["restaurant_id"] = restaurant_id
+        prod_q["shop_id"] = "__none__"
+        split_q["shop_id"] = "__none__"
+    seller_products = await db.products.find(prod_q, {"_id": 0}).to_list(2000)
+    seller_menu = await db.menu_items.find(menu_q, {"_id": 0}).to_list(2000)
     pid_index = {p["id"]: p for p in seller_products}
     for m in seller_menu:
         pid_index[m["id"]] = m
@@ -5536,6 +5663,7 @@ async def seller_analytics(user: dict = Depends(require_role("seller", "admin"))
             "top_products": [],
             "low_performers": [],
             "low_stock": [],
+            "entities": entities,
         }
 
     # Pull the seller's own splits + restaurant orders — these are the
@@ -5544,12 +5672,8 @@ async def seller_analytics(user: dict = Depends(require_role("seller", "admin"))
     # earnings, and drifted from the "Your earning" chip shown on the
     # completed order in the wallet. Splits carry `seller_earning_usd`
     # already computed (subtotal − commission + delivery-if-self-managed).
-    splits = await db.seller_order_splits.find(
-        {"seller_id": user["id"]}, {"_id": 0}
-    ).sort("created_at", -1).to_list(5000)
-    rest_orders = await db.restaurant_orders.find(
-        {"seller_id": user["id"]}, {"_id": 0}
-    ).sort("created_at", -1).to_list(5000)
+    splits = await db.seller_order_splits.find(split_q, {"_id": 0}).sort("created_at", -1).to_list(5000)
+    rest_orders = await db.restaurant_orders.find(rest_q, {"_id": 0}).sort("created_at", -1).to_list(5000)
 
     # Also fetch original db.orders for the top-products / low-performers
     # breakdown (which is per-product gross qty × price — earnings do not
@@ -5692,6 +5816,7 @@ async def seller_analytics(user: dict = Depends(require_role("seller", "admin"))
         "top_products": top_products,
         "low_performers": low_performers,
         "low_stock": low_stock,
+        "entities": entities,
     }
 
 
@@ -6264,7 +6389,7 @@ async def admin_run_reminders(user: dict = Depends(require_role("admin"))):
             {"_id": 0},
         ).to_list(1000)
         for inv in invoices:
-            amount = float(inv.get("commission") or inv.get("amount_owed") or 0)
+            amount = float(inv.get("amount_owed") or inv.get("commission") or 0)
             label = inv.get("week_label") or inv.get("shop_name") or ""
             await create_notification(
                 user_id=s["id"],
@@ -6277,7 +6402,7 @@ async def admin_run_reminders(user: dict = Depends(require_role("admin"))):
     # Admin-side digest
     pipeline = [
         {"$match": {"status": {"$in": ["Unpaid", "Overdue"]}}},
-        {"$group": {"_id": "$seller_id", "amount_owed": {"$sum": "$commission"}, "invoice_count": {"$sum": 1}}},
+        {"$group": {"_id": "$seller_id", "amount_owed": {"$sum": "$amount_owed"}, "invoice_count": {"$sum": 1}}},
     ]
     rows = await db.invoices.aggregate(pipeline).to_list(1000)
     admin_count = 0
@@ -8168,10 +8293,13 @@ async def _rebuild_invoices():
             "seller_id": seller_id, "shop_id": shop_id,
             "shop_name": sp.get("shop_name") or shop_by_id.get(shop_id, {}).get("name", "—"),
             "week_start": ws, "week_end": we, "week_label": label,
-            "total_sales": 0.0, "commission": 0.0, "_orders": set(),
+            "total_sales": 0.0, "commission": 0.0, "platform_fees": 0.0, "_orders": set(),
         })
         b["total_sales"] += float(sp.get("product_subtotal_usd") or 0)
         b["commission"] += float(sp.get("platform_commission_usd") or 0)
+        # Seller kept the cash → they also owe the customer-paid JubaSquare fees.
+        if sp.get("payment_status") == "collected_by_seller":
+            b["platform_fees"] += float(sp.get("platform_fees_usd") or 0)
         b["_orders"].add(sp.get("order_id"))
 
     existing = {
@@ -8184,6 +8312,7 @@ async def _rebuild_invoices():
     for (seller_id, shop_id, ws), b in buckets.items():
         effective_rate = rate_for.get(shop_id, global_rate)
         commission = round(b["commission"], 2)
+        platform_fees = round(b["platform_fees"], 2)
         prev = existing.get((seller_id, shop_id, ws), {})
         await db.invoices.insert_one({
             "id": prev.get("id", str(uuid.uuid4())),
@@ -8195,7 +8324,8 @@ async def _rebuild_invoices():
             "week_label": b["week_label"],
             "total_sales": round(b["total_sales"], 2),
             "commission": commission,
-            "amount_owed": commission,
+            "platform_fees": platform_fees,
+            "amount_owed": round(commission + platform_fees, 2),
             "order_count": len(b["_orders"]),
             "commission_rate": effective_rate,
             "status": prev.get("status", "Unpaid"),
@@ -8237,7 +8367,7 @@ async def admin_set_invoice_status(invoice_id: str, body: InvoiceStatusIn, _: di
     await db.invoices.update_one({"id": invoice_id}, {"$set": setter})
 
     sid = inv.get("seller_id")
-    amount = float(inv.get("commission") or inv.get("amount_owed") or 0)
+    amount = float(inv.get("amount_owed") or inv.get("commission") or 0)
     label = inv.get("week_label") or inv.get("shop_name") or ""
 
     # Notify seller on status change
@@ -8295,7 +8425,10 @@ async def _rebuild_restaurant_invoices():
         rc = r.get("commission_rate")
         rate_for[r["id"]] = float(rc) if rc is not None else global_rate
 
-    orders = await db.restaurant_orders.find({"status": "completed"}, {"_id": 0}).to_list(5000)
+    orders = await db.restaurant_orders.find(
+        {"$or": [{"status": "completed"}, {"delivery_status": "delivered", "status": {"$nin": ["cancelled", "cancel_approved"]}}]},
+        {"_id": 0},
+    ).to_list(5000)
     buckets: dict = {}
     for o in orders:
         try:
@@ -8315,8 +8448,10 @@ async def _rebuild_restaurant_invoices():
             "restaurant_id": rest["id"],
             "restaurant_name": rest.get("name", "—"),
             "week_start": ws, "week_end": we, "week_label": label,
-            "total_sales": 0.0, "order_count": 0, "_orders": set(),
+            "total_sales": 0.0, "order_count": 0, "platform_fees": 0.0, "_orders": set(),
         })
+        if o.get("payment_status") == "collected_by_seller":
+            b["platform_fees"] += float(o.get("platform_fees_usd") or 0)
         # Restaurant orders already carry computed subtotal (items + sides);
         # delivery_fee is excluded from commissionable revenue.
         b["total_sales"] += float(o.get("subtotal") or 0)
@@ -8332,6 +8467,7 @@ async def _rebuild_restaurant_invoices():
     for (seller_id, restaurant_id, ws), b in buckets.items():
         effective_rate = rate_for.get(restaurant_id, global_rate)
         commission = round(b["total_sales"] * effective_rate, 2)
+        platform_fees = round(b["platform_fees"], 2)
         prev = existing.get((seller_id, restaurant_id, ws), {})
         await db.restaurant_invoices.insert_one({
             "id": prev.get("id", str(uuid.uuid4())),
@@ -8343,7 +8479,8 @@ async def _rebuild_restaurant_invoices():
             "week_label": b["week_label"],
             "total_sales": round(b["total_sales"], 2),
             "commission": commission,
-            "amount_owed": commission,
+            "platform_fees": platform_fees,
+            "amount_owed": round(commission + platform_fees, 2),
             "order_count": len(b["_orders"]),
             "commission_rate": effective_rate,
             "status": prev.get("status", "Unpaid"),
@@ -8390,7 +8527,7 @@ async def admin_set_restaurant_invoice_status(
     )
 
     sid = inv.get("seller_id")
-    amount = float(inv.get("commission") or inv.get("amount_owed") or 0)
+    amount = float(inv.get("amount_owed") or inv.get("commission") or 0)
     label = inv.get("week_label") or inv.get("restaurant_name") or ""
     if sid:
         if body.status == "Paid":

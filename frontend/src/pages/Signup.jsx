@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import api, { formatDetail } from "@/lib/api";
 import { Logo } from "@/components/Logo";
+import { GoogleSignInButton } from "@/components/GoogleSignInButton";
 import PasswordInput from "@/components/PasswordInput";
 import { ArrowLeft, Loader2, CheckCircle2, Mail, Store } from "lucide-react";
 import { toast } from "sonner";
@@ -150,6 +151,12 @@ export default function Signup() {
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
             {t("createAccount")}
           </button>
+          <div className="flex items-center gap-3 my-1" aria-hidden="true">
+            <span className="flex-1 h-px bg-[var(--js-border)]" />
+            <span className="text-[11px] uppercase tracking-wider text-[var(--js-text-secondary)] font-semibold">or</span>
+            <span className="flex-1 h-px bg-[var(--js-border)]" />
+          </div>
+          <GoogleSignInButton testId="signup-google-button" />
 
           <p className="text-center text-xs text-[var(--js-text-secondary)]">
             {t("bySigningUpAgree")} <Link to="/terms" className="underline">{t("terms")}</Link> {t("andOur")} <Link to="/privacy" className="underline">{t("privacyPolicy")}</Link>.

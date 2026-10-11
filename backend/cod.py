@@ -31,7 +31,7 @@ import os
 import uuid
 import secrets
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Literal, Any
 
 from fastapi import APIRouter, HTTPException, Depends, Body
@@ -179,7 +179,28 @@ DELIVERY_STATUSES = {
 }
 POD_STATUSES = {"not_required", "pending", "submitted", "disputed"}
 RETURN_STATUSES = {"not_required", "pending_return", "return_to_seller_pending", "returned", "return_disputed"}
-PAYOUT_STATUSES = {"not_ready", "ready_for_payout", "pending_payout", "paid", "paused", "cancelled"}
+PAYOUT_STATUSES = {"not_ready", "on_hold", "ready_for_payout", "pending_payout", "paid", "paused", "cancelled"}
+INTERNATIONAL_HOLD_DAYS = 30
+
+
+def _parse_dt(v):
+    if not v:
+        return None
+    try:
+        d = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+        return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+
+async def release_payout_holds(seller_id: Optional[str] = None) -> int:
+    """Flip on_hold splits whose 30-day hold has elapsed (and no open dispute) to ready_for_payout."""
+    q: dict = {"payout_status": "on_hold", "payout_hold_until": {"$lte": datetime.now(timezone.utc).isoformat()},
+               "dispute_status": {"$in": ["none", "resolved", None]}}
+    if seller_id:
+        q["seller_id"] = seller_id
+    r = await db.seller_order_splits.update_many(q, {"$set": {"payout_status": "ready_for_payout", "updated_at": now_iso()}})
+    return r.modified_count
 DISPUTE_STATUSES = {"none", "opened", "resolved"}
 
 FAILURE_REASONS = {
@@ -282,6 +303,10 @@ def redact_for_customer(doc: dict) -> dict:
     for k in CUSTOMER_PRIVATE_KEYS:
         if k in doc:
             doc[k] = None
+    # Seller delivers → no OTP handshake; customer just sees driver phone + seller location.
+    if doc.get("delivery_managed_by") == "seller" or doc.get("self_delivered_by_seller"):
+        doc["seller_delivery"] = True
+        doc["customer_delivery_otp"] = None
     # Iter 37 (#7) — the seller's self-delivery driver phone is shown to the
     # customer ONLY while the order is in flight. Once delivered/returned/failed
     # it's hidden from the customer (the seller still sees it on their side).
@@ -404,7 +429,7 @@ async def maybe_mark_split_ready(split_id: str) -> None:
     s = await db.seller_order_splits.find_one({"id": split_id}, {"_id": 0})
     if not s:
         return
-    if s.get("payout_status") in {"ready_for_payout", "pending_payout", "paid", "paused", "cancelled"}:
+    if s.get("payout_status") in {"on_hold", "ready_for_payout", "pending_payout", "paid", "paused", "cancelled"}:
         return
     ok = (
         s.get("pickup_status") == "picked_up"
@@ -417,10 +442,16 @@ async def maybe_mark_split_ready(split_id: str) -> None:
         and s.get("return_status") in {"not_required"}
     )
     if ok:
-        await db.seller_order_splits.update_one(
-            {"id": split_id},
-            {"$set": {"payout_status": "ready_for_payout", "updated_at": now_iso()}},
-        )
+        setter = {"payout_status": "ready_for_payout", "updated_at": now_iso()}
+        # International (out-of-country) shops: hold payout for 30 days after delivery.
+        if s.get("is_international"):
+            base = _parse_dt(s.get("delivered_at")) or datetime.now(timezone.utc)
+            hold_days = int((await get_settings()).get("international_payout_hold_days", INTERNATIONAL_HOLD_DAYS) or 0)
+            hold_until = base + timedelta(days=hold_days)
+            if hold_until > datetime.now(timezone.utc):
+                setter["payout_status"] = "on_hold"
+                setter["payout_hold_until"] = hold_until.isoformat()
+        await db.seller_order_splits.update_one({"id": split_id}, {"$set": setter})
 
 
 # ---------------------------------------------------------------------------
@@ -514,7 +545,13 @@ async def create_marketplace_splits(order: dict) -> List[dict]:
             product_subtotal - platform_commission + (delivery_fee if _seller_keeps_delivery else 0.0),
             2,
         )
-        order_total = round(product_subtotal + delivery_fee, 2)
+        _intl = next((x for x in (order.get("international_breakdown") or []) if x.get("shop_id") == shop_id), {})
+        _order_sub = float(order.get("subtotal_usd") or 0)
+        service_fee = round(float(order.get("service_fee_usd") or 0) * product_subtotal / _order_sub, 2) if _order_sub > 0 else 0.0
+        shipping_fee = round(float(_intl.get("shipping_fee_usd") or 0), 2)
+        customs_fee = round(float(_intl.get("customs_fee_usd") or 0), 2)
+        platform_fees = round(service_fee + shipping_fee + customs_fee, 2)
+        order_total = round(product_subtotal + delivery_fee + platform_fees, 2)
 
         split = {
             "id": str(uuid.uuid4()),
@@ -535,6 +572,11 @@ async def create_marketplace_splits(order: dict) -> List[dict]:
             "items": b["items"],
             "product_subtotal_usd": product_subtotal,
             "delivery_fee_usd": round(delivery_fee, 2),
+            "service_fee_usd": service_fee,
+            "shipping_fee_usd": shipping_fee,
+            "customs_fee_usd": customs_fee,
+            "platform_fees_usd": platform_fees,
+            "is_international": bool(shop.get("out_of_country")),
             "order_total_usd": order_total,
             "commission_rate": rate,
             "platform_commission_usd": platform_commission,
@@ -624,7 +666,9 @@ async def initialize_restaurant_order_cod(order: dict) -> dict:
 
     product_subtotal = round(subtotal, 2)
     delivery_fee = float(order.get("delivery_fee", 0))
-    order_total = round(product_subtotal + delivery_fee, 2)
+    service_fee = round(float(order.get("service_fee_usd") or 0), 2)
+    tax_fee = round(float(order.get("tax_usd") or 0), 2)
+    order_total = round(product_subtotal + delivery_fee + service_fee + tax_fee, 2)
     platform_commission = round(product_subtotal * rate, 2)
     # When the seller manages delivery, they ALSO keep the delivery fee (they
     # are the driver). Otherwise the platform driver takes it via cash handover.
@@ -644,6 +688,9 @@ async def initialize_restaurant_order_cod(order: dict) -> dict:
         "items_secure": secure_items,
         "product_subtotal_usd": product_subtotal,
         "delivery_fee_usd": delivery_fee,
+        "service_fee_usd": service_fee,
+        "tax_usd": tax_fee,
+        "platform_fees_usd": round(service_fee + tax_fee, 2),
         "order_total_usd": order_total,
         "seller_id": seller_id,
         "shop_name": rest.get("name", "—"),
@@ -738,6 +785,15 @@ class DriverCreateIn(BaseModel):
 
 class DisputeOpenIn(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
+
+
+class PayoutSettingsIn(BaseModel):
+    method: Literal["cash", "bank"] = "cash"
+    account_name: Optional[str] = ""
+    bank_name: Optional[str] = ""
+    account_number: Optional[str] = ""
+    swift_iban: Optional[str] = ""
+    bank_country: Optional[str] = ""
 
 
 class PayoutGenerateIn(BaseModel):
@@ -1106,16 +1162,21 @@ def register_endpoints():
         return p
 
     @new_router.post("/admin/payouts/{payout_id}/mark-paid")
-    async def mark_payout_paid(payout_id: str, admin: dict = admin_dep):
+    async def mark_payout_paid(payout_id: str, body: dict = Body(default_factory=dict), admin: dict = admin_dep):
         p = await db.seller_payouts.find_one({"id": payout_id})
         if not p:
             raise HTTPException(404, "Payout not found")
         if p.get("status") == "paid":
             return {"ok": True, "already_paid": True}
         now = now_iso()
+        ref = str((body or {}).get("reference") or "").strip()[:120]
+        if p.get("payout_method") == "bank" and not ref:
+            raise HTTPException(400, "Bank transfer reference is required")
         await db.seller_payouts.update_one(
             {"id": payout_id},
-            {"$set": {"status": "paid", "paid_at": now, "paid_by": admin["id"], "updated_at": now}},
+            {"$set": {"status": "paid", "paid_at": now, "paid_by": admin["id"], "updated_at": now,
+                      "paid_via": "bank_transfer" if p.get("payout_method") == "bank" else "cash",
+                      "payment_reference": ref or None}},
         )
         await db.seller_order_splits.update_many(
             {"payout_id": payout_id},
@@ -1605,6 +1666,22 @@ def register_endpoints():
     @new_router.get("/seller/wallet")
     async def seller_wallet(user: dict = seller_dep):
         return await _compute_seller_wallet(user["id"])
+
+    @new_router.get("/seller/payout-settings")
+    async def get_payout_settings(user: dict = seller_dep):
+        return await _effective_payout_settings(user["id"])
+
+    @new_router.put("/seller/payout-settings")
+    async def put_payout_settings(body: PayoutSettingsIn, user: dict = seller_dep):
+        current = await _effective_payout_settings(user["id"])
+        method = "bank" if current["is_international"] else body.method
+        bank = {k: (getattr(body, k) or "").strip()[:120] for k in BANK_FIELDS}
+        if method == "bank" and not all(bank[k] for k in ("account_name", "bank_name", "account_number")):
+            raise HTTPException(400, "Account name, bank name and account number are required for bank transfer")
+        if current["is_international"] and not bank["swift_iban"]:
+            raise HTTPException(400, "SWIFT / IBAN is required for international payouts")
+        await db.users.update_one({"id": user["id"]}, {"$set": {"payout_settings": {"method": method, "bank": bank, "updated_at": now_iso()}}})
+        return await _effective_payout_settings(user["id"])
 
     @new_router.get("/seller/payouts")
     async def seller_payouts(user: dict = seller_dep):
@@ -2770,6 +2847,7 @@ async def _compute_seller_wallet(seller_id: str) -> dict:
       commission_deducted     — sum of platform_commission_usd over delivered orders
       returned_or_failed
     """
+    await release_payout_holds(seller_id)
     splits = await db.seller_order_splits.find(
         {"seller_id": seller_id}, {"_id": 0},
     ).to_list(5000)
@@ -2807,8 +2885,58 @@ async def _compute_seller_wallet(seller_id: str) -> dict:
         or r.get("return_status") in {"returned", "return_disputed"},
     )
 
+    def _delivered_ok(r):
+        return r.get("delivery_status") == "delivered" and r.get("return_status") in {"not_required", None}
+
+    total_sales = round(sum(float(r.get("product_subtotal_usd") or 0) for r in all_rows if _delivered_ok(r)), 2)
+    refunds = round(sum(
+        float(r.get("product_subtotal_usd") or 0) for r in all_rows
+        if r.get("delivery_status") in {"returned_to_seller", "delivery_failed", "failed"}
+        or r.get("return_status") in {"returned", "return_disputed"}
+    ), 2)
+    payouts = await db.seller_payouts.find({"seller_id": seller_id}, {"_id": 0, "transfer_fee_usd": 1}).to_list(2000)
+    fees = round(sum(float(p.get("transfer_fee_usd") or 0) for p in payouts), 2)
+    on_hold = amt(all_rows, lambda r: r.get("payout_status") == "on_hold")
+    hold_dates = sorted(r.get("payout_hold_until") for r in splits if r.get("payout_status") == "on_hold" and r.get("payout_hold_until"))
+
+    sysconf = await get_settings()
+    admin_default = bool(sysconf.get("admin_manages_delivery", False))
+    my_shops = await db.shops.find({"seller_id": seller_id}, {"_id": 0, "delivery_managed_by": 1, "out_of_country": 1}).to_list(200)
+    my_rests = await db.restaurants.find({"seller_id": seller_id}, {"_id": 0, "delivery_managed_by": 1}).to_list(200)
+
+    def _resolved(e):
+        mb = (e.get("delivery_managed_by") or "default").lower()
+        return mb if mb in ("seller", "admin") else ("admin" if admin_default else "seller")
+
+    entities = my_shops + my_rests
+    seller_manages_delivery = bool(entities) and all(_resolved(e) == "seller" for e in entities)
+    is_international = any(sh.get("out_of_country") for sh in my_shops)
+    active_count = sum(
+        1 for r in all_rows
+        if r.get("delivery_status") not in {"delivered", "returned_to_seller", "delivery_failed", "failed"}
+        and r.get("seller_preparation_status") != "cancelled"
+        and r.get("status") not in {"cancel_approved", "cancelled"}
+        and r.get("payout_status") != "paid"
+    )
+
     return {
         "currency": "USD",
+        "seller_manages_delivery": seller_manages_delivery,
+        "is_international": is_international,
+        "active_count": active_count,
+        "on_hold": on_hold,
+        "next_hold_release": hold_dates[0] if hold_dates else None,
+        "hold_days": int(sysconf.get("international_payout_hold_days", INTERNATIONAL_HOLD_DAYS) or 0),
+        "balance": {
+            "total_sales": total_sales,
+            "commission": commission_deducted,
+            "refunds": refunds,
+            "fees": fees,
+            "on_hold": on_hold,
+            "available": ready_for_payout,
+            "pending": pending_payout,
+            "paid": paid_total,
+        },
         "pending_cash_collection": pending_cash_collection,
         "cash_with_driver": cash_with_driver,
         "ready_for_payout": ready_for_payout,
@@ -2823,12 +2951,29 @@ async def _compute_seller_wallet(seller_id: str) -> dict:
     }
 
 
+BANK_FIELDS = ("account_name", "bank_name", "account_number", "swift_iban", "bank_country")
+
+
+async def _effective_payout_settings(seller_id: str, raw: Optional[dict] = None) -> dict:
+    """International sellers are always paid by bank transfer; SS sellers choose cash or bank."""
+    if raw is None:
+        u = await db.users.find_one({"id": seller_id}, {"_id": 0, "payout_settings": 1}) or {}
+        raw = u.get("payout_settings")
+    raw = raw or {}
+    is_intl = bool(await db.shops.find_one({"seller_id": seller_id, "out_of_country": True}, {"_id": 1}))
+    method = "bank" if is_intl else (raw.get("method") if raw.get("method") in ("cash", "bank") else "cash")
+    bank = {k: (raw.get("bank") or {}).get(k, "") for k in BANK_FIELDS}
+    return {"method": method, "bank": bank, "is_international": is_intl,
+            "bank_complete": all(bank.get(k) for k in ("account_name", "bank_name", "account_number"))}
+
+
 async def _generate_payouts(seller_id: Optional[str]) -> dict:
     """Create a `seller_payouts` doc per seller from all their
     `ready_for_payout` splits + restaurant orders.
 
     Splits with dispute_status='opened' are excluded (paused).
     """
+    await release_payout_holds(seller_id)
     q_split: dict = {"payout_status": "ready_for_payout"}
     q_rest: dict = {"payout_status": "ready_for_payout"}
     if seller_id:
@@ -2873,7 +3018,9 @@ async def _generate_payouts(seller_id: Optional[str]) -> dict:
     for sid, bucket in by_seller.items():
         if not bucket["splits"] and not bucket["rests"]:
             continue
-        seller = await db.users.find_one({"id": sid}, {"_id": 0, "name": 1, "email": 1})
+        seller = await db.users.find_one({"id": sid}, {"_id": 0, "name": 1, "email": 1, "payout_settings": 1})
+        ps = await _effective_payout_settings(sid, (seller or {}).get("payout_settings"))
+        transfer_fee = round(float(sysconf.get("bank_transfer_fee_usd") or 0), 2) if ps["method"] == "bank" else 0.0
         seller_rate = rate_by_seller.get(sid, global_rate)
         
         print(f"💰 [PAYOUT] Seller {sid}: rate={seller_rate}, amount=${bucket['amount']}, SSP={bucket['amount'] * seller_rate}")
@@ -2887,6 +3034,10 @@ async def _generate_payouts(seller_id: Optional[str]) -> dict:
             "restaurant_order_ids": bucket["rests"],
             "amount_usd": round(bucket["amount"], 2),
             "commission_deducted_usd": round(bucket["commission"], 2),
+            "payout_method": ps["method"],
+            "bank_details": ps.get("bank") if ps["method"] == "bank" else None,
+            "transfer_fee_usd": transfer_fee,
+            "net_amount_usd": round(max(0.0, bucket["amount"] - transfer_fee), 2),
             "exchange_rate_ssp": seller_rate,  # NEW: Seller's exchange rate for SSP conversion
             "status": "pending_payout",
             "created_at": now,

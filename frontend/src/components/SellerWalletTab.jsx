@@ -1,4 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
+import { SellerPayoutSettings } from "@/components/SellerPayoutSettings";
+import { SellerBalanceBreakdown } from "@/components/SellerBalanceBreakdown";
 import api, { formatUSD, formatPrice, formatDetail } from "@/lib/api";
 import { useCart } from "@/context/CartContext";
 import { useOptimizedPolling } from "@/hooks/useOptimizedPolling";
@@ -33,6 +36,7 @@ const STATUS_PILL = {
 
 const PAYOUT_PILL = {
   not_ready: "bg-gray-100 text-gray-600",
+  on_hold: "bg-blue-100 text-blue-700",
   ready_for_payout: "bg-emerald-100 text-emerald-700",
   pending_payout: "bg-amber-100 text-amber-700",
   paid: "bg-emerald-200 text-emerald-800",
@@ -76,7 +80,12 @@ export default function SellerWalletTab() {
   const [detail, setDetail] = useState(null);
   const [returnOtp, setReturnOtp] = useState("");
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState("overview"); // overview | splits | payouts
+  const [searchParams] = useSearchParams();
+  const [view, setView] = useState(searchParams.get("view") || "overview");
+  useEffect(() => {
+    const v = searchParams.get("view");
+    if (v) setView(v);
+  }, [searchParams]);
   
   // Get currency and exchange rate from CartContext with defaults
   const { currency = "USD", exchangeRate = 1 } = useCart() || {};
@@ -148,7 +157,12 @@ export default function SellerWalletTab() {
       </tr>`).join("");
     const subtotal = row.product_subtotal_usd || row.subtotal || 0;
     const delivery = row.delivery_fee_usd || row.delivery_fee || 0;
-    const total = row.order_total_usd || row.total || (subtotal + delivery);
+    const shipping = row.shipping_fee_usd || 0;
+    const customs = row.customs_fee_usd || 0;
+    const service = row.service_fee_usd || 0;
+    const tax = row.tax_usd || 0;
+    const total = row.order_total_usd || row.total || (subtotal + delivery + shipping + customs + service + tax);
+    const feeLine = (label, v) => (v > 0 ? `<div>${label}: <strong>${fmt(v)}</strong></div>` : "");
     const paymentLabel = (row.payment_method || "cash_on_delivery").replace(/_/g, " ").toUpperCase();
     const driverLine = row.seller_driver_name || row.seller_driver_phone
       ? `${row.seller_driver_name || "Driver"}${row.seller_driver_phone ? ` · ${row.seller_driver_phone}` : ""}`
@@ -208,6 +222,10 @@ export default function SellerWalletTab() {
   <div class="totals">
     <div>Subtotal: <strong>${fmt(subtotal)}</strong></div>
     ${delivery > 0 ? `<div>Delivery: <strong>${fmt(delivery)}</strong></div>` : ""}
+    ${feeLine("Shipping", shipping)}
+    ${feeLine("Import / customs", customs)}
+    ${feeLine("Service fee", service)}
+    ${feeLine("Tax", tax)}
     <div class="big">TOTAL: ${fmt(total)}</div>
     ${currency === "SSP" ? `<div style="font-size:10px;color:#666">Rate: 1 USD = SSP ${rate.toLocaleString()}</div>` : ""}
   </div>
@@ -307,6 +325,10 @@ export default function SellerWalletTab() {
     ["cancel_approved", "cancelled"].includes(row.status)
   );
 
+  const isSelf = (row) => row.delivery_managed_by === "seller" || row.self_delivered_by_seller;
+  const sellerDelivers = !!wallet?.seller_manages_delivery;
+  const activeAllSelf = allItems.length > 0 && allItems.every(isSelf);
+
   if (loading) {
     return (
       <div className="text-center py-20 text-[var(--js-text-secondary)]">Loading wallet…</div>
@@ -319,10 +341,11 @@ export default function SellerWalletTab() {
       <div className="flex gap-2 mb-6 border-b border-[var(--js-border)]">
         {[
           { id: "overview", label: "Overview" },
-          { id: "splits", label: "Active Orders" },
+          { id: "splits", label: "Active Orders", count: allItems.length },
           { id: "completed", label: "Completed" },
           { id: "cancelled", label: "Cancelled Orders" },
-          { id: "payouts", label: "Payout History" },
+          ...(sellerDelivers && payouts.length === 0 ? [] : [{ id: "payouts", label: "Settlement History" }]),
+          { id: "payout-method", label: "Payout Method" },
         ].map((s) => (
           <button
             key={s.id}
@@ -335,11 +358,28 @@ export default function SellerWalletTab() {
             }`}
           >
             {s.label}
+            {s.count > 0 && (
+              <span data-testid={`wallet-sub-${s.id}-count`} className="ml-1.5 relative inline-flex items-center justify-center min-w-[18px] h-[18px] text-[10px] font-bold bg-emerald-500 text-white rounded-full px-1.5">
+                <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-60" />
+                <span className="relative">{s.count}</span>
+              </span>
+            )}
           </button>
         ))}
       </div>
 
       {view === "overview" && wallet && (
+        <>
+        {allItems.length > 0 && (
+          <button
+            onClick={() => setView("splits")}
+            data-testid="wallet-active-orders-alert"
+            className="w-full mb-4 flex items-center gap-3 rounded-2xl border-2 border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-4 py-3 text-left hover:bg-emerald-100 transition-colors"
+          >
+            <span className="relative flex h-3 w-3"><span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 animate-ping opacity-75" /><span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" /></span>
+            <span className="text-sm font-semibold text-emerald-900 dark:text-emerald-200">You have {allItems.length} active order{allItems.length > 1 ? "s" : ""} — tap to manage</span>
+          </button>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard
             icon={Clock}
@@ -347,6 +387,8 @@ export default function SellerWalletTab() {
             value={formatPrice(wallet.pending_cash_collection, exchangeRate, currency)}
             sub="Orders out for delivery"
           />
+          {!sellerDelivers && (
+            <>
           <StatCard
             icon={Truck}
             label="Cash with driver"
@@ -375,6 +417,16 @@ export default function SellerWalletTab() {
             sub="Lifetime"
             tone="good"
           />
+            </>
+          )}
+          {wallet.is_international && (
+            <StatCard
+              icon={Clock}
+              label="On hold"
+              value={formatPrice(wallet.on_hold, exchangeRate, currency)}
+              sub={`Released ${wallet.hold_days} days after delivery`}
+            />
+          )}
           <StatCard
             icon={AlertTriangle}
             label="Commission deducted"
@@ -395,7 +447,11 @@ export default function SellerWalletTab() {
             sub="Splits + restaurant orders ready"
           />
         </div>
+        {!sellerDelivers && <SellerBalanceBreakdown wallet={wallet} rate={exchangeRate} currency={currency} />}
+        </>
       )}
+
+      {view === "payout-method" && <SellerPayoutSettings />}
 
       {view === "splits" && (
         <div>
@@ -412,9 +468,9 @@ export default function SellerWalletTab() {
                     <th className="text-left px-3 py-3">Customer</th>
                     <th className="text-left px-3 py-3">Total</th>
                     <th className="text-left px-3 py-3">Prep</th>
-                    <th className="text-left px-3 py-3">Pickup</th>
+                    {!activeAllSelf && <th className="text-left px-3 py-3">Pickup</th>}
                     <th className="text-left px-3 py-3">Delivery</th>
-                    <th className="text-left px-3 py-3">Payout</th>
+                    {!activeAllSelf && <th className="text-left px-3 py-3">Payout</th>}
                     <th className="text-right px-3 py-3">Action</th>
                   </tr>
                 </thead>
@@ -439,9 +495,12 @@ export default function SellerWalletTab() {
                           cancelled: "bg-red-100 text-red-700",
                         }} />
                       </td>
-                      <td className="px-3 py-2"><Pill value={s.pickup_status} mapping={STATUS_PILL} /></td>
-                      <td className="px-3 py-2"><Pill value={s.delivery_status} mapping={STATUS_PILL} /></td>
-                      <td className="px-3 py-2"><Pill value={s.payout_status} mapping={PAYOUT_PILL} /></td>
+                      {!activeAllSelf && <td className="px-3 py-2">{isSelf(s) ? <span className="text-xs text-[var(--js-text-secondary)]">—</span> : <Pill value={s.pickup_status} mapping={STATUS_PILL} />}</td>}
+                      <td className="px-3 py-2">
+                        <Pill value={s.delivery_status} mapping={STATUS_PILL} />
+                        {isSelf(s) && <span className="block text-[10px] text-[var(--js-text-secondary)] mt-0.5">Seller delivering</span>}
+                      </td>
+                      {!activeAllSelf && <td className="px-3 py-2">{isSelf(s) ? <span className="text-xs text-[var(--js-text-secondary)]">—</span> : <Pill value={s.payout_status} mapping={PAYOUT_PILL} />}</td>}
                       <td className="px-3 py-2 text-right">
                         <button
                           onClick={() => { setDetail(s); setReturnOtp(""); }}
@@ -590,8 +649,12 @@ export default function SellerWalletTab() {
                     <th className="text-left px-3 py-3">Splits</th>
                     <th className="text-left px-3 py-3">Amount</th>
                     <th className="text-left px-3 py-3">Commission</th>
+                    <th className="text-left px-3 py-3">Fee</th>
+                    <th className="text-left px-3 py-3">Net</th>
+                    <th className="text-left px-3 py-3">Method</th>
                     <th className="text-left px-3 py-3">Status</th>
                     <th className="text-left px-3 py-3">Paid at</th>
+                    <th className="text-left px-3 py-3">Reference</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -605,8 +668,12 @@ export default function SellerWalletTab() {
                       <td className="px-3 py-2">{(p.split_ids?.length || 0) + (p.restaurant_order_ids?.length || 0)}</td>
                       <td className="px-3 py-2 font-semibold">{formatPrice(p.amount_usd, payoutRate, currency)}</td>
                       <td className="px-3 py-2">{formatPrice(p.commission_deducted_usd, payoutRate, currency)}</td>
+                      <td className="px-3 py-2">{formatPrice(p.transfer_fee_usd || 0, payoutRate, currency)}</td>
+                      <td className="px-3 py-2 font-semibold">{formatPrice(p.net_amount_usd ?? p.amount_usd, payoutRate, currency)}</td>
+                      <td className="px-3 py-2 text-xs capitalize" data-testid={`settlement-method-${p.id.slice(0, 8)}`}>{p.payout_method === "bank" ? "Bank transfer" : "Cash"}</td>
                       <td className="px-3 py-2"><Pill value={p.status} mapping={PAYOUT_PILL} /></td>
                       <td className="px-3 py-2 text-xs">{p.paid_at ? p.paid_at.slice(0, 16).replace("T", " ") : "—"}</td>
+                      <td className="px-3 py-2 text-xs font-mono">{p.payment_reference || "—"}</td>
                     </tr>
                   );})}
                 </tbody>
@@ -702,6 +769,9 @@ export default function SellerWalletTab() {
                   <p className="text-[10px] text-[var(--js-text-secondary)]">
                     Items {formatPrice(detail.product_subtotal_usd || 0, detail.exchange_rate_ssp || exchangeRate, currency)}
                     {(detail.delivery_fee_usd || 0) > 0 && <> · Delivery {formatPrice(detail.delivery_fee_usd, detail.exchange_rate_ssp || exchangeRate, currency)}</>}
+                    {[["Shipping", detail.shipping_fee_usd], ["Import/customs", detail.customs_fee_usd], ["Service", detail.service_fee_usd], ["Tax", detail.tax_usd]]
+                      .filter(([, v]) => v > 0)
+                      .map(([l, v]) => <span key={l} data-testid={`detail-fee-${l.toLowerCase().replace("/", "-")}`}> · {l} {formatPrice(v, detail.exchange_rate_ssp || exchangeRate, currency)}</span>)}
                   </p>
                 </div>
                 <div>
@@ -718,9 +788,9 @@ export default function SellerWalletTab() {
 
               <div className="flex flex-wrap gap-2 text-xs">
                 <Pill value={detail.seller_preparation_status} mapping={{ pending: "bg-gray-100 text-gray-700", accepted: "bg-blue-100 text-blue-700", preparing: "bg-amber-100 text-amber-700", ready_for_pickup: "bg-emerald-100 text-emerald-700", handed_to_driver: "bg-emerald-200 text-emerald-800" }} />
-                <Pill value={detail.pickup_status} mapping={STATUS_PILL} />
+                {!sellerIsDriver && <Pill value={detail.pickup_status} mapping={STATUS_PILL} />}
                 <Pill value={detail.delivery_status} mapping={STATUS_PILL} />
-                <Pill value={detail.payout_status} mapping={PAYOUT_PILL} />
+                {!sellerIsDriver && <Pill value={detail.payout_status} mapping={PAYOUT_PILL} />}
               </div>
 
               {/* Items */}
