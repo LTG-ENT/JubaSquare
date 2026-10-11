@@ -282,6 +282,13 @@ def redact_for_customer(doc: dict) -> dict:
     for k in CUSTOMER_PRIVATE_KEYS:
         if k in doc:
             doc[k] = None
+    # Iter 37 (#7) — the seller's self-delivery driver phone is shown to the
+    # customer ONLY while the order is in flight. Once delivered/returned/failed
+    # it's hidden from the customer (the seller still sees it on their side).
+    if doc.get("delivery_status") in {"delivered", "returned_to_seller", "failed"}:
+        for k in ("seller_driver_phone", "seller_driver_name"):
+            if k in doc:
+                doc[k] = None
     return doc
 
 
@@ -2422,6 +2429,10 @@ def register_endpoints():
     async def _cancel_rest_order(o: dict, by_role: str, by_user_id: str, reason: str = "") -> dict:
         if o.get("delivery_status") in {"delivered", "returned_to_seller"}:
             raise HTTPException(400, "Order already finalized — cannot cancel")
+        # Iter 37 (#11) — customers cannot cancel once the restaurant is
+        # preparing the food. Allowed only while pending/accepted.
+        if by_role == "customer" and (o.get("status") or "").lower() in {"cooking", "preparing", "ready", "completed"}:
+            raise HTTPException(400, "This order is already being prepared and can no longer be cancelled.")
         if o.get("pickup_status") == "picked_up" and not o.get("self_delivered_by_seller"):
             raise HTTPException(400, "Item already picked up by driver. Use the return-to-seller flow.")
         # Sellers can normally only cancel while preparing (before ready_for_pickup),

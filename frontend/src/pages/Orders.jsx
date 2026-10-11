@@ -23,7 +23,9 @@ const STATUS_STYLES = {
 const CUSTOMER_CANCELLABLE_MP_STATUSES = new Set(["Pending"]);
 
 // Restaurant order statuses where the customer can still cancel.
-const CUSTOMER_CANCELLABLE_REST_STATUSES = new Set(["pending", "accepted", "cooking"]);
+// (#11) Once the kitchen starts preparing ("cooking") or later, customers
+// can no longer cancel — only "pending" / "accepted" are cancellable.
+const CUSTOMER_CANCELLABLE_REST_STATUSES = new Set(["pending", "accepted"]);
 
 function CancelOrderModal({ order, kind, onClose, onCancelled }) {
   const [reason, setReason] = useState("");

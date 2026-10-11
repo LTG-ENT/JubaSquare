@@ -2883,6 +2883,31 @@ async def send_shop_message(shop_id: str, body: ShopMessageIn, request: Request)
     return msg
 
 
+class ContactAdminIn(BaseModel):
+    subject: Optional[str] = ""
+    body: str
+
+
+@api.post("/messages/seller/contact-admin")
+async def seller_contact_admin(body: ContactAdminIn, user: dict = Depends(require_role("seller"))):
+    """Iter 37 (#8) — a seller sends a message to JubaSquare (admins). Stored as
+    a notification for every admin so it shows in their bell."""
+    text = (body.body or "").strip()
+    if len(text) < 2:
+        raise HTTPException(400, "Message is too short")
+    subject = (body.subject or "").strip()[:120]
+    sender = user.get("name") or user.get("email") or "a seller"
+    admins = await db.users.find({"role": "admin", "is_deleted": {"$ne": True}}, {"_id": 0, "id": 1}).to_list(50)
+    msg = f"Message from seller {sender}" + (f" — {subject}" if subject else "") + f": {text[:800]}"
+    for a in admins:
+        await create_notification(
+            user_id=a["id"], message=msg, ntype="seller_message",
+            meta={"from_seller_id": user["id"], "subject": subject}, push_url="/admin",
+        )
+    return {"ok": True, "sent_to": len(admins)}
+
+
+
 @api.get("/messages/seller")
 async def list_seller_messages(
     user: dict = Depends(require_role("seller", "admin")),
@@ -4268,38 +4293,44 @@ async def delete_menu_item(item_id: str, user: dict = Depends(require_role("sell
 # ----------------------------------------------------------------------------
 @api.post("/restaurant-orders/quote")
 async def quote_restaurant_order(body: RestaurantOrderQuoteIn, user: dict = Depends(get_current_user)):
-    """Calculate delivery fee preview for restaurant order without creating it."""
-    if body.delivery_type == "pickup":
-        return {"delivery_fee_usd": 0, "subtotal_usd": 0, "total_usd": 0}
-    
-    # Get restaurant area as pickup area
-    restaurant = await db.restaurants.find_one({"id": body.restaurant_id})
-    if not restaurant:
-        raise HTTPException(404, "Restaurant not found")
-    
-    pickup_area = restaurant.get("area", "")
-    delivery_area = body.customer_area or user.get("area", "")
-    
-    # Calculate using admin rules
-    from cod import _calculate_delivery_fee
-    delivery_fee = await _calculate_delivery_fee(
-        pickup_area=pickup_area,
-        delivery_area=delivery_area,
-        order_type="restaurant",
-        shop_id=None,
-        restaurant_id=body.restaurant_id
-    )
-    
-    # Calculate subtotal from items
+    """Calculate delivery fee + service fee + tax preview for a restaurant order."""
+    settings = await get_settings()
+    service_rate = float(settings.get("service_fee_rate") or 0)
+    tax_rate = float(settings.get("customs_rate") or 0)
+
     subtotal = sum(
-        it.price_usd * it.quantity + sum(sd.price_usd for sd in (it.sides or [])) * it.quantity 
+        it.price_usd * it.quantity + sum(sd.price_usd for sd in (it.sides or [])) * it.quantity
         for it in body.items
     )
-    
+
+    delivery_fee = 0.0
+    pickup_area = ""
+    delivery_area = ""
+    if body.delivery_type != "pickup":
+        restaurant = await db.restaurants.find_one({"id": body.restaurant_id})
+        if not restaurant:
+            raise HTTPException(404, "Restaurant not found")
+        pickup_area = restaurant.get("area", "")
+        delivery_area = body.customer_area or user.get("area", "")
+        from cod import _calculate_delivery_fee
+        delivery_fee = await _calculate_delivery_fee(
+            pickup_area=pickup_area,
+            delivery_area=delivery_area,
+            order_type="restaurant",
+            shop_id=None,
+            restaurant_id=body.restaurant_id,
+        )
+
+    service_fee = round(subtotal * service_rate, 2)
+    tax = round(subtotal * tax_rate, 2)
     return {
         "delivery_fee_usd": round(delivery_fee, 2),
         "subtotal_usd": round(subtotal, 2),
-        "total_usd": round(subtotal + delivery_fee, 2),
+        "service_fee_usd": service_fee,
+        "service_fee_rate": service_rate,
+        "tax_usd": tax,
+        "tax_rate": tax_rate,
+        "total_usd": round(subtotal + delivery_fee + service_fee + tax, 2),
         "pickup_area": pickup_area,
         "delivery_area": delivery_area,
     }
@@ -4316,7 +4347,12 @@ async def create_restaurant_order(body: RestaurantOrderIn, user: dict = Depends(
         raise HTTPException(404, "Restaurant not found")
     if not restaurant.get("is_open", True):
         raise HTTPException(400, "Restaurant is currently closed. Please try again later.")
-    
+
+    # Iter 37 (#10) — customer phone must be 10–12 digits.
+    phone_digits = re.sub(r"\D", "", body.customer_phone or "")
+    if not (10 <= len(phone_digits) <= 12):
+        raise HTTPException(400, "Phone number must be between 10 and 12 digits.")
+
     # SECURITY: Calculate delivery fee using admin pricing rules. Never trust frontend prices.
     from cod import _calculate_delivery_fee
     
@@ -4387,7 +4423,11 @@ async def create_restaurant_order(body: RestaurantOrderIn, user: dict = Depends(
             "sides": [s.model_dump() for s in (item.sides or [])],
         })
 
-    total = subtotal + delivery_fee
+    # Iter 37 (#10) — service fee + tax on restaurant orders (customer → JubaSquare)
+    _rset = await get_settings()
+    service_fee = round(subtotal * float(_rset.get("service_fee_rate") or 0), 2)
+    tax = round(subtotal * float(_rset.get("customs_rate") or 0), 2)
+    total = round(subtotal + delivery_fee + service_fee + tax, 2)
     
     # Create order
     order = {
@@ -4408,6 +4448,8 @@ async def create_restaurant_order(body: RestaurantOrderIn, user: dict = Depends(
         "note": body.note,
         "subtotal": subtotal,
         "delivery_fee": delivery_fee,
+        "service_fee_usd": service_fee,
+        "tax_usd": tax,
         "total": total,
         "status": "pending",  # pending → accepted → cooking → ready → completed
         "created_at": now_iso(),

@@ -1332,11 +1332,13 @@ function ProductsTab({ currency, exchangeRate }) {
                 <ImageUpload label="Food photo" value={form.image_url} onChange={(v) => setForm({ ...form, image_url: v })} testId="product-image-upload" />
                 <Textarea label="Description" value={form.description} onChange={(v) => setForm({ ...form, description: v })} testId="product-desc-input" />
                 <SideItemsEditor sides={form.side_items} setSides={(s) => setForm({ ...form, side_items: s })} currency={currency} exchangeRate={rate} />
-                <RequiredSidesEditor
-                  form={form}
-                  setForm={setForm}
-                  hasSides={(form.side_items || []).length > 0}
-                />
+                {(form.side_items || []).length > 0 && (
+                  <RequiredSidesEditor
+                    form={form}
+                    setForm={setForm}
+                    hasSides={(form.side_items || []).length > 0}
+                  />
+                )}
                 <SectionPicker
                   form={form}
                   setForm={setForm}
@@ -1886,9 +1888,9 @@ function DeliveryEditor({ form, setForm }) {
           <MapPin className="w-5 h-5 text-[#1A1A1A]" />
         </div>
         <div>
-          <p className="font-bold text-sm text-[var(--js-text)] mb-1">Delivery Pricing — Hybrid Model</p>
+          <p className="font-bold text-sm text-[var(--js-text)] mb-1">Delivery Pricing</p>
           <p className="text-xs text-[var(--js-text-secondary)] leading-relaxed">
-            By default, sellers manage their own delivery via the shop editor (free / fixed fee / per-area). If JubaSquare enables platform-wide admin delivery, admin-defined rules take over. A per-shop override can lock any shop to seller-mode or admin-mode regardless of the platform toggle.
+            When you are delivering (<b>Seller delivering</b>), set your own delivery pricing in the shop editor — free, a fixed fee, or per-area. When <b>JubaSquare is delivering</b>, delivery pricing and the driver are handled for you and you don&apos;t need to set anything.
           </p>
         </div>
       </div>
@@ -2418,9 +2420,49 @@ function MessagesTab({ onChange }) {
 
   const visible = filter === "unread" ? items.filter((i) => !i.is_read) : items;
   const unreadN = items.filter((i) => !i.is_read).length;
+  const [showContact, setShowContact] = useState(false);
+  const [contactText, setContactText] = useState("");
+  const [contactSubject, setContactSubject] = useState("");
+  const [contactSending, setContactSending] = useState(false);
+  const sendToJubaSquare = async () => {
+    if (contactText.trim().length < 2) { toast.error("Please write a message"); return; }
+    setContactSending(true);
+    try {
+      await api.post("/messages/seller/contact-admin", { subject: contactSubject.trim(), body: contactText.trim() });
+      toast.success("Message sent to JubaSquare");
+      setShowContact(false); setContactText(""); setContactSubject("");
+    } catch (e) {
+      toast.error(formatDetail(e.response?.data?.detail) || "Failed to send");
+    } finally { setContactSending(false); }
+  };
 
   return (
     <div data-testid="seller-messages-tab">
+      {showContact && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setShowContact(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()} data-testid="message-jubasquare-modal">
+            <h3 className="font-display font-bold text-lg">Message JubaSquare</h3>
+            <p className="text-xs text-[#5C5C5C] mt-1">Send a message to the JubaSquare team.</p>
+            <input
+              type="text" value={contactSubject} onChange={(e) => setContactSubject(e.target.value)}
+              placeholder="Subject (optional)" data-testid="message-jubasquare-subject"
+              className="w-full mt-3 px-3 py-2 border border-[var(--js-border)] rounded-xl text-sm focus:outline-none focus:border-[#C84B31]"
+            />
+            <textarea
+              value={contactText} onChange={(e) => setContactText(e.target.value)} rows={4}
+              placeholder="How can JubaSquare help?" data-testid="message-jubasquare-body"
+              className="w-full mt-2 px-3 py-2 border border-[var(--js-border)] rounded-xl text-sm focus:outline-none focus:border-[#C84B31]"
+            />
+            <div className="flex gap-2 mt-4">
+              <button onClick={sendToJubaSquare} disabled={contactSending} data-testid="message-jubasquare-send"
+                className="flex-1 bg-[#C84B31] hover:bg-[#a83521] text-white text-sm font-bold py-2.5 rounded-xl disabled:opacity-60">
+                {contactSending ? "Sending…" : "Send"}
+              </button>
+              <button onClick={() => setShowContact(false)} className="px-4 py-2.5 rounded-xl border border-[var(--js-border)] text-sm font-semibold">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
           <p className="text-sm text-[#5C5C5C]">
@@ -2428,7 +2470,14 @@ function MessagesTab({ onChange }) {
           </p>
           <p className="text-xs text-[#5C5C5C] mt-1">Customers reach you here from your shop's public page. Reply to their messages directly.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <button
+            onClick={() => setShowContact(true)}
+            data-testid="seller-message-jubasquare-btn"
+            className="text-xs font-bold px-3 py-2 rounded-full bg-[#C84B31] text-white hover:bg-[#a83521] transition"
+          >
+            Message JubaSquare
+          </button>
           {[{ id: "all", label: "All" }, { id: "unread", label: `Unread (${unreadN})` }].map((f) => (
             <button
               key={f.id}

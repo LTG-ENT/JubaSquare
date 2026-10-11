@@ -29,6 +29,8 @@ export default function RestaurantCheckout() {
   
   // Calculated values
   const [deliveryFee, setDeliveryFee] = useState(0);
+  const [serviceFee, setServiceFee] = useState(0);
+  const [tax, setTax] = useState(0);
   
   useEffect(() => {
     if (!user) {
@@ -57,13 +59,8 @@ export default function RestaurantCheckout() {
   // Calculate delivery fee using backend API (admin pricing rules)
   useEffect(() => {
     const calculateFee = async () => {
-      if (!restaurant || deliveryType === "pickup" || !deliveryArea) {
-        setDeliveryFee(0);
-        return;
-      }
-      
+      if (!restaurant) return;
       try {
-        // Use COD delivery fee calculation endpoint
         const { data } = await api.post("/restaurant-orders/quote", {
           restaurant_id: restaurantId,
           items: items.map(item => ({
@@ -77,19 +74,18 @@ export default function RestaurantCheckout() {
           delivery_type: deliveryType,
           customer_area: deliveryArea,
         });
-        console.log("📦 Delivery fee response:", data);
         setDeliveryFee(data.delivery_fee_usd || 0);
+        setServiceFee(data.service_fee_usd || 0);
+        setTax(data.tax_usd || 0);
       } catch (err) {
-        console.error("Failed to calculate delivery fee:", err);
-        console.error("Error details:", err.response?.data);
+        console.error("Failed to calculate fees:", err?.response?.data);
         setDeliveryFee(0);
       }
     };
-    
     calculateFee();
   }, [restaurant, deliveryType, deliveryArea, restaurantId, items]);
   
-  const total = subtotalUSD + deliveryFee;
+  const total = subtotalUSD + deliveryFee + serviceFee + tax;
   
   // Get seller's exchange rate from first item (all items from same restaurant have same seller rate)
   const sellerExchangeRate = items.length > 0 && items[0].exchange_rate_ssp ? items[0].exchange_rate_ssp : exchangeRate;
@@ -102,6 +98,11 @@ export default function RestaurantCheckout() {
     }
     if (!customerPhone.trim()) {
       toast.error("Please enter your phone number");
+      return;
+    }
+    const phoneDigits = customerPhone.replace(/\D/g, "");
+    if (phoneDigits.length < 10 || phoneDigits.length > 12) {
+      toast.error("Phone number must be between 10 and 12 digits");
       return;
     }
     if (deliveryType === "delivery" && !customerAddress.trim()) {
@@ -219,9 +220,26 @@ export default function RestaurantCheckout() {
                 <Truck className="w-5 h-5" />
                 Delivery Options
               </h2>
-              <div className="p-4 rounded-xl border-2 border-[#C84B31] bg-[#C84B31]/5">
-                <Truck className="w-6 h-6 mx-auto mb-2 text-[var(--js-text)]" />
-                <div className="text-sm font-semibold text-[var(--js-text)] text-center">Delivery</div>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDeliveryType("delivery")}
+                  data-testid="rest-delivery-option"
+                  className={`p-4 rounded-xl border-2 transition ${deliveryType === "delivery" ? "border-[#C84B31] bg-[#C84B31]/5" : "border-[var(--js-border)]"}`}
+                >
+                  <Truck className="w-6 h-6 mx-auto mb-2 text-[var(--js-text)]" />
+                  <div className="text-sm font-semibold text-[var(--js-text)] text-center">Delivery</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeliveryType("pickup")}
+                  data-testid="rest-pickup-option"
+                  className={`p-4 rounded-xl border-2 transition ${deliveryType === "pickup" ? "border-[#C84B31] bg-[#C84B31]/5" : "border-[var(--js-border)]"}`}
+                >
+                  <MapPin className="w-6 h-6 mx-auto mb-2 text-[var(--js-text)]" />
+                  <div className="text-sm font-semibold text-[var(--js-text)] text-center">Pickup</div>
+                  <div className="text-[11px] text-[var(--js-text-secondary)] text-center mt-0.5">Collect at the restaurant</div>
+                </button>
               </div>
             </div>
             
@@ -381,15 +399,27 @@ export default function RestaurantCheckout() {
                 <div className="flex justify-between text-sm">
                   <span className="text-[var(--js-text-secondary)]">Delivery Fee</span>
                   <span className="font-semibold text-[var(--js-text)]">
-                    {deliveryFee === 0 ? "FREE" : formatPrice(deliveryFee, exchangeRate, currency)}
+                    {deliveryType === "pickup" ? "—" : (deliveryFee === 0 ? "FREE" : formatPrice(deliveryFee, exchangeRate, currency))}
                   </span>
                 </div>
+                {serviceFee > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-[var(--js-text-secondary)]">Service fee</span>
+                    <span className="font-semibold text-[var(--js-text)]">{formatPrice(serviceFee, exchangeRate, currency)}</span>
+                  </div>
+                )}
+                {tax > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-[var(--js-text-secondary)]">Tax</span>
+                    <span className="font-semibold text-[var(--js-text)]">{formatPrice(tax, exchangeRate, currency)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-lg font-bold pt-2 border-t border-[var(--js-border)]">
                   <span className="text-[var(--js-text)]">Total</span>
                   <span className="text-[#C84B31]">
                     {currency === "USD" 
                       ? formatPrice(total, exchangeRate, currency)
-                      : `${currency} ${((subtotalUSD * sellerExchangeRate) + (deliveryFee * exchangeRate)).toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0})}`
+                      : `${currency} ${((subtotalUSD * sellerExchangeRate) + ((deliveryFee + serviceFee + tax) * exchangeRate)).toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0})}`
                     }
                   </span>
                 </div>

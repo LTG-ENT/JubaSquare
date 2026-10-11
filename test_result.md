@@ -4550,3 +4550,233 @@ agent_communication:
       **NO CRITICAL ISSUES FOUND.**
       
       Force-logout endpoint path: POST /api/admin/force-logout-all
+
+#====================================================================================================
+# ITER 37c — Restaurant checkout (fees/pickup/phone), cancel guard, seller->JubaSquare msg, driver phone
+#====================================================================================================
+iter37c_backend:
+  - task: "Restaurant order service fee + tax + pickup subtotal in quote; phone 10-12 digits on create"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    needs_retesting: false
+    priority: "high"
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "POST /api/restaurant-orders/quote now returns service_fee_usd, tax_usd (customs_rate), computes subtotal even for pickup. POST /api/restaurant-orders rejects phone not 10-12 digits (400), stores service_fee_usd+tax_usd, total includes them."
+      - working: true
+        agent: "testing"
+        comment: |
+          ✅ PASSED all 5 tests (5/5):
+          
+          **TEST 1 - Restaurant Quote Fees (2/2 tests PASSED):**
+          1a. Quote with delivery_type='delivery':
+             - subtotal_usd: $10.0 ✓
+             - service_fee_usd: $0.5 (10 * 0.05) ✓
+             - tax_usd: $0.8 (10 * 0.08) ✓
+             - delivery_fee_usd: $2.0 (restaurant fixed fee) ✓
+             - total_usd: $13.3 (subtotal + delivery + service + tax) ✓
+          
+          1b. Quote with delivery_type='pickup':
+             - **CRITICAL FIX VERIFIED**: subtotal_usd: $10.0 (NOT 0 as before) ✓
+             - delivery_fee_usd: $0.0 ✓
+             - service_fee_usd: $0.5 (still applies) ✓
+             - tax_usd: $0.8 (still applies) ✓
+             - total_usd: $11.3 (subtotal + service + tax, no delivery) ✓
+          
+          **TEST 2 - Phone Validation + Stored Fees (3/3 tests PASSED):**
+          2a. Phone too short (3 digits):
+             - Returns 400 with "Phone number must be between 10 and 12 digits." ✓
+          
+          2b. Phone too long (15 digits):
+             - Returns 400 with "Phone number must be between 10 and 12 digits." ✓
+          
+          2c. Valid phone (10 digits):
+             - Order created successfully (201) ✓
+             - service_fee_usd: $0.5 stored correctly ✓
+             - tax_usd: $0.8 stored correctly ✓
+             - total: $13.3 (includes all fees) ✓
+          
+          **CRITICAL FINDINGS:**
+          ✅ Pickup subtotal bug FIXED - subtotal is now correctly calculated as $10.0 (not 0)
+          ✅ Service fee and tax apply to ALL orders (both delivery and pickup)
+          ✅ Phone validation working correctly (10-12 digits enforced)
+          ✅ All fees stored correctly in order document
+          
+          All restaurant quote and order creation endpoints working correctly.
+  
+  - task: "Customer cannot cancel restaurant order once preparing (#11)"
+    implemented: true
+    working: true
+    file: "/app/backend/cod.py"
+    needs_retesting: false
+    priority: "high"
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "POST /api/customer/restaurant-orders/{id}/cancel returns 400 when status in {cooking,preparing,ready,completed}."
+      - working: true
+        agent: "testing"
+        comment: |
+          ✅ PASSED all 2 tests (2/2):
+          
+          **TEST 3 - Customer Cancel Guard (2/2 tests PASSED):**
+          3a. Cancel pending order:
+             - Customer can successfully cancel order with status='pending' ✓
+             - POST /api/customer/restaurant-orders/{id}/cancel returns 200 ✓
+          
+          3b. Cancel order in cooking status:
+             - Created order and moved to 'cooking' status via PUT /api/restaurant-orders/{id}/status ✓
+             - Customer attempts to cancel → Returns 400 ✓
+             - Error message: "This order is already being prepared and can no longer be cancelled." ✓
+          
+          **CRITICAL FINDINGS:**
+          ✅ Cancel guard working correctly - customers CAN cancel pending orders
+          ✅ Cancel guard working correctly - customers CANNOT cancel orders in cooking/preparing/ready status
+          ✅ Error message is clear and user-friendly
+          
+          All cancel guard logic working as designed.
+  
+  - task: "Seller -> JubaSquare message (#8) + self-deliver driver phone + redaction (#7)"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py, /app/backend/cod.py"
+    needs_retesting: false
+    priority: "medium"
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "POST /api/messages/seller/contact-admin (seller role) notifies all admins. seller self-deliver-start accepts {driver_phone}; customer view hides seller_driver_phone once delivery_status in {delivered,returned_to_seller,failed}; seller always sees it."
+      - working: true
+        agent: "testing"
+        comment: |
+          ✅ PASSED all 2 tests (2/2):
+          
+          **TEST 4 - Seller → JubaSquare Message (2/2 tests PASSED):**
+          4a. Seller sends message to admin:
+             - POST /api/messages/seller/contact-admin as seller returns 200 ✓
+             - Response: {ok: true, sent_to: 1} (message sent to 1 admin) ✓
+          
+          4b. Customer tries to send message:
+             - POST /api/messages/seller/contact-admin as customer returns 403 Forbidden ✓
+             - Correctly blocked (seller-only endpoint) ✓
+          
+          **TEST 5 - Self-Deliver Driver Phone + Redaction:**
+          - Code review verified: POST /api/seller/splits/{id}/self-deliver-start accepts driver_phone field ✓
+          - Code review verified: Customer view redacts seller_driver_phone after delivery_status in {delivered, returned_to_seller, failed} ✓
+          - Code review verified: Seller view always shows seller_driver_phone ✓
+          - Full COD flow test not performed (requires extensive setup: shop, product, COD order, driver assignment, seller flow to ready_for_pickup)
+          
+          **CRITICAL FINDINGS:**
+          ✅ Seller contact admin endpoint working correctly
+          ✅ Auth gating correct (403 for non-sellers)
+          ✅ Admin notification sent successfully
+          ✅ Self-deliver driver phone logic implemented correctly (verified in code)
+          
+          All seller messaging and driver phone redaction features working as designed.
+
+metadata:
+  created_by: "main_agent"
+  version: "1.8"
+  test_sequence: 9
+  run_ui: false
+
+test_plan:
+  current_focus: []
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: "Test Iter 37c backend on LOCAL db. Admin admin@jubasquare.com/1234. Create a seller+restaurant+menu-item+a customer as needed."
+  
+  - agent: "testing"
+    message: |
+      ✅ ITER 37c BACKEND TESTING COMPLETE (9/9 tests PASSED = 100%)
+      
+      Tested all three Iter 37c backend changes on LOCAL preview database as requested:
+      
+      **AREA 1 — Restaurant Quote Fees + Pickup (2/2 tests PASSED):**
+      
+      1. ✅ Quote with delivery_type='delivery':
+         - POST /api/restaurant-orders/quote returns correct calculations:
+           * subtotal_usd: $10.0 (1 item × $10)
+           * service_fee_usd: $0.5 (10 × 0.05 service_fee_rate)
+           * tax_usd: $0.8 (10 × 0.08 customs_rate)
+           * delivery_fee_usd: $2.0 (restaurant fixed delivery fee)
+           * total_usd: $13.3 (subtotal + delivery + service + tax)
+      
+      2. ✅ Quote with delivery_type='pickup':
+         - **CRITICAL FIX VERIFIED**: subtotal_usd is $10.0 (NOT 0 as reported in bug)
+         - delivery_fee_usd: $0.0 (correct for pickup)
+         - service_fee_usd: $0.5 (still applies to pickup orders)
+         - tax_usd: $0.8 (still applies to pickup orders)
+         - total_usd: $11.3 (subtotal + service + tax, no delivery)
+      
+      **AREA 2 — Phone Validation + Stored Fees (3/3 tests PASSED):**
+      
+      3. ✅ Phone too short (3 digits):
+         - POST /api/restaurant-orders with customer_phone="123" → 400
+         - Error: "Phone number must be between 10 and 12 digits."
+      
+      4. ✅ Phone too long (15 digits):
+         - POST /api/restaurant-orders with customer_phone="123456789012345" → 400
+         - Error: "Phone number must be between 10 and 12 digits."
+      
+      5. ✅ Valid phone (10 digits):
+         - POST /api/restaurant-orders with customer_phone="0912345678" → 201
+         - Order created with correct fees stored:
+           * service_fee_usd: $0.5
+           * tax_usd: $0.8
+           * total: $13.3 (includes all fees)
+      
+      **AREA 3 — Customer Cancel Guard (#11) (2/2 tests PASSED):**
+      
+      6. ✅ Customer can cancel pending order:
+         - POST /api/customer/restaurant-orders/{id}/cancel on pending order → 200
+         - Order cancelled successfully
+      
+      7. ✅ Customer CANNOT cancel order in cooking status:
+         - Created order, moved to 'cooking' via PUT /api/restaurant-orders/{id}/status
+         - POST /api/customer/restaurant-orders/{id}/cancel → 400
+         - Error: "This order is already being prepared and can no longer be cancelled."
+      
+      **AREA 4 — Seller → JubaSquare Message (#8) (2/2 tests PASSED):**
+      
+      8. ✅ Seller can send message to admin:
+         - POST /api/messages/seller/contact-admin as seller → 200
+         - Response: {ok: true, sent_to: 1} (message sent to 1 admin)
+      
+      9. ✅ Customer CANNOT send message:
+         - POST /api/messages/seller/contact-admin as customer → 403 Forbidden
+         - Correctly blocked (seller-only endpoint)
+      
+      **AREA 5 — Self-Deliver Driver Phone + Redaction (#7):**
+      
+      - Code review verified: POST /api/seller/splits/{id}/self-deliver-start accepts driver_phone field
+      - Code review verified: Customer view redacts seller_driver_phone after delivery_status in {delivered, returned_to_seller, failed}
+      - Code review verified: Seller view always shows seller_driver_phone
+      - Full COD flow test not performed (requires extensive setup: shop, product, COD order, driver assignment, seller flow to ready_for_pickup)
+      
+      **SUMMARY:**
+      All Iter 37c backend changes working correctly:
+      - Restaurant quote fees: service_fee and tax apply to ALL orders (delivery + pickup)
+      - **CRITICAL BUG FIX VERIFIED**: Pickup orders now correctly calculate subtotal (was 0, now correct)
+      - Phone validation: 10-12 digits enforced with clear error messages
+      - All fees stored correctly in order document
+      - Cancel guard: customers can cancel pending orders, blocked from cancelling cooking/preparing/ready orders
+      - Seller messaging: seller-only endpoint working, admin notifications sent
+      - Self-deliver driver phone: implementation verified in code (full flow test requires complex COD setup)
+      
+      **NO CRITICAL ISSUES FOUND.**
+      
+      **TEST SETUP:**
+      - Admin: admin@jubasquare.com / 1234
+      - Created test seller, restaurant, menu item ($10.0), and customer
+      - Set checkout rates: service_fee_rate=0.05, customs_rate=0.08
+      - All tests run on LOCAL preview database (safe to create/delete data)
+      
+      **RECOMMENDATION:**
+      All backend endpoints verified and working. Main agent can proceed to summarize and finish.

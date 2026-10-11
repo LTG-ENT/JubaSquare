@@ -630,7 +630,19 @@ export default function SellerWalletTab() {
           : `/seller/splits/${detail.id}`;
         const callSelfDeliver = async (action) => {
           try {
-            await api.post(`${selfBase}/${action}`);
+            let bodyData = {};
+            if (action === "self-deliver-start") {
+              // #7 — ask for the driver's phone so the customer can call them.
+              const phone = window.prompt("Enter the delivery driver's phone number (shown to the customer until the order is delivered). 10–12 digits:");
+              if (phone === null) return; // cancelled
+              const digits = (phone || "").replace(/\D/g, "");
+              if (digits.length < 10 || digits.length > 12) {
+                toast.error("Driver phone must be 10–12 digits");
+                return;
+              }
+              bodyData = { driver_phone: phone.trim() };
+            }
+            await api.post(`${selfBase}/${action}`, bodyData);
             toast.success(action === "self-deliver-complete" ? "Order completed" : "Sent for delivery");
             load();
             // refresh detail
