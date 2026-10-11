@@ -52,7 +52,7 @@ export const AdminDriveBackupCard = () => {
     const d = searchParams.get("drive");
     if (!d) return;
     if (d === "connected") toast.success("Google Drive connected");
-    else if (d === "scope") toast.error("Drive permission was not granted. Please allow access to files created by JubaSquare.");
+    else if (d === "scope") toast.error("Drive permission was not granted. Click Connect again and make sure the Google Drive checkbox is ticked on the Google screen.", { duration: 8000 });
     else toast.error("Google Drive connection failed. Please try again.");
     searchParams.delete("drive");
     setSearchParams(searchParams, { replace: true });

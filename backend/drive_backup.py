@@ -214,12 +214,16 @@ def register(api, db, require_role, now_iso, create_notification, build_backup_p
         if error or not code:
             return RedirectResponse(f"{back}&drive=error")
         try:
-            flow = Flow.from_client_config(_client_config(st["redirect_uri"]), scopes=None, redirect_uri=st["redirect_uri"])
+            flow = Flow.from_client_config(_client_config(st["redirect_uri"]), scopes=SCOPES, redirect_uri=st["redirect_uri"])
             if st.get("code_verifier"):
                 flow.code_verifier = st["code_verifier"]
             await asyncio.to_thread(flow.fetch_token, code=code)
             creds = flow.credentials
-            if REQUIRED_SCOPE not in set(creds.scopes or []):
+            granted = getattr(creds, "granted_scopes", None) or flow.oauth2session.token.get("scope") or []
+            if isinstance(granted, str):
+                granted = granted.split()
+            if REQUIRED_SCOPE not in set(granted):
+                log.warning(f"drive oauth: drive.file not granted (granted={granted})")
                 return RedirectResponse(f"{back}&drive=scope")
             email = None
             try:
