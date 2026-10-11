@@ -3,6 +3,7 @@ import api, { formatDetail } from "@/lib/api";
 import AdminPerformanceSection from "@/components/AdminPerformanceSection";
 import PasswordInput from "@/components/PasswordInput";
 import DeleteUserConfirmModal from "@/components/DeleteUserConfirmModal";
+import { AdminDriveBackupCard } from "@/components/AdminDriveBackupCard";
 import { Percent, Save, RotateCcw, Info, Store, ArrowRight, Users, Search, Filter, MoreVertical, Edit, Key, Mail, Power, Trash2, Eye, X, CheckCircle, XCircle, ShoppingBag, DollarSign, Plus } from "lucide-react";
 import { toast } from "sonner";
 
@@ -733,6 +734,8 @@ export default function AdminSettingsTab({ onGoToShop }) {
           </div>
         </div>
       </div>
+
+      <AdminDriveBackupCard />
 
       {/* Global Exchange Rate (SSP) */}
       <div className="bg-white border border-[var(--js-border)] rounded-2xl p-5 sm:p-6">

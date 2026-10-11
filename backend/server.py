@@ -7973,22 +7973,17 @@ def _iso_week_range(dt: datetime):
 # ----------------------------------------------------------------------------
 # Iter 37 — Admin data backup: manual export (download) + import (restore)
 # ----------------------------------------------------------------------------
-_BACKUP_SKIP = {"system.indexes", "system.views", "sessions"}
+_BACKUP_SKIP = {"system.indexes", "system.views", "sessions", "drive_backup_config", "drive_oauth_states", "drive_backup_runs"}
 
 
-@api.get("/admin/backup/export")
-async def admin_backup_export(user: dict = Depends(require_role("admin"))):
-    """Download a full JSON snapshot of every collection (settings, shops,
-    users, orders, …). Keep this file safe — admin can re-upload it via
-    /admin/backup/import to restore everything."""
-    from fastapi.responses import Response as _Resp
+async def build_backup_payload() -> dict:
     names = await db.list_collection_names()
     data = {}
     for name in names:
         if name in _BACKUP_SKIP or name.startswith("system."):
             continue
         data[name] = await db[name].find({}, {"_id": 0}).to_list(200000)
-    payload = {
+    return {
         "_backup_meta": {
             "created_at": now_iso(),
             "db": os.environ.get("DB_NAME"),
@@ -7997,10 +7992,22 @@ async def admin_backup_export(user: dict = Depends(require_role("admin"))):
         },
         "collections": data,
     }
-    body = json.dumps(payload, default=str)
+
+
+@api.get("/admin/backup/export")
+async def admin_backup_export(user: dict = Depends(require_role("admin"))):
+    """Download a full JSON snapshot of every collection (settings, shops,
+    users, orders, …). Keep this file safe — admin can re-upload it via
+    /admin/backup/import to restore everything."""
+    from fastapi.responses import Response as _Resp
+    body = json.dumps(await build_backup_payload(), default=str)
     fname = f"jubasquare-backup-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.json"
     return _Resp(content=body, media_type="application/json",
                  headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+
+import drive_backup  # noqa: E402
+drive_backup.register(api, db, require_role, now_iso, create_notification, build_backup_payload)
 
 
 @api.get("/admin/backup/summary")

@@ -518,3 +518,11 @@ Two pricing bugs found on the live "Yaki Iron Machine" wholesale product (`price
 ### Backlog
 - P0: user to confirm production secrets (DB_NAME=shipping-fee-system-jubasquare) + redeploy.
 - P2: split server.py into routers.
+
+## Iter 39 (Jun 2026) — Automatic Google Drive backups
+- backend/drive_backup.py (registered from server.py after build_backup_payload): admin connects Drive via Google OAuth (drive.file + userinfo.email, offline, PKCE verifier stored in drive_oauth_states). Redirect URI = <current origin>/api/oauth/drive/callback (must be registered in Google Console for each domain). Tokens Fernet-encrypted (key from JWT_SECRET) in drive_backup_config; drive_* collections excluded from backups.
+- Endpoints: GET /api/admin/drive-backup/status, POST .../connect, POST .../disconnect, PUT .../schedule {enabled, frequency daily|weekly}, POST .../run (Back up now), GET /api/oauth/drive/callback, POST /api/cron/drive-backup (cron 01:00 UTC daily; weekly honored via last_success gap; idempotent by X-Webhook-Id).
+- Uploads full JSON backup to "JubaSquare Backups" folder (resumable), keeps last 14, history in drive_backup_runs, failure → admin notification (alert, link /admin?tab=settings).
+- UI: AdminDriveBackupCard in Admin Settings.
+- Env: GOOGLE_DRIVE_CLIENT_ID / GOOGLE_DRIVE_CLIENT_SECRET (backend/.env for preview; MUST be added to production deployment secrets since .env is dockerignored).
+- Real Google upload not yet verified end-to-end (needs user to connect on a registered domain).
