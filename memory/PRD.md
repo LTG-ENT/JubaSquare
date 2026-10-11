@@ -501,3 +501,20 @@ Two pricing bugs found on the live "Yaki Iron Machine" wholesale product (`price
 
 ### Still PENDING (user's list, not yet done)
 #3 admin Footer tab error + Homepage "Failed to load homepage config"; #4 seller wallet/active-orders payout+driver visibility by delivery owner + light up on active orders; #5a seller sales analytics shop/restaurant dropdown; #5b(toast) top-right notification click navigates; #6 Hybrid delivery wording (Seller delivering / JubaSquare delivering); #7 seller-delivery driver phone prompt on dispatch (hide from customer after delivered, always show to seller); #8 seller Messages -> message JubaSquare (not "admin"); #9 restaurant side "required" toggle in side options; #10 service fee+tax on restaurant orders + pickup option + phone 10-12 digits; #11 customers can't cancel restaurant order in 'preparing'. Plus Wave 2 #7 international payouts.
+
+---
+
+## Iter 38 (Jun 2026) — Seller-delivery cleanup, fees on receipts, missed UI items, international payouts, Google sign-in
+- Seller self-delivery (customer side): no map, no delivery OTP; card shows driver phone + shop/restaurant name & area (redact_for_customer sets seller_delivery=true, OTP null).
+- Fees everywhere: splits now store service_fee_usd/shipping_fee_usd/customs_fee_usd/platform_fees_usd/is_international; restaurant COD fields store service_fee_usd/tax_usd/platform_fees_usd; order_total_usd (cash to collect) includes them. Fee lines on customer Orders, seller wallet receipt + detail, kitchen receipt. Invoices: platform_fees added to amount_owed when seller collected cash; restaurant invoices also count self-delivered (delivery_status=delivered) orders.
+- Notifications: create_notification stores meta.link (role-aware deep link) used by bell + OS push; Admin honors ?tab=, Seller wallet honors ?view=.
+- Seller wallet: pulsing active-orders badge on main Wallet tab + sub-tab + overview alert; payout/driver cards, balance breakdown and Pickup/Payout columns hidden when seller delivers.
+- Seller analytics: entity dropdown (all / specific shop / restaurant) via ?shop_id / ?restaurant_id.
+- International payouts: GET/PUT /api/seller/payout-settings (cash|bank, bank details; out_of_country shop → forced bank + SWIFT/IBAN required); international splits go on_hold for international_payout_hold_days (default 30) after delivery, auto-released when no open dispute; payouts snapshot method/bank/transfer_fee_usd (admin bank_transfer_fee_usd)/net; admin mark-paid requires reference for bank; seller Settlement History + Payout Method sub-tabs; balance breakdown.
+- Emergent-managed Google sign-in: "Continue with Google" on /login & /signup → POST /api/auth/google-session issues the app's normal JWT (new users = verified customers; existing email links).
+- get_settings now merges DEFAULT_SETTINGS.
+- Tested: iteration_38 (backend 13/13, frontend pass) + manual E2E for fees/seller-delivery card.
+
+### Backlog
+- P0: user to confirm production secrets (DB_NAME=shipping-fee-system-jubasquare) + redeploy.
+- P2: split server.py into routers.

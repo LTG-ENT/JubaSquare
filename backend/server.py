@@ -168,7 +168,7 @@ def verify_password(pw: str, hashed: str) -> bool:
 
 async def get_settings() -> dict:
     s = await db.settings.find_one({"id": "system"}, {"_id": 0})
-    return s or DEFAULT_SETTINGS
+    return {**DEFAULT_SETTINGS, **s} if s else DEFAULT_SETTINGS
 
 
 async def filter_message_content(text: str) -> tuple[bool, str]:

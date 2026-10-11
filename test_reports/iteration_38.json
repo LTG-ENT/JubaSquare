@@ -1,0 +1,34 @@
+{
+  "summary": "Iteration 38 covers the new Emergent Google sign-in, international seller payout settings (QA Global Shop), seller wallet shape, seller analytics entity filter, admin fee/hold/bank-fee settings, admin mark-paid bank-reference guard, and the UI side of ?tab=/?view= deep-linking. 13/14 backend tests passed (1 skipped because the QA seller currently has 0 notifications – meta.link helper code reviewed OK but not asserted against live rows). Frontend: Google buttons on /login and /signup are present (login-google-button / signup-google-button) and redirect to https://auth.emergentagent.com/?redirect=<origin>/. Seller /seller?tab=wallet&view=payout-method deep-link lands directly on the Payout Method sub-tab; payout-intl-note shown, payout-method-cash is disabled, all five payout-bank-* inputs render, payout-settings-save button present. /seller?tab=analytics shows analytics-entity-select with 3 options (All, 'QA Global Shop', 'QA Kitchen'). /seller wallet tab correctly hides 'Cash with driver / Ready for payout / Pending payout / Paid total' cards and the balance breakdown block for a seller that manages delivery AND has no payouts (confirmed by text snippet). Admin /admin?tab=invoices and /admin?tab=delivery honor the query param on first load; Settings tab has settings-payout-hold-input + settings-bank-fee-input; Delivery > Payouts sub-tab shows the new Method column. Order views (restaurant-seller-delivery-*, marketplace-seller-delivery-*, fee lines) could not be exercised live because the preview DB has no customer orders for QA seller – code review confirms the testids and FeeLine component are present and gated on seller_delivery/fee>0.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/admin/settings", "issue": "bank_transfer_fee_usd is omitted from the response until an admin has PUT the field at least once (DEFAULT_SYSTEM_SETTINGS has it but get_settings() does not merge defaults on read). Everything still works because PUT /admin/settings seeds it and the UI treats missing as 0, but a fresh deployment will miss the field on the first GET. Low priority."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter38_google_wallet_payouts.py",
+    "/app/test_reports/pytest/iter38.xml"
+  ],
+  "action_items": [
+    "(optional) Have GET /api/admin/settings merge DEFAULT_SYSTEM_SETTINGS so bank_transfer_fee_usd is always returned (even before an admin saves the settings page once)."
+  ],
+  "critical_code_review_comments": [
+    "AuthCallback.jsx: on error it toasts and redirects to /login but leaves location.hash intact. If the user navigates back the useRef guard will fire again with the same bogus hash; harmless but worth clearing with window.history.replaceState after processing.",
+    "cod.py PUT /seller/payout-settings always force-forces method to 'bank' for international sellers even when the caller explicitly sends 'cash'; silently rewriting the request body is correct product-wise but you may want to return a 400 or an advisory field in the response so the UI can message the user if they ever bypass the disabled control.",
+    "server.py _notification_link returns '/orders' as the default customer link for ntype='order' etc.; good. However there is no deep link to the specific order id (meta.order_id) – consider '/orders#'+meta.order_id so push notifications scroll the customer right to the order card.",
+    "SellerBalanceBreakdown reuses the same data-testid='balance-on_hold' twice (once in ROWS, once in BALANCES) because both arrays contain the key 'on_hold'. Playwright .first works around it but it should be namespaced (e.g. balance-row-on_hold vs balance-bucket-on_hold)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter38_google_wallet_payouts.py"],
+  "success_rate": {"backend": "100% (13/13 executed, 1 skipped due to no seed notifications)", "frontend": "100% for the testable scope (Google buttons, payout-settings deep-link, analytics selector, admin query-param tabs, delivery > payouts Method column); Orders.jsx seller-delivery cards + fee lines not exercised live due to lack of customer orders in preview DB"},
+  "test_credentials": "admin@jubasquare.com / 1234 ; qa_seller@jubasquare.com / Seller@123 (both verified working on preview)",
+  "seed_data_creation": "Updated QA Seller payout_settings via PUT /seller/payout-settings → {method: bank (forced), account_name 'QA Seller', bank_name 'Chase', account_number '0001112223', swift_iban 'CHASUS33', bank_country 'USA'}. Also PUT /admin/settings → service_fee_rate 0.05, customs_rate 0.10, international_payout_hold_days 30, bank_transfer_fee_usd 15.0. All retrievable via the respective GETs.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "To fully exercise Orders.jsx seller-delivery UI and fee lines you need (a) a customer user with email_verified true, and (b) a restaurant order from QA Kitchen in out_for_delivery state and a marketplace order from QA Global Shop with out_for_delivery seller split. Easiest path: insert directly into local Mongo db 'jubasquare' – collections 'users' (role=customer, email_verified=true), 'restaurant_orders' (seller_managed_delivery=true, delivery_status='out_for_delivery') and 'seller_order_splits' (same). Then hit GET /api/customer/restaurant-orders and /api/customer/marketplace-splits to confirm seller_delivery:true + customer_delivery_otp:null, and load /orders in the browser to see data-testid restaurant-seller-delivery-<id> & marketplace-seller-delivery-<splitId> cards. Backend international hold flow (on_hold -> ready_for_payout after release_payout_holds) can be exercised by setting payout_hold_until to a past ISO string in a seller_order_splits document and hitting whatever cron trigger exists (release_payout_holds is called from cod.py)."
+}
